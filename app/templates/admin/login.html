@@ -3,7 +3,7 @@
 {% block content %}
 <div class="admin-shell" style="text-align:center;">
   <h1>Admin</h1>
-  <p style="color: var(--chalk-dim);">Enter the PIN to manage family members, tasks, and rewards.</p>
+  <p style="color: var(--chalk-dim);">Enter the PIN to manage family members and tasks.</p>
   <form class="pin-pad-form" method="post" action="/admin/login">
     <input type="password" name="pin" inputmode="numeric" pattern="[0-9]*" maxlength="8" autofocus autocomplete="off">
     {% if error %}<div class="pin-error">{{ error }}</div>{% endif %}

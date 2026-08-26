@@ -1,7 +1,6 @@
-# Python 3.14 (current stable series as of 2026, full arm64 wheel coverage
-# confirmed for uvicorn's C-extension deps) — runs the same on your dev
-# machine and on the Raspberry Pi 5 (aarch64), since Docker abstracts that
-# away entirely.
+# Python 3.14 (current stable series as of 2026) — targets the GMKtec G10
+# deployment server (x86_64 Ubuntu/Debian), same as your dev machine, so
+# there's no cross-architecture wheel concern here.
 FROM python:3.14-slim
 
 WORKDIR /app
@@ -19,7 +18,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY app/ ./app/
 
 # Non-root user, per container security best practice. /data is created and
-# owned here so a fresh named volume mounted at this path inherits the right
+# owned here so the bind-mounted host directory inherits the right
 # permissions on first run (see docker-compose.yml).
 RUN useradd --create-home --uid 1000 appuser \
     && mkdir -p /data \

@@ -4,15 +4,11 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      # Named volume, NOT a bind mount, for the SQLite database. This
-      # matters on Windows/Mac: Docker Desktop's bind-mount translation
-      # layer (gRPC-FUSE/virtiofs) doesn't reliably support the file
-      # locking that SQLite's WAL mode depends on, and can cause silent
-      # corruption or "database is locked" errors under concurrent access.
-      # A named volume is a real Linux filesystem inside Docker's VM, so
-      # WAL mode behaves exactly as it will later on the Raspberry Pi.
-      - family_display_data:/data
+      # Bind mount, per spec 9.7 — plain host folder, browsable/backupable/
+      # rsync'able directly. Safe for SQLite's WAL mode here because the
+      # deployment target (GMKtec G10) runs native Linux; the gRPC-FUSE/
+      # virtiofs file-locking caveat that would make a bind mount risky is
+      # specific to Docker Desktop on Windows/Mac and doesn't apply on the
+      # actual server.
+      - ./data/family-display:/data
     restart: unless-stopped
-
-volumes:
-  family_display_data:

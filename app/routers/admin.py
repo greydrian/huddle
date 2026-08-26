@@ -1,7 +1,7 @@
 """
 Admin / Parent Controls (Section 4.7): single shared PIN, exponential backoff
 on failed attempts, short-lived signed session cookie. Manages family
-profiles, tasks/points, rewards, and (eventually) Google account connections.
+profiles, tasks, and (eventually) Google account connections.
 """
 
 import json
@@ -93,14 +93,11 @@ async def admin_home(request: Request):
             "JOIN profiles ON profiles.id = tasks.profile_id "
             "WHERE archived = 0 ORDER BY profiles.sort_order, tasks.created_at"
         )).fetchall()]
-        rewards = [dict(r) for r in await (await db.execute(
-            "SELECT * FROM rewards ORDER BY points_cost"
-        )).fetchall()]
 
     return templates.TemplateResponse(
         request,
         "admin/settings.html",
-        {"profiles": profiles, "tasks": tasks, "rewards": rewards},
+        {"profiles": profiles, "tasks": tasks},
     )
 
 
@@ -133,15 +130,14 @@ async def delete_profile(profile_id: int):
 async def add_task(
     profile_id: int = Form(...),
     title: str = Form(...),
-    points: int = Form(0),
     is_recurring: bool = Form(False),
     recurrence_rule: str = Form(""),
 ):
     async with get_db() as db:
         await db.execute(
-            """INSERT INTO tasks (profile_id, title, points, is_recurring, recurrence_rule)
-               VALUES (?, ?, ?, ?, ?)""",
-            (profile_id, title.strip(), points, int(is_recurring), recurrence_rule.strip() or None),
+            """INSERT INTO tasks (profile_id, title, is_recurring, recurrence_rule)
+               VALUES (?, ?, ?, ?)""",
+            (profile_id, title.strip(), int(is_recurring), recurrence_rule.strip() or None),
         )
         await db.commit()
     return RedirectResponse(url="/admin", status_code=303)
@@ -151,27 +147,6 @@ async def add_task(
 async def delete_task(task_id: int):
     async with get_db() as db:
         await db.execute("UPDATE tasks SET archived = 1 WHERE id = ?", (task_id,))
-        await db.commit()
-    return RedirectResponse(url="/admin", status_code=303)
-
-
-# --- Reward management ---
-
-@router.post("/rewards", dependencies=[Depends(require_admin)])
-async def add_reward(title: str = Form(...), points_cost: int = Form(...)):
-    async with get_db() as db:
-        await db.execute(
-            "INSERT INTO rewards (title, points_cost) VALUES (?, ?)",
-            (title.strip(), points_cost),
-        )
-        await db.commit()
-    return RedirectResponse(url="/admin", status_code=303)
-
-
-@router.post("/rewards/{reward_id}/delete", dependencies=[Depends(require_admin)])
-async def delete_reward(reward_id: int):
-    async with get_db() as db:
-        await db.execute("DELETE FROM rewards WHERE id = ?", (reward_id,))
         await db.commit()
     return RedirectResponse(url="/admin", status_code=303)
 

@@ -1,6 +1,7 @@
 """
 Family member task lists: recurring + one-off tasks, ticked via touch,
-with a checkmark animation and points/rewards (Section 4.3 of the spec).
+with a checkmark animation. Purely functional — no points/rewards
+(Section 4.3 of the spec).
 
 Google Tasks sync isn't wired up yet — toggling a task writes to SQLite
 immediately (the "optimistic, offline-first" part) and drops a row in
@@ -67,13 +68,6 @@ async def toggle_task(request: Request, task_id: int):
         await db.execute(
             "UPDATE tasks SET is_completed = ?, completed_at = ? WHERE id = ?",
             (int(now_completed), completed_at, task_id),
-        )
-
-        # Award/revoke points on the owning profile
-        points_delta = task["points"] if now_completed else -task["points"]
-        await db.execute(
-            "UPDATE profiles SET points_balance = points_balance + ? WHERE id = ?",
-            (points_delta, task["profile_id"]),
         )
 
         await _queue_sync(db, "tasks", {"task_id": task_id, "is_completed": now_completed})

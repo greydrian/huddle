@@ -1,21 +1,23 @@
 # Family Display
 
 A shared touchscreen dashboard for the household — calendar, per-person task
-lists with points/rewards, a shared shopping list, meal planning, and a
-customisable widget grid. Built per the project spec: Raspberry Pi 5,
-Python/FastAPI backend, HTMX + Alpine.js + Gridstack.js frontend, SQLite,
-fully local (no cloud component).
+lists, a shared shopping list, meal planning, and a customisable widget grid.
+Built per the project spec: split architecture with a **GMKtec G10 (x86,
+Ubuntu/Debian) running Docker** as the server and a **Samsung Galaxy Tab A9+
+wall-mounted display** running Fully Kiosk Browser over Wi-Fi, Python/FastAPI
+backend, HTMX + Alpine.js + Gridstack.js frontend, SQLite, fully local (no
+cloud component).
 
 ## What's working right now
 
 - **Dashboard**: Gridstack widget grid, drag/resize by anyone, layout persists to SQLite
-- **Task lists**: per-family-member, tick to complete with a checkmark animation, points
-  awarded automatically, admin can add/remove tasks and set point values
+- **Task lists**: per-family-member, tick to complete with a checkmark animation,
+  purely functional (no points/rewards — per spec), admin can add/remove tasks
 - **Shopping list**: single shared list, add/tick/delete
 - **Meal planning**: simple text-based plan for the next 7 days, inline editing
 - **Admin**: PIN-protected (default PIN is **1234** — change it immediately under
   Admin → Change Admin PIN), with exponential backoff on failed attempts,
-  family member management, task management, reward management
+  family member management, task management
 - **Design system**: self-hosted fonts (Fraunces/Inter/JetBrains Mono, no
   external font CDN — this is fully offline-capable), warm "kitchen
   noticeboard" visual language with per-person colour tabs on each widget
@@ -34,31 +36,32 @@ They're just not built yet. See "Next steps" below.
 
 ## Running with Docker (recommended)
 
-Requires Docker Desktop (Windows/Mac) or Docker Engine (Linux/Pi).
+Requires Docker Desktop (Windows/Mac, for local dev) or Docker Engine (Linux —
+this is what the G10 runs).
 
 ```bash
 docker compose up --build
 ```
 
 Open `http://localhost:8000/`. This builds on **Python 3.14** (the current
-stable series as of 2026 — confirmed via PyPI that every dependency here,
-including uvicorn's uvloop/httptools, publishes ARM64 wheels for it, so the
-same image runs unmodified on the Pi 5 later with no separate build).
+stable series as of 2026). The deployment target (GMKtec G10) is plain x86_64
+Ubuntu/Debian, same architecture as most dev machines, so there's no
+cross-platform wheel concern to track.
 
-The database lives in a **named Docker volume**, not a bind mount — this
-matters if you're on Windows or Mac. Docker Desktop's file-sharing layer
-(gRPC-FUSE/virtiofs) doesn't reliably support the file locking that SQLite's
-WAL mode depends on, and bind-mounting the database file there risks
-"database is locked" errors or silent corruption under concurrent writes. A
-named volume is a real Linux filesystem inside Docker's own VM, so it behaves
-the same way it will later on the actual Pi. Don't change this to a bind
-mount for `/data` unless you understand that trade-off.
+The database lives in a **bind-mounted host folder**, `./data/family-display`,
+per the spec's deployment decisions (Section 9.7) — plain files you can
+browse, back up, or `rsync` directly, rather than an opaque named volume. This
+is safe here specifically because the G10 runs native Linux: the
+Docker-Desktop-on-Windows/Mac caveat about bind mounts and SQLite WAL-mode
+file locking (gRPC-FUSE/virtiofs not reliably supporting it) doesn't apply on
+the actual server. If you're developing on Windows/Mac and hit "database is
+locked" errors against the bind-mounted DB, that's that caveat surfacing in
+dev — it's not expected to happen on the G10 itself.
 
 Running `docker compose up` locally automatically layers in
 `docker-compose.override.yml`, which adds `--reload` and bind-mounts the
-`app/` folder (bind-mounting *code* is fine on Windows/Mac — the WAL caveat
-above is specifically about the database file). For a clean run without
-hot-reload, use `docker compose -f docker-compose.yml up --build`.
+`app/` folder for live code edits. For a clean run without hot-reload, use
+`docker compose -f docker-compose.yml up --build`.
 
 **⚠️ Honesty check:** I don't have Docker available in the environment I
 built this in, so unlike the rest of the app — which I ran end-to-end against
@@ -72,13 +75,18 @@ no errors. But the actual container build is untested by me — please run
 if anything surfaces (dependency resolution issues are the most likely
 failure mode, not application logic).
 
-### Deploying to the Raspberry Pi with Docker
+### Deploying to the G10
 
-1. Install Docker on Raspberry Pi OS: `curl -fsSL https://get.docker.com | sh`
-2. Copy this project to the Pi (or `git clone` it)
+1. Install Docker on Ubuntu/Debian: `curl -fsSL https://get.docker.com | sh`
+2. Copy this project to the G10 (or `git clone` it)
 3. `docker compose -f docker-compose.yml up -d --build` — production mode, no hot-reload
-4. Point the kiosk browser at `http://localhost:8000/`, same as before — Chromium-in-kiosk-mode and the Wayfire autostart setup from the original plan are unaffected by containerizing the backend, since those are OS/browser-level concerns outside the container
-5. The nightly maintenance timer and Chromium tmpfs caching from the spec still apply — those aren't part of this container
+4. Point the Galaxy Tab A9+'s Fully Kiosk Browser at `http://<g10-lan-address>:8000/`
+   — see "Kiosk browser setup" below
+5. The spec (9.7) also has Home Assistant and a Caddy reverse proxy sharing the
+   G10 via Docker, with a prefixed shared `.env` (`DISPLAY_...`, `HA_...`).
+   That's a separate deployment concern layered on top of this repo, not
+   something `docker-compose.yml` here needs to own — this file stays scoped
+   to the family display service.
 
 ## Local development (without Docker)
 
@@ -100,7 +108,7 @@ before this runs anywhere other than your own laptop.
 
 ```
 Dockerfile                Python 3.14 image, non-root user, /health check
-docker-compose.yml         Named volume for /data, port 8000, restart policy
+docker-compose.yml         Bind-mounted /data, port 8000, restart policy
 docker-compose.override.yml  Dev-only: --reload + bind-mounted app/ code
 .dockerignore
 app/
@@ -110,18 +118,18 @@ app/
   templating.py         Shared Jinja2 instance
   routers/
     dashboard.py       Home screen assembly + /health endpoint
-    tasks.py           Task list + checkmark toggle + points
+    tasks.py           Task list + checkmark toggle
     shopping.py        Shopping list CRUD
     meals.py           Meal plan CRUD
     layout.py          Gridstack position persistence
-    admin.py           PIN auth + family/task/reward management
+    admin.py           PIN auth + family/task management
   templates/           Jinja2 templates (base, dashboard, widgets/, admin/)
   static/
     css/style.css      Design system (fonts, palette, widget styling)
     fonts/             Self-hosted Fraunces/Inter/JetBrains Mono (woff2)
     vendor/            Pinned HTMX 2.0.10, Alpine 3.16.3, Gridstack 13.2.0
 data/                  SQLite DB + secret key — local dev only; in Docker this
-                       is a named volume instead (see docker-compose.yml)
+                       is a bind-mounted folder instead (see docker-compose.yml)
 ```
 
 `DATA_DIR` controls where the database and secret key live — defaults to
@@ -132,18 +140,25 @@ directly by `<script>` tags, per the maintainability decision in the spec.
 
 ## Kiosk browser setup (the part Docker doesn't cover)
 
-Containerizing the backend only replaces "how the FastAPI app runs" — the
-kiosk browser itself is still an OS-level concern, unchanged from the
-original plan:
+The server and display are now separate devices (spec Section 3) — the G10
+just needs to be reachable on the LAN; everything below runs on the Galaxy
+Tab A9+ instead:
 
-1. **Boot straight into a kiosk browser** pointed at `http://localhost:8000/`:
-   Raspberry Pi OS Bookworm's default compositor is Wayfire (Wayland). Autostart
-   Chromium with `--kiosk --noerrdialogs --disable-infobars` against that URL.
-2. **Nightly maintenance timer** (systemd timer, ~3am): clear Chromium's cache,
-   restart the Chromium process to avoid long-session memory creep — not yet
-   scripted, flagged in the spec as a reliability item.
-3. **tmpfs for Chromium's cache dir**, to keep frequent small writes off the SD
-   card — an `/etc/fstab` line, not application code.
+1. **Install Fully Kiosk Browser** on the Galaxy Tab A9+ (Play Store), point
+   its Start URL at `http://<g10-lan-address>:8000/`, and enable its
+   fullscreen/kiosk mode (no Android chrome, no notification shade access).
+2. **Autostart on boot** — Fully Kiosk Browser has a built-in "Start on Boot"
+   setting; no separate compositor/window-manager autostart config needed
+   (unlike the earlier Raspberry Pi plan, there's no Wayfire/systemd layer
+   here — Fully Kiosk Browser owns the whole kiosk lifecycle on Android).
+3. **Screen dim/sleep schedule** — use Fully Kiosk Browser's own scheduling
+   (Settings → Screen) rather than a cron/systemd timer, matching the admin-
+   configurable idle-screen behaviour from spec 4.5 (still to be wired up on
+   the app side — see "Next steps").
+4. **Cache/memory management** — Fully Kiosk Browser has a built-in
+   auto-reload/cache-clear timer (Settings → Other), replacing the old
+   Chromium-tmpfs-on-SD-card plan entirely; there's no SD card in this
+   architecture.
 
 ## Next steps (in rough priority order)
 
@@ -166,5 +181,7 @@ original plan:
 6. **Google Photos + Classroom** — lower priority, both have the API caveats
    documented in the spec (Picker-only access, Guardian-email-first for
    homework).
-7. **Rewards redemption UI** — rewards can be created/deleted in Admin, but
-   there's no "redeem points against a reward" flow on the dashboard yet.
+7. **Idle screen behaviour** — spec 4.5/4.6 calls for an admin-configurable
+   choice between photo slideshow, staying on the calendar/tasks view, or
+   dimming the screen; not built yet (no `app_settings` key for it, no
+   dashboard-side idle detection).

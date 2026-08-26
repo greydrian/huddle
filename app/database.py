@@ -24,7 +24,6 @@ CREATE TABLE IF NOT EXISTS profiles (
     name TEXT NOT NULL,
     colour_hex TEXT NOT NULL,
     avatar_path TEXT,
-    points_balance INTEGER NOT NULL DEFAULT 0,
     sort_order INTEGER NOT NULL DEFAULT 0
 );
 
@@ -33,20 +32,12 @@ CREATE TABLE IF NOT EXISTS tasks (
     profile_id INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
     google_task_id TEXT,
     title TEXT NOT NULL,
-    points INTEGER NOT NULL DEFAULT 0,
     is_recurring INTEGER NOT NULL DEFAULT 0,
     recurrence_rule TEXT,
     is_completed INTEGER NOT NULL DEFAULT 0,
     completed_at TEXT,
     archived INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
-CREATE TABLE IF NOT EXISTS rewards (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    title TEXT NOT NULL,
-    points_cost INTEGER NOT NULL,
-    icon TEXT
 );
 
 CREATE TABLE IF NOT EXISTS meal_plans (

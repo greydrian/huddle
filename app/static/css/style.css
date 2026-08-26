@@ -240,16 +240,6 @@ html, body {
   100% { transform: scale(1); }
 }
 .task-title { flex: 1; font-size: 0.95rem; }
-.task-points {
-  font-family: var(--font-mono);
-  font-size: 0.78rem;
-  color: var(--ink-soft);
-}
-.points-balance {
-  font-family: var(--font-mono);
-  font-size: 0.8rem;
-  color: var(--ink-soft);
-}
 
 /* --- Shopping list --- */
 .shopping-row { display: flex; align-items: center; gap: 10px; padding: 7px 4px; }

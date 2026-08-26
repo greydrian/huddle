@@ -1,5 +1,5 @@
 # Automatically merged with docker-compose.yml when you run `docker compose up`
-# locally. For an actual deployment (e.g. on the Pi), run
+# locally. For an actual deployment (e.g. on the G10), run
 # `docker compose -f docker-compose.yml up -d` to skip this file.
 services:
   family-display:

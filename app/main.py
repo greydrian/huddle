@@ -4,8 +4,9 @@ Family Display — FastAPI application entrypoint.
 Run locally with:
     uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
-On the Pi, this runs headless behind Chromium in kiosk mode pointed at
-http://localhost:8000/ (see deploy/kiosk.md for the systemd + kiosk setup).
+This runs headless on the GMKtec G10 (Docker host); the display is a
+wall-mounted Samsung Galaxy Tab A9+ running Fully Kiosk Browser, pointed
+at the G10's LAN address over Wi-Fi (see README's kiosk setup section).
 """
 
 from contextlib import asynccontextmanager
