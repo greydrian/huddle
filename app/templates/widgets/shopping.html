@@ -1,0 +1,24 @@
+<div class="widget-card" id="widget-shopping">
+  <div class="widget-tab" style="background: var(--success);">Household</div>
+  <div class="widget-header">Shopping List</div>
+  <div class="widget-body">
+    {% for item in items %}
+    <div class="shopping-row {{ 'checked' if item.is_checked else '' }}">
+      <button class="shopping-check"
+              hx-post="/api/shopping/{{ item.id }}/toggle"
+              hx-target="#widget-shopping" hx-swap="outerHTML"></button>
+      <span class="shopping-title">{{ item.title }}</span>
+      <button class="shopping-delete"
+              hx-post="/api/shopping/{{ item.id }}/delete"
+              hx-target="#widget-shopping" hx-swap="outerHTML">✕</button>
+    </div>
+    {% else %}
+    <div class="stub-widget" style="padding: 4px 0; font-size: 0.8rem;">List's empty — add something below.</div>
+    {% endfor %}
+    <form class="shopping-add-form"
+          hx-post="/api/shopping" hx-target="#widget-shopping" hx-swap="outerHTML">
+      <input type="text" name="title" placeholder="Add an item…" required autocomplete="off">
+      <button type="submit">Add</button>
+    </form>
+  </div>
+</div>

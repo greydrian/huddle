@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% block title %}Admin Settings — Family Display{% endblock %}
+{% block content %}
+<div class="admin-shell">
+  <div style="display:flex; justify-content:space-between; align-items:center;">
+    <h1>Admin</h1>
+    <div>
+      <a href="/" class="btn" style="text-decoration:none; margin-right:8px;">← Dashboard</a>
+      <form method="post" action="/admin/logout" style="display:inline;">
+        <button type="submit" class="btn btn-danger">Log out</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Family members -->
+  <div class="admin-panel">
+    <h2>Family Members</h2>
+    {% for p in profiles %}
+    <div class="admin-row">
+      <span><span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:{{ p.colour_hex }};margin-right:8px;"></span>{{ p.name }} — {{ p.points_balance }} pts</span>
+      <form method="post" action="/admin/profiles/{{ p.id }}/delete">
+        <button type="submit" class="btn btn-danger" style="padding:4px 10px;font-size:0.8rem;">Remove</button>
+      </form>
+    </div>
+    {% endfor %}
+    <form class="admin-form" method="post" action="/admin/profiles">
+      <input type="text" name="name" placeholder="Name" required>
+      <input type="color" name="colour_hex" value="#C1584A">
+      <button type="submit" class="btn">Add family member</button>
+    </form>
+  </div>
+
+  <!-- Tasks -->
+  <div class="admin-panel">
+    <h2>Tasks</h2>
+    {% for t in tasks %}
+    <div class="admin-row">
+      <span>{{ t.profile_name }} — {{ t.title }} ({{ t.points }} pts{% if t.is_recurring %}, {{ t.recurrence_rule or 'daily' }}{% endif %})</span>
+      <form method="post" action="/admin/tasks/{{ t.id }}/delete">
+        <button type="submit" class="btn btn-danger" style="padding:4px 10px;font-size:0.8rem;">Remove</button>
+      </form>
+    </div>
+    {% endfor %}
+    <form class="admin-form" method="post" action="/admin/tasks">
+      <select name="profile_id" required>
+        {% for p in profiles %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}
+      </select>
+      <input type="text" name="title" placeholder="Task title" required>
+      <input type="number" name="points" placeholder="Points" value="5" min="0" style="width:80px;">
+      <label style="display:flex;align-items:center;gap:4px;font-size:0.85rem;">
+        <input type="checkbox" name="is_recurring" value="true"> Recurring
+      </label>
+      <input type="text" name="recurrence_rule" placeholder="e.g. Mon,Wed,Fri (blank = daily)">
+      <button type="submit" class="btn">Add task</button>
+    </form>
+  </div>
+
+  <!-- Rewards -->
+  <div class="admin-panel">
+    <h2>Rewards</h2>
+    {% for r in rewards %}
+    <div class="admin-row">
+      <span>{{ r.title }} — {{ r.points_cost }} pts</span>
+      <form method="post" action="/admin/rewards/{{ r.id }}/delete">
+        <button type="submit" class="btn btn-danger" style="padding:4px 10px;font-size:0.8rem;">Remove</button>
+      </form>
+    </div>
+    {% endfor %}
+    <form class="admin-form" method="post" action="/admin/rewards">
+      <input type="text" name="title" placeholder="Reward title" required>
+      <input type="number" name="points_cost" placeholder="Points cost" min="1" style="width:100px;" required>
+      <button type="submit" class="btn">Add reward</button>
+    </form>
+  </div>
+
+  <!-- Google accounts (stub) -->
+  <div class="admin-panel">
+    <h2>Google Account Connections</h2>
+    <p style="color: var(--ink-soft); font-size: 0.9rem;">
+      Not wired up yet. Connecting Calendar, Tasks, Photos, and Classroom access
+      is the next build phase — see the project README for the plan (standard
+      in-browser OAuth, no QR/device-flow, per the spec).
+    </p>
+  </div>
+
+  <!-- Device management -->
+  <div class="admin-panel">
+    <h2>Device</h2>
+    <p style="color: var(--ink-soft); font-size: 0.9rem;">
+      Wi-Fi settings and restart/sleep controls are planned but not yet built
+      (v1 scope per the spec — software update button intentionally deferred).
+    </p>
+  </div>
+
+  <!-- Change PIN -->
+  <div class="admin-panel">
+    <h2>Change Admin PIN</h2>
+    <form class="admin-form" method="post" action="/admin/change-pin">
+      <input type="password" name="new_pin" inputmode="numeric" pattern="[0-9]*" maxlength="8" placeholder="New PIN" required>
+      <button type="submit" class="btn">Update PIN</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

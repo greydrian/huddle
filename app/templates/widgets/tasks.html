@@ -1,0 +1,27 @@
+<div class="widget-card" id="widget-tasks">
+  <div class="widget-tab" style="background: var(--system-accent);">Chores</div>
+  <div class="widget-header">Today's Tasks</div>
+  <div class="widget-body">
+    {% for profile in profiles %}
+    <div class="task-group">
+      <div class="task-group-name" style="color: {{ profile.colour_hex }};">
+        <span class="task-group-dot" style="background: {{ profile.colour_hex }};"></span>
+        {{ profile.name }}
+        <span class="points-balance">{{ profile.points_balance }} pts</span>
+      </div>
+      {% for task in profile.tasks %}
+      <div class="task-row {{ 'completed' if task.is_completed else '' }}">
+        <button class="task-check"
+                hx-post="/api/tasks/{{ task.id }}/toggle"
+                hx-target="#widget-tasks"
+                hx-swap="outerHTML">✓</button>
+        <span class="task-title">{{ task.title }}</span>
+        {% if task.points %}<span class="task-points">+{{ task.points }}</span>{% endif %}
+      </div>
+      {% else %}
+      <div class="stub-widget" style="padding: 4px 0; font-size: 0.8rem;">No tasks yet — add some in Admin.</div>
+      {% endfor %}
+    </div>
+    {% endfor %}
+  </div>
+</div>

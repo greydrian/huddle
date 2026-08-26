@@ -1,0 +1,15 @@
+<div class="widget-card" id="widget-meals">
+  <div class="widget-tab" style="background: var(--system-accent);">This Week</div>
+  <div class="widget-header">Meal Plan</div>
+  <div class="widget-body">
+    {% for day in days %}
+    <div class="meal-row {{ 'today' if day.is_today else '' }}">
+      <span class="meal-weekday">{{ day.weekday[:3] }}</span>
+      <input class="meal-desc-input" type="text" name="description"
+             value="{{ day.description }}" placeholder="Not planned yet" autocomplete="off"
+             hx-post="/api/meals/{{ day.date }}" hx-trigger="change"
+             hx-target="#widget-meals" hx-swap="outerHTML">
+    </div>
+    {% endfor %}
+  </div>
+</div>

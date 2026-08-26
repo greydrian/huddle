@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block title %}Family Display{% endblock %}
+
+{% block content %}
+<div class="topbar">
+  <div class="today">
+    <span class="signature">Today</span> —
+    <span id="today-date" data-iso="{{ today }}"></span>
+  </div>
+  <div id="notification-banner" class="notification-banner"></div>
+  <a href="/admin" class="btn" style="text-decoration:none; font-size:0.85rem; padding:6px 14px;">Admin</a>
+</div>
+
+<div id="dashboard-grid" class="grid-stack">
+  {% for widget in layout %}
+  <div class="grid-stack-item"
+       gs-id="{{ widget.widget_id }}"
+       gs-x="{{ widget.grid_x }}" gs-y="{{ widget.grid_y }}"
+       gs-w="{{ widget.grid_w }}" gs-h="{{ widget.grid_h }}">
+    <div class="grid-stack-item-content">
+      {% if widget.widget_id == 'tasks' %}
+        {% include "widgets/tasks.html" %}
+      {% elif widget.widget_id == 'shopping' %}
+        {% include "widgets/shopping.html" %}
+      {% elif widget.widget_id == 'meals' %}
+        {% include "widgets/meals.html" %}
+      {% elif widget.widget_id == 'calendar' %}
+        {% include "widgets/calendar_stub.html" %}
+      {% elif widget.widget_id == 'upcoming_events' %}
+        {% include "widgets/upcoming_events_stub.html" %}
+      {% elif widget.widget_id == 'weather' %}
+        {% include "widgets/weather_stub.html" %}
+      {% elif widget.widget_id == 'photos' %}
+        {% include "widgets/photos_stub.html" %}
+      {% elif widget.widget_id == 'homework' %}
+        {% include "widgets/homework_stub.html" %}
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/vendor/gridstack/gridstack-all.js"></script>
+<script>
+  // Render today's date in the person's locale without a server round-trip.
+  const dateEl = document.getElementById('today-date');
+  const iso = dateEl.dataset.iso;
+  dateEl.textContent = new Date(iso + 'T00:00:00').toLocaleDateString(undefined, {
+    weekday: 'long', month: 'long', day: 'numeric'
+  });
+
+  // Gridstack: anyone can drag/resize, no PIN required (Section 4.6).
+  const grid = GridStack.init({
+    cellHeight: 90,
+    margin: 8,
+    float: true,
+    disableOneColumnMode: true,
+  });
+
+  function persistLayout() {
+    const items = grid.engine.nodes.map(n => ({
+      id: n.id, x: n.x, y: n.y, w: n.w, h: n.h
+    }));
+    fetch('/api/layout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ items })
+    });
+  }
+
+  grid.on('change', persistLayout);
+
+  // Re-initialize Gridstack drag/resize handles after any HTMX swap
+  // inside a grid item (the widget's own content changes, not its position).
+  document.body.addEventListener('htmx:afterSwap', () => {
+    // No-op for now: swaps target elements *inside* grid-stack-item-content,
+    // so Gridstack's own item wrapper is untouched and needs no re-init.
+  });
+</script>
+{% endblock %}

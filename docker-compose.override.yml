@@ -1,0 +1,11 @@
+# Automatically merged with docker-compose.yml when you run `docker compose up`
+# locally. For an actual deployment (e.g. on the Pi), run
+# `docker compose -f docker-compose.yml up -d` to skip this file.
+services:
+  family-display:
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    volumes:
+      # Bind-mount the code (not the database) so edits show up without
+      # rebuilding the image. This is fine on Windows/Mac — the WAL/locking
+      # caveat above only applies to the SQLite file itself.
+      - ./app:/app/app
