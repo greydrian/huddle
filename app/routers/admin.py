@@ -13,6 +13,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from app.database import get_db, get_setting, set_setting
 from app.security import verify_pin, hash_pin, lockout_seconds_for, create_session_token, verify_session_token
 from app.templating import templates
+from app import google_oauth
 
 router = APIRouter(prefix="/admin")
 
@@ -93,11 +94,17 @@ async def admin_home(request: Request):
             "JOIN profiles ON profiles.id = tasks.profile_id "
             "WHERE archived = 0 ORDER BY profiles.sort_order, tasks.created_at"
         )).fetchall()]
+        google_account = await google_oauth.get_connected_account(db)
 
     return templates.TemplateResponse(
         request,
         "admin/settings.html",
-        {"profiles": profiles, "tasks": tasks},
+        {
+            "profiles": profiles,
+            "tasks": tasks,
+            "google_account": google_account,
+            "google_configured": google_oauth.is_configured(),
+        },
     )
 
 

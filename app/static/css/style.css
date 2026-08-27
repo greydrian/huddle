@@ -288,6 +288,31 @@ html, body {
   padding: 0 16px; font-weight: 600; cursor: pointer;
 }
 
+/* --- Calendar / Upcoming Events (agenda list) --- */
+.event-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 7px 4px;
+  border-bottom: 1px solid rgba(43,36,32,0.08);
+}
+.event-weekday {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--system-accent-dark);
+  text-transform: uppercase;
+  width: 30px;
+  flex-shrink: 0;
+}
+.event-time {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--ink-soft);
+  width: 68px;
+  flex-shrink: 0;
+}
+.event-title { flex: 1; font-size: 0.9rem; }
+
 /* --- Meal plan --- */
 .meal-row { display: flex; align-items: baseline; gap: 10px; padding: 6px 4px; }
 .meal-row.today .meal-weekday { color: var(--system-accent); }

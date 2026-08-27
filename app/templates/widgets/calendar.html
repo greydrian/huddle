@@ -1,4 +1,5 @@
-<div class="widget-card" id="widget-calendar">
+<div class="widget-card" id="widget-calendar"
+     hx-get="/widgets/calendar" hx-trigger="every 180s" hx-swap="outerHTML">
   <div class="widget-pin"></div>
   <div class="widget-tab" style="background: var(--system-accent);">
     <svg width="13" height="13" viewBox="0 0 24 24"><rect x="4" y="6" width="16" height="14" rx="3" fill="none" stroke="currentColor" stroke-width="1.8"/><rect x="8" y="3" width="2.2" height="5" rx="1" fill="currentColor"/><rect x="14" y="3" width="2.2" height="5" rx="1" fill="currentColor"/><line x1="4" y1="10" x2="20" y2="10" stroke="currentColor" stroke-width="1.6"/></svg>
@@ -9,6 +10,7 @@
     Calendar
   </div>
   <div class="widget-body">
+    {% if events is none %}
     <div class="stub-empty">
       <div class="stub-badge">
         <svg width="80" height="80" viewBox="0 0 80 80">
@@ -30,5 +32,15 @@
       <p class="stub-caption">Connect a Google account in Admin to bring your family calendar onto the wall.</p>
       <a href="/admin" class="stub-cta">Connect in Admin →</a>
     </div>
+    {% elif events %}
+      {% for event in events %}
+      <div class="event-row">
+        <span class="event-time">{{ event.time_label }}</span>
+        <span class="event-title">{{ event.title }}</span>
+      </div>
+      {% endfor %}
+    {% else %}
+    <div class="stub-widget" style="padding: 4px 0; font-size: 0.8rem;">Nothing on today's calendar.</div>
+    {% endif %}
   </div>
 </div>

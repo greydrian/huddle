@@ -25,9 +25,11 @@
       {% elif widget.widget_id == 'meals' %}
         {% include "widgets/meals.html" %}
       {% elif widget.widget_id == 'calendar' %}
-        {% include "widgets/calendar_stub.html" %}
+        {% set events = today_events %}
+        {% include "widgets/calendar.html" %}
       {% elif widget.widget_id == 'upcoming_events' %}
-        {% include "widgets/upcoming_events_stub.html" %}
+        {% set events = upcoming_events %}
+        {% include "widgets/upcoming_events.html" %}
       {% elif widget.widget_id == 'weather' %}
         {% include "widgets/weather_stub.html" %}
       {% elif widget.widget_id == 'photos' %}

@@ -54,13 +54,30 @@
     </form>
   </div>
 
-  <!-- Google accounts (stub) -->
+  <!-- Google account -->
   <div class="admin-panel">
-    <h2>Google Account Connections</h2>
+    <h2>Google Account</h2>
+    {% if google_account %}
+    <div class="admin-row">
+      <span>Connected as <strong>{{ google_account }}</strong> — Calendar (read-only)</span>
+      <form method="post" action="/admin/google/disconnect">
+        <button type="submit" class="btn btn-danger" style="padding:4px 10px;font-size:0.8rem;">Disconnect</button>
+      </form>
+    </div>
+    {% elif google_configured %}
     <p style="color: var(--ink-soft); font-size: 0.9rem;">
-      Not wired up yet. Connecting Calendar, Tasks, Photos, and Classroom access
-      is the next build phase — see the project README for the plan (standard
-      in-browser OAuth, no QR/device-flow, per the spec).
+      Connect a Google account to bring your family calendar onto the dashboard.
+    </p>
+    <a href="/admin/google/connect" class="btn" style="text-decoration:none;">Connect Google Account</a>
+    {% else %}
+    <p style="color: var(--ink-soft); font-size: 0.9rem;">
+      Not configured yet — set <code>GOOGLE_CLIENT_ID</code> and <code>GOOGLE_CLIENT_SECRET</code>
+      (see README, "Connecting Google Calendar") before this can be connected.
+    </p>
+    {% endif %}
+    <p style="color: var(--ink-soft); font-size: 0.85rem; margin-top: 12px;">
+      Google Tasks (shopping/task list sync) and Photos/Classroom access aren't wired up yet —
+      see the project README for the plan.
     </p>
   </div>
 

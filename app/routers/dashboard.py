@@ -14,6 +14,7 @@ from app.templating import templates
 from app.routers.tasks import get_profiles_with_tasks
 from app.routers.shopping import get_shopping_items
 from app.routers.meals import get_week_meal_plan
+from app import google_oauth
 
 router = APIRouter()
 
@@ -36,6 +37,8 @@ async def dashboard(request: Request):
         profiles = await get_profiles_with_tasks(db)
         shopping_items = await get_shopping_items(db)
         meal_days = await get_week_meal_plan(db)
+        today_events = await google_oauth.get_today_events(db)
+        upcoming_events = await google_oauth.get_upcoming_events(db)
 
     return templates.TemplateResponse(
         request,
@@ -45,6 +48,8 @@ async def dashboard(request: Request):
             "profiles": profiles,
             "shopping_items": shopping_items,
             "meal_days": meal_days,
+            "today_events": today_events,
+            "upcoming_events": upcoming_events,
             "today": date.today().isoformat(),
         },
     )
