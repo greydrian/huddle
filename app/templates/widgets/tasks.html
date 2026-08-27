@@ -1,6 +1,13 @@
 <div class="widget-card" id="widget-tasks">
-  <div class="widget-tab" style="background: var(--system-accent);">Chores</div>
-  <div class="widget-header">Today's Tasks</div>
+  <div class="widget-pin"></div>
+  <div class="widget-tab" style="background: var(--system-accent);">
+    <svg width="13" height="13" viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="16" rx="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M7.5,11 L10,13.5 L16,6.5" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    Chores
+  </div>
+  <div class="widget-header">
+    <svg width="18" height="18" viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="16" rx="3" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M7.5,11 L10,13.5 L16,6.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    Today's Tasks
+  </div>
   <div class="widget-body">
     {% for profile in profiles %}
     <div class="task-group">

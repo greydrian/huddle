@@ -1,6 +1,13 @@
 <div class="widget-card" id="widget-meals">
-  <div class="widget-tab" style="background: var(--system-accent);">This Week</div>
-  <div class="widget-header">Meal Plan</div>
+  <div class="widget-pin"></div>
+  <div class="widget-tab" style="background: var(--system-accent);">
+    <svg width="13" height="13" viewBox="0 0 24 24"><g stroke="currentColor" stroke-width="1.7" stroke-linecap="round" fill="none"><line x1="6" y1="3" x2="6" y2="9"/><line x1="4.6" y1="3" x2="4.6" y2="7"/><line x1="7.4" y1="3" x2="7.4" y2="7"/><line x1="6" y1="9" x2="6" y2="21"/><path d="M16,3 C14,3 13,4.6 13,7 C13,9 14,9.8 16,9.8 L16,21"/></g></svg>
+    This Week
+  </div>
+  <div class="widget-header">
+    <svg width="17" height="17" viewBox="0 0 24 24"><g stroke="currentColor" stroke-width="1.6" stroke-linecap="round" fill="none"><line x1="6" y1="3" x2="6" y2="9"/><line x1="4.6" y1="3" x2="4.6" y2="7"/><line x1="7.4" y1="3" x2="7.4" y2="7"/><line x1="6" y1="9" x2="6" y2="21"/><path d="M16,3 C14,3 13,4.6 13,7 C13,9 14,9.8 16,9.8 L16,21"/></g></svg>
+    Meal Plan
+  </div>
   <div class="widget-body">
     {% for day in days %}
     <div class="meal-row {{ 'today' if day.is_today else '' }}">

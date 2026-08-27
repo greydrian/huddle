@@ -75,8 +75,11 @@
   --chalk: #F1EAD9;        /* text on the wall */
   --chalk-dim: #A9BAC0;    /* secondary text on the wall */
   --system-accent: #D6A02C; /* ochre — buttons, focus rings, the pin colour */
+  --system-accent-dark: #A87B1E;
   --danger: #B4453A;
   --success: #4C8577;
+  --pin-hi: #D9C3A0;  /* thumbtack highlight/shadow — the "pinned to the board" detail */
+  --pin-lo: #8B7355;
 
   /* --- Type --- */
   --font-display: "Fraunces", Georgia, serif;
@@ -153,34 +156,61 @@ html, body {
   height: 100%;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
   position: relative;
+  /* No overflow:hidden here — the pin and tab intentionally poke above
+     the card's own top edge, and clipping this box would cut them off.
+     widget-body clips its own scroll content instead (see below), so
+     nothing actually needs the card itself to clip. */
+}
+
+/* A small brass thumbtack pinning each card's tab down — the literal
+   "pinned to the noticeboard" detail. */
+.widget-pin {
+  position: absolute;
+  top: -5px;
+  left: 27px;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 32%, var(--pin-hi), var(--pin-lo) 70%);
+  box-shadow: 0 2px 4px rgba(0,0,0,0.35);
+  z-index: 2;
 }
 
 /* The coloured tab: encodes whose widget this is (family colour) or
-   category (system accent for shared widgets like shopping/meals). */
+   category (system accent for shared widgets like shopping/meals).
+   Carries a small icon identifying the widget, ahead of the label. */
 .widget-tab {
   position: absolute;
   top: -10px;
   left: 20px;
-  padding: 3px 14px 6px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 14px 6px 22px;
   border-radius: 6px 6px 3px 3px;
   font-family: var(--font-body);
   font-weight: 600;
-  font-size: 0.72rem;
+  font-size: 0.7rem;
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--paper);
   box-shadow: 0 3px 6px rgba(0,0,0,0.25);
+  z-index: 1;
 }
+.widget-tab svg { flex-shrink: 0; opacity: 0.92; }
 
 .widget-header {
+  display: flex;
+  align-items: center;
+  gap: 9px;
   font-family: var(--font-display);
   font-weight: 600;
   font-size: 1.15rem;
   padding: 20px 18px 8px;
   color: var(--ink);
 }
+.widget-header svg { flex-shrink: 0; opacity: 0.82; }
 
 .widget-body {
   flex: 1;
@@ -265,7 +295,7 @@ html, body {
 .meal-desc-input { flex: 1; border: none; background: transparent; font-family: var(--font-body); font-size: 0.92rem; color: var(--ink); }
 .meal-desc-input:focus { outline: 1px solid var(--system-accent); border-radius: 4px; }
 
-/* --- Stub widgets (calendar, weather, photos, homework) --- */
+/* --- Stub widgets: small inline "list is empty" fallback text --- */
 .stub-widget {
   height: 100%; display: flex; align-items: center; justify-content: center;
   flex-direction: column; gap: 6px; text-align: center; padding: 20px;
@@ -273,9 +303,70 @@ html, body {
 }
 .stub-widget strong { color: var(--ink); font-family: var(--font-display); font-size: 1.05rem; }
 
+/* --- Stub widgets: not-yet-connected empty state (calendar, upcoming
+   events, weather, photos, homework) — an illustrated badge instead of
+   plain text. .compact is used by the smaller widgets in the grid. --- */
+.stub-empty {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  text-align: center;
+  padding: 6px 12px;
+}
+.stub-badge {
+  width: 118px;
+  height: 118px;
+  border-radius: 50%;
+  background: var(--paper-shade);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: inset 0 1px 3px rgba(43,36,32,0.08);
+}
+.stub-empty.compact .stub-badge { width: 66px; height: 66px; }
+.stub-title {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 1.02rem;
+  color: var(--ink);
+  margin: 0;
+}
+.stub-empty.compact .stub-title { font-size: 0.86rem; }
+.stub-caption {
+  font-family: var(--font-body);
+  font-size: 0.82rem;
+  color: var(--ink-soft);
+  line-height: 1.4;
+  max-width: 240px;
+  margin: 0;
+}
+.stub-empty.compact .stub-caption { font-size: 0.72rem; max-width: 150px; }
+.stub-cta {
+  margin-top: 2px;
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 0.78rem;
+  color: var(--system-accent-dark);
+  background: transparent;
+  border: 1.5px dashed var(--system-accent);
+  border-radius: 999px;
+  padding: 6px 16px;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
 /* --- Gridstack overrides --- */
 .grid-stack { background: transparent; }
-.grid-stack-item-content { inset: 6px !important; border-radius: var(--radius-card); }
+/* Gridstack's own CSS clips this box (overflow-y: auto) by default,
+   which would cut off the pin/tab poking above each widget-card just
+   like the card's own overflow did — override it open. Actual list
+   scrolling still works because widget-body clips and scrolls itself. */
+.grid-stack-item-content { inset: 6px !important; border-radius: var(--radius-card); overflow: visible !important; }
 .grid-stack > .grid-stack-item > .ui-resizable-handle { opacity: 0.5; }
 
 /* --- Admin --- */
@@ -294,6 +385,23 @@ html, body {
   padding: 9px 16px; font-weight: 600; cursor: pointer; font-family: var(--font-body);
 }
 .btn-danger { background: var(--danger); color: var(--paper); }
+
+/* Quiet outline button for the topbar — sits next to the ochre
+   notification pill without competing with it for attention. */
+.btn-ghost {
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 0.85rem;
+  color: var(--chalk);
+  background: transparent;
+  border: 1.5px solid rgba(241,234,217,0.35);
+  border-radius: 999px;
+  padding: 8px 18px;
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+}
 .pin-pad-form { display: flex; flex-direction: column; align-items: center; gap: 16px; margin-top: 40px; }
 .pin-pad-form input {
   font-family: var(--font-mono); font-size: 1.8rem; letter-spacing: 0.4em; text-align: center;
