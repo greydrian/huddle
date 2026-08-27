@@ -64,6 +64,22 @@
         <button type="submit" class="btn btn-danger" style="padding:4px 10px;font-size:0.8rem;">Disconnect</button>
       </form>
     </div>
+    {% if available_calendars %}
+    <form method="post" action="/admin/google/calendars" style="margin-top:12px;">
+      <p style="color: var(--ink-soft); font-size: 0.85rem; margin-bottom: 6px;">
+        Calendars shown on the dashboard:
+      </p>
+      {% for cal in available_calendars %}
+      <label style="display:flex; align-items:center; gap:8px; padding:5px 0; font-size:0.9rem;">
+        <input type="checkbox" name="calendar_id" value="{{ cal.id }}"
+               {{ 'checked' if cal.id in selected_calendar_ids else '' }}>
+        <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:{{ cal.color }};flex-shrink:0;"></span>
+        {{ cal.summary }}{% if cal.primary %} (primary){% endif %}
+      </label>
+      {% endfor %}
+      <button type="submit" class="btn" style="margin-top:8px;">Save calendars</button>
+    </form>
+    {% endif %}
     {% elif google_configured %}
     <p style="color: var(--ink-soft); font-size: 0.9rem;">
       Connect a Google account to bring your family calendar onto the dashboard.

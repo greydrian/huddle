@@ -87,8 +87,7 @@ CREATE TABLE IF NOT EXISTS app_settings (
 
 DEFAULT_LAYOUT = [
     # widget_id, x, y, w, h
-    ("calendar", 0, 0, 5, 4),
-    ("upcoming_events", 5, 0, 3, 4),
+    ("calendar", 0, 0, 8, 4),
     ("tasks", 0, 4, 4, 4),
     ("shopping", 4, 4, 2, 4),
     ("meals", 6, 4, 2, 4),
@@ -134,6 +133,22 @@ async def init_db():
                    VALUES (?, ?, ?, ?, ?, 1)""",
                 DEFAULT_LAYOUT,
             )
+
+        # Migration: the Calendar widget absorbed Upcoming Events (now a
+        # month grid instead of two agenda lists) — widen calendar's slot by
+        # upcoming_events' old width and drop it, preserving wherever the
+        # widget's actually been dragged to rather than resetting positions.
+        # No-op once this has run (upcoming_events row no longer exists).
+        cursor = await db.execute(
+            "SELECT grid_w FROM layout_state WHERE widget_id = 'upcoming_events'"
+        )
+        row = await cursor.fetchone()
+        if row is not None:
+            await db.execute(
+                "UPDATE layout_state SET grid_w = grid_w + ? WHERE widget_id = 'calendar'",
+                (row[0],),
+            )
+            await db.execute("DELETE FROM layout_state WHERE widget_id = 'upcoming_events'")
 
         # Seed a default admin PIN (1234) on first run only — change this in Admin > Settings
         cursor = await db.execute("SELECT COUNT(*) FROM app_settings WHERE key = 'pin_hash'")

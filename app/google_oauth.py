@@ -12,9 +12,11 @@ Admin) — this pass only displays events. Editing from the screen (spec 4.2)
 needs the broader `calendar` write scope and its own consent round, later.
 """
 
+import json
 import os
 import time
-from datetime import datetime, timedelta, time as dtime
+from datetime import date, datetime, timedelta, time as dtime
+from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -29,10 +31,13 @@ AUTH_ENDPOINT = "https://accounts.google.com/o/oauth2/v2/auth"
 TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token"
 REVOKE_ENDPOINT = "https://oauth2.googleapis.com/revoke"
 USERINFO_ENDPOINT = "https://www.googleapis.com/oauth2/v3/userinfo"
-CALENDAR_EVENTS_ENDPOINT = "https://www.googleapis.com/calendar/v3/calendars/primary/events"
+CALENDAR_LIST_ENDPOINT = "https://www.googleapis.com/calendar/v3/users/me/calendarList"
 CALENDAR_METADATA_ENDPOINT = "https://www.googleapis.com/calendar/v3/calendars/primary"
+CALENDAR_EVENTS_ENDPOINT_TEMPLATE = "https://www.googleapis.com/calendar/v3/calendars/{calendar_id}/events"
 
 CALENDAR_TIMEZONE_SETTING = "calendar_timezone"
+SELECTED_CALENDARS_SETTING = "google_selected_calendars"
+DEFAULT_SELECTED_CALENDARS = [{"id": "primary", "summary": "Calendar", "color": "#D6A02C"}]
 
 SCOPES = "https://www.googleapis.com/auth/calendar.readonly openid email"
 TOKEN_REFRESH_BUFFER_SECONDS = 60
@@ -85,6 +90,39 @@ async def fetch_userinfo(access_token: str) -> dict:
         resp = await client.get(USERINFO_ENDPOINT, headers={"Authorization": f"Bearer {access_token}"})
         resp.raise_for_status()
         return resp.json()
+
+
+async def fetch_calendar_list(access_token: str) -> list[dict]:
+    """Every calendar the connected account can see, for the Admin picker."""
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(CALENDAR_LIST_ENDPOINT, headers={"Authorization": f"Bearer {access_token}"})
+        resp.raise_for_status()
+        items = resp.json().get("items", [])
+    return [
+        {
+            "id": item["id"],
+            "summary": item.get("summaryOverride") or item.get("summary", item["id"]),
+            "color": item.get("backgroundColor", "#D6A02C"),
+            "primary": bool(item.get("primary")),
+        }
+        for item in items
+    ]
+
+
+async def get_selected_calendars(db) -> list[dict]:
+    raw = await get_setting(db, SELECTED_CALENDARS_SETTING)
+    if not raw:
+        return DEFAULT_SELECTED_CALENDARS
+    try:
+        parsed = json.loads(raw)
+        return parsed or DEFAULT_SELECTED_CALENDARS
+    except (ValueError, TypeError):
+        return DEFAULT_SELECTED_CALENDARS
+
+
+async def set_selected_calendars(db, calendars: list[dict]):
+    await set_setting(db, SELECTED_CALENDARS_SETTING, json.dumps(calendars))
+    await db.commit()
 
 
 async def cache_calendar_timezone(db, access_token: str):
@@ -211,17 +249,18 @@ def _format_event(raw: dict) -> dict:
     }
 
 
-async def fetch_events(access_token: str, time_min: datetime, time_max: datetime) -> list[dict]:
+async def fetch_events(access_token: str, calendar_id: str, time_min: datetime, time_max: datetime) -> list[dict]:
+    url = CALENDAR_EVENTS_ENDPOINT_TEMPLATE.format(calendar_id=quote(calendar_id, safe=""))
     async with httpx.AsyncClient() as client:
         resp = await client.get(
-            CALENDAR_EVENTS_ENDPOINT,
+            url,
             headers={"Authorization": f"Bearer {access_token}"},
             params={
                 "timeMin": time_min.isoformat(),
                 "timeMax": time_max.isoformat(),
                 "singleEvents": "true",
                 "orderBy": "startTime",
-                "maxResults": 25,
+                "maxResults": 100,
             },
         )
         resp.raise_for_status()
@@ -231,31 +270,70 @@ async def fetch_events(access_token: str, time_min: datetime, time_max: datetime
     return events
 
 
-async def get_today_events(db) -> list[dict] | None:
-    """None means not connected; [] means connected with nothing today."""
+async def get_month_grid(db, year: int | None = None, month: int | None = None) -> dict | None:
+    """None means not connected. Otherwise a Monday-start 6-week grid for
+    the given month (defaults to the current month, in the calendar's own
+    timezone): each day carries its date, whether it's in the target month,
+    whether it's today, and that day's events (colour-tagged per calendar,
+    from every calendar selected in Admin)."""
     access_token = await get_valid_access_token(db)
     if not access_token:
         return None
-    tz = await _get_calendar_timezone(db, access_token)
-    today = datetime.now(tz).date()
-    return await fetch_events(
-        access_token,
-        datetime.combine(today, dtime.min, tzinfo=tz),
-        datetime.combine(today, dtime.max, tzinfo=tz),
-    )
 
-
-async def get_upcoming_events(db, days: int = 7) -> list[dict] | None:
-    access_token = await get_valid_access_token(db)
-    if not access_token:
-        return None
     tz = await _get_calendar_timezone(db, access_token)
-    today = datetime.now(tz).date()
-    return await fetch_events(
-        access_token,
-        datetime.combine(today, dtime.min, tzinfo=tz),
-        datetime.combine(today + timedelta(days=days), dtime.min, tzinfo=tz),
-    )
+    now = datetime.now(tz)
+    year = year or now.year
+    month = month or now.month
+    today = now.date()
+
+    selected = await get_selected_calendars(db)
+
+    first_of_month = date(year, month, 1)
+    grid_start = first_of_month - timedelta(days=first_of_month.weekday())  # Monday on/before the 1st
+    grid_end = grid_start + timedelta(days=42)
+
+    events_by_day: dict[str, list[dict]] = {}
+    for cal in selected:
+        cal_events = await fetch_events(
+            access_token,
+            cal["id"],
+            datetime.combine(grid_start, dtime.min, tzinfo=tz),
+            datetime.combine(grid_end, dtime.min, tzinfo=tz),
+        )
+        for event in cal_events:
+            event["color"] = cal.get("color") or "#D6A02C"
+            events_by_day.setdefault(event["date"], []).append(event)
+    for day_events in events_by_day.values():
+        day_events.sort(key=lambda e: e["sort_key"])
+
+    weeks = []
+    cursor = grid_start
+    for _ in range(6):
+        week = []
+        for _ in range(7):
+            iso = cursor.isoformat()
+            week.append({
+                "date": iso,
+                "day": cursor.day,
+                "in_month": cursor.month == month,
+                "is_today": cursor == today,
+                "events": events_by_day.get(iso, []),
+            })
+            cursor += timedelta(days=1)
+        weeks.append(week)
+
+    prev_month, prev_year = (12, year - 1) if month == 1 else (month - 1, year)
+    next_month, next_year = (1, year + 1) if month == 12 else (month + 1, year)
+
+    return {
+        "year": year,
+        "month": month,
+        "label": first_of_month.strftime("%B %Y"),
+        "weeks": weeks,
+        "today": today.isoformat(),
+        "prev": {"year": prev_year, "month": prev_month},
+        "next": {"year": next_year, "month": next_month},
+    }
 
 
 async def revoke_and_clear(db):

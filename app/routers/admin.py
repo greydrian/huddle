@@ -96,6 +96,14 @@ async def admin_home(request: Request):
         )).fetchall()]
         google_account = await google_oauth.get_connected_account(db)
 
+        available_calendars = []
+        selected_calendar_ids = []
+        if google_account:
+            access_token = await google_oauth.get_valid_access_token(db)
+            if access_token:
+                available_calendars = await google_oauth.fetch_calendar_list(access_token)
+            selected_calendar_ids = [c["id"] for c in await google_oauth.get_selected_calendars(db)]
+
     return templates.TemplateResponse(
         request,
         "admin/settings.html",
@@ -104,6 +112,8 @@ async def admin_home(request: Request):
             "tasks": tasks,
             "google_account": google_account,
             "google_configured": google_oauth.is_configured(),
+            "available_calendars": available_calendars,
+            "selected_calendar_ids": selected_calendar_ids,
         },
     )
 

@@ -1,16 +1,15 @@
 """
-Google OAuth connect/disconnect, plus the live Calendar and Upcoming
-Events widgets (Section 4.2, 9.5 of the spec).
+Google OAuth connect/disconnect, the calendar-selection picker, and the
+live month-grid Calendar widget (Section 4.2, 9.5 of the spec).
 
-Calendar shows today's agenda; Upcoming Events shows the next 7 days.
-Both fall back to the illustrated "not connected" stub state when
+The widget falls back to the illustrated "not connected" stub state when
 app.google_oauth.get_valid_access_token() returns None.
 """
 
 import secrets
 import time as time_module
 
-from fastapi import APIRouter, Request, Depends
+from fastapi import APIRouter, Request, Depends, Form
 from fastapi.responses import RedirectResponse, HTMLResponse
 
 from app.database import get_db
@@ -72,15 +71,24 @@ async def google_disconnect():
     return RedirectResponse(url="/admin", status_code=303)
 
 
+@router.post("/admin/google/calendars", dependencies=[Depends(require_admin)])
+async def save_selected_calendars(calendar_id: list[str] = Form(default=[])):
+    async with get_db() as db:
+        access_token = await google_oauth.get_valid_access_token(db)
+        if access_token:
+            # Re-derive summary/colour from Google rather than trusting
+            # whatever the submitted form says — the form only tells us
+            # which IDs were checked.
+            available = await google_oauth.fetch_calendar_list(access_token)
+            by_id = {cal["id"]: cal for cal in available}
+            selected = [by_id[cid] for cid in calendar_id if cid in by_id]
+            if selected:
+                await google_oauth.set_selected_calendars(db, selected)
+    return RedirectResponse(url="/admin", status_code=303)
+
+
 @router.get("/widgets/calendar", response_class=HTMLResponse)
-async def calendar_widget(request: Request):
+async def calendar_widget(request: Request, year: int | None = None, month: int | None = None):
     async with get_db() as db:
-        events = await google_oauth.get_today_events(db)
-    return templates.TemplateResponse(request, "widgets/calendar.html", {"events": events})
-
-
-@router.get("/widgets/upcoming_events", response_class=HTMLResponse)
-async def upcoming_events_widget(request: Request):
-    async with get_db() as db:
-        events = await google_oauth.get_upcoming_events(db)
-    return templates.TemplateResponse(request, "widgets/upcoming_events.html", {"events": events})
+        calendar_month = await google_oauth.get_month_grid(db, year, month)
+    return templates.TemplateResponse(request, "widgets/calendar.html", {"calendar_month": calendar_month})
