@@ -41,6 +41,7 @@ DEFAULT_SELECTED_CALENDARS = [{"id": "primary", "summary": "Calendar", "color": 
 
 SCOPES = "https://www.googleapis.com/auth/calendar.readonly openid email"
 TOKEN_REFRESH_BUFFER_SECONDS = 60
+MAX_BAR_SLOTS = 3  # event bars shown per week in the month grid before "+N more"
 
 
 def is_configured() -> bool:
@@ -228,9 +229,16 @@ def _parse_google_datetime(raw: str) -> datetime:
 
 def _format_event(raw: dict) -> dict:
     start = raw.get("start", {})
+    end = raw.get("end", {})
     all_day = "date" in start
     if all_day:
         start_dt = datetime.fromisoformat(start["date"])
+        # Google's all-day end.date is EXCLUSIVE (the day *after* the last
+        # day the event covers) — subtract one to get the actual last day.
+        end_dt = (
+            datetime.fromisoformat(end["date"]) - timedelta(days=1)
+            if end.get("date") else start_dt
+        )
         time_label = "All day"
     else:
         # Keep the offset Google already gives us (the calendar owner's
@@ -238,13 +246,17 @@ def _format_event(raw: dict) -> dict:
         # to the server's local time, which is UTC inside the container
         # regardless of where the family actually lives.
         start_dt = _parse_google_datetime(start["dateTime"])
+        end_dt = _parse_google_datetime(end["dateTime"]) if end.get("dateTime") else start_dt
         time_label = start_dt.strftime("%I:%M %p").lstrip("0")
+    start_date = start_dt.date()
+    end_date = end_dt.date()
     return {
         "title": raw.get("summary") or "(untitled)",
         "time_label": time_label,
-        "weekday_label": start_dt.strftime("%a"),
         "all_day": all_day,
-        "date": start_dt.date().isoformat(),
+        "date": start_date.isoformat(),
+        "end_date": end_date.isoformat(),
+        "is_multi_day": end_date != start_date,
         "sort_key": start_dt.isoformat(),
     }
 
@@ -273,9 +285,12 @@ async def fetch_events(access_token: str, calendar_id: str, time_min: datetime, 
 async def get_month_grid(db, year: int | None = None, month: int | None = None) -> dict | None:
     """None means not connected. Otherwise a Monday-start 6-week grid for
     the given month (defaults to the current month, in the calendar's own
-    timezone): each day carries its date, whether it's in the target month,
-    whether it's today, and that day's events (colour-tagged per calendar,
-    from every calendar selected in Admin)."""
+    timezone). Each week carries its 7 days (date/in_month/today/weekend/
+    hidden_count) and a list of event "bars" — Google-style, one per event
+    touching that week, clipped to the week and packed into up to
+    MAX_BAR_SLOTS rows so overlapping events don't collide. Events beyond
+    that cap don't get a bar; the day(s) they're on get hidden_count
+    incremented instead (surfaced as "+N more" in the template)."""
     access_token = await get_valid_access_token(db)
     if not access_token:
         return None
@@ -292,7 +307,7 @@ async def get_month_grid(db, year: int | None = None, month: int | None = None) 
     grid_start = first_of_month - timedelta(days=first_of_month.weekday())  # Monday on/before the 1st
     grid_end = grid_start + timedelta(days=42)
 
-    events_by_day: dict[str, list[dict]] = {}
+    all_events = []
     for cal in selected:
         cal_events = await fetch_events(
             access_token,
@@ -302,25 +317,57 @@ async def get_month_grid(db, year: int | None = None, month: int | None = None) 
         )
         for event in cal_events:
             event["color"] = cal.get("color") or "#D6A02C"
-            events_by_day.setdefault(event["date"], []).append(event)
-    for day_events in events_by_day.values():
-        day_events.sort(key=lambda e: e["sort_key"])
+        all_events.extend(cal_events)
 
     weeks = []
     cursor = grid_start
     for _ in range(6):
-        week = []
-        for _ in range(7):
-            iso = cursor.isoformat()
-            week.append({
-                "date": iso,
-                "day": cursor.day,
-                "in_month": cursor.month == month,
-                "is_today": cursor == today,
-                "events": events_by_day.get(iso, []),
+        week_start = cursor
+        week_end = cursor + timedelta(days=6)
+
+        days = []
+        for i in range(7):
+            d = cursor + timedelta(days=i)
+            days.append({
+                "date": d.isoformat(),
+                "day": d.day,
+                "in_month": d.month == month,
+                "is_today": d == today,
+                "is_weekend": d.weekday() >= 5,
+                "hidden_count": 0,
             })
-            cursor += timedelta(days=1)
-        weeks.append(week)
+
+        week_events = [
+            e for e in all_events
+            if date.fromisoformat(e["date"]) <= week_end
+            and date.fromisoformat(e["end_date"]) >= week_start
+        ]
+        # Earlier-starting events first; among ties, longer events first so
+        # they claim a slot before a cluster of short same-day events do.
+        week_events.sort(key=lambda e: (
+            e["sort_key"],
+            -(date.fromisoformat(e["end_date"]) - date.fromisoformat(e["date"])).days,
+        ))
+
+        slot_last_col: dict[int, int] = {}
+        bars = []
+        for event in week_events:
+            e_start = date.fromisoformat(event["date"])
+            e_end = date.fromisoformat(event["end_date"])
+            col_start = max(1, (max(e_start, week_start) - week_start).days + 1)
+            col_end = min(7, (min(e_end, week_end) - week_start).days + 1)
+
+            slot = next((s for s in range(MAX_BAR_SLOTS) if slot_last_col.get(s, 0) < col_start), None)
+            if slot is None:
+                for i in range(col_start - 1, col_end):
+                    days[i]["hidden_count"] += 1
+                continue
+            slot_last_col[slot] = col_end
+            bars.append({"event": event, "col_start": col_start, "col_end": col_end, "slot": slot})
+
+        row_count = max((bar["slot"] for bar in bars), default=-1) + 1
+        weeks.append({"days": days, "bars": bars, "row_count": row_count})
+        cursor += timedelta(days=7)
 
     prev_month, prev_year = (12, year - 1) if month == 1 else (month - 1, year)
     next_month, next_year = (1, year + 1) if month == 12 else (month + 1, year)
@@ -331,9 +378,34 @@ async def get_month_grid(db, year: int | None = None, month: int | None = None) 
         "label": first_of_month.strftime("%B %Y"),
         "weeks": weeks,
         "today": today.isoformat(),
+        "is_current_month": (year, month) == (now.year, now.month),
         "prev": {"year": prev_year, "month": prev_month},
         "next": {"year": next_year, "month": next_month},
     }
+
+
+async def get_day_events(db, date_iso: str) -> list[dict] | None:
+    """None means not connected. Otherwise every event on the given day
+    across all selected calendars, all-day events first then by time."""
+    access_token = await get_valid_access_token(db)
+    if not access_token:
+        return None
+
+    tz = await _get_calendar_timezone(db, access_token)
+    target = date.fromisoformat(date_iso)
+    selected = await get_selected_calendars(db)
+
+    day_start = datetime.combine(target, dtime.min, tzinfo=tz)
+    day_end = datetime.combine(target + timedelta(days=1), dtime.min, tzinfo=tz)
+
+    events = []
+    for cal in selected:
+        cal_events = await fetch_events(access_token, cal["id"], day_start, day_end)
+        for event in cal_events:
+            event["color"] = cal.get("color") or "#D6A02C"
+        events.extend(cal_events)
+    events.sort(key=lambda e: (0 if e["all_day"] else 1, e["sort_key"]))
+    return events
 
 
 async def revoke_and_clear(db):

@@ -47,6 +47,7 @@ async def dashboard(request: Request):
             "profiles": profiles,
             "shopping_items": shopping_items,
             "meal_days": meal_days,
+            "view": "month",
             "calendar_month": calendar_month,
             "today": date.today().isoformat(),
         },

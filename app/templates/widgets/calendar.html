@@ -1,9 +1,11 @@
 <div class="widget-card" id="widget-calendar"
-     {% if calendar_month %}
+     {% if view == 'day' and day_events is not none %}
+     hx-get="/widgets/calendar/day/{{ day_date }}"
+     hx-trigger="every 180s" hx-swap="outerHTML"
+     {% elif view != 'day' and calendar_month is not none %}
      hx-get="/widgets/calendar?year={{ calendar_month.year }}&month={{ calendar_month.month }}"
      hx-trigger="every 180s" hx-swap="outerHTML"
-     {% endif %}
-     x-data="{ selected: '{{ calendar_month.today if calendar_month else '' }}' }">
+     {% endif %}>
   <div class="widget-pin"></div>
   <div class="widget-tab" style="background: var(--system-accent);">
     <svg width="13" height="13" viewBox="0 0 24 24"><rect x="4" y="6" width="16" height="14" rx="3" fill="none" stroke="currentColor" stroke-width="1.8"/><rect x="8" y="3" width="2.2" height="5" rx="1" fill="currentColor"/><rect x="14" y="3" width="2.2" height="5" rx="1" fill="currentColor"/><line x1="4" y1="10" x2="20" y2="10" stroke="currentColor" stroke-width="1.6"/></svg>
@@ -14,7 +16,7 @@
     Calendar
   </div>
   <div class="widget-body">
-    {% if calendar_month is none %}
+    {% if (view == 'day' and day_events is none) or (view != 'day' and calendar_month is none) %}
     <div class="stub-empty">
       <div class="stub-badge">
         <svg width="80" height="80" viewBox="0 0 80 80">
@@ -36,55 +38,75 @@
       <p class="stub-caption">Connect a Google account in Admin to bring your family calendar onto the wall.</p>
       <a href="/admin" class="stub-cta">Connect in Admin →</a>
     </div>
+
+    {% elif view == 'day' %}
+    <div class="cal-day-heading">
+      <button class="cal-back-btn"
+              hx-get="/widgets/calendar?year={{ day_year }}&month={{ day_month }}"
+              hx-target="#widget-calendar" hx-swap="outerHTML">← Back to month</button>
+      <span class="cal-day-title">{{ day_label }}</span>
+    </div>
+    {% if day_events %}
+      {% for event in day_events %}
+      <div class="event-row{{ ' all-day' if event.all_day else '' }}">
+        <span class="event-time" style="color: {{ event.color }};">{{ 'All day' if event.all_day else event.time_label }}</span>
+        <span class="event-title">{{ event.title }}</span>
+      </div>
+      {% endfor %}
+    {% else %}
+    <div class="stub-widget" style="padding: 4px 0; font-size: 0.8rem;">Nothing scheduled.</div>
+    {% endif %}
+
     {% else %}
     <div class="cal-nav">
       <button class="cal-nav-btn"
               hx-get="/widgets/calendar?year={{ calendar_month.prev.year }}&month={{ calendar_month.prev.month }}"
               hx-target="#widget-calendar" hx-swap="outerHTML" aria-label="Previous month">‹</button>
       <span class="cal-month-label">{{ calendar_month.label }}</span>
+      {% if not calendar_month.is_current_month %}
+      <button class="cal-today-btn" hx-get="/widgets/calendar" hx-target="#widget-calendar" hx-swap="outerHTML">Today</button>
+      {% endif %}
       <button class="cal-nav-btn"
               hx-get="/widgets/calendar?year={{ calendar_month.next.year }}&month={{ calendar_month.next.month }}"
               hx-target="#widget-calendar" hx-swap="outerHTML" aria-label="Next month">›</button>
     </div>
     <div class="cal-weekdays">
-      <span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span><span>Su</span>
+      <span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span class="weekend">Sa</span><span class="weekend">Su</span>
     </div>
-    <div class="cal-grid">
-      {% for week in calendar_month.weeks %}
-        {% for day in week %}
-        <div class="cal-day{{ ' other-month' if not day.in_month else '' }}{{ ' today' if day.is_today else '' }}"
-             @click="selected = '{{ day.date }}'">
-          <span class="cal-day-num">{{ day.day }}</span>
-          {% if day.events %}
-          <span class="cal-dots">
-            {% for event in day.events[:3] %}
-            <span class="cal-dot" style="background: {{ event.color }};"></span>
-            {% endfor %}
-            {% if day.events|length > 3 %}<span class="cal-dot-more">+{{ day.events|length - 3 }}</span>{% endif %}
-          </span>
-          {% endif %}
+    {% for week in calendar_month.weeks %}
+    <div class="cal-week">
+      <div class="cal-week-days">
+        {% for day in week.days %}
+        <div class="cal-day-num{{ ' other-month' if not day.in_month else '' }}{{ ' today' if day.is_today else '' }}{{ ' weekend' if day.is_weekend else '' }}"
+             hx-get="/widgets/calendar/day/{{ day.date }}" hx-target="#widget-calendar" hx-swap="outerHTML">
+          {{ day.day }}
         </div>
         {% endfor %}
-      {% endfor %}
-    </div>
-    <div class="cal-day-detail">
-      {% for week in calendar_month.weeks %}
-        {% for day in week %}
-        <div x-show="selected === '{{ day.date }}'" x-cloak>
-          {% if day.events %}
-            {% for event in day.events %}
-            <div class="event-row">
-              <span class="event-time" style="color: {{ event.color }};">{{ 'All day' if event.all_day else event.time_label }}</span>
-              <span class="event-title">{{ event.title }}</span>
-            </div>
-            {% endfor %}
-          {% else %}
-          <div class="cal-day-empty">Nothing scheduled.</div>
-          {% endif %}
+      </div>
+      {% if week.bars %}
+      <div class="cal-week-bars" style="grid-template-rows: repeat({{ week.row_count }}, auto);">
+        {% for bar in week.bars %}
+        <div class="cal-bar{{ ' all-day' if bar.event.all_day else '' }}"
+             style="grid-column: {{ bar.col_start }} / {{ bar.col_end + 1 }}; grid-row: {{ bar.slot + 1 }}; background: {{ bar.event.color }};"
+             hx-get="/widgets/calendar/day/{{ bar.event.date }}" hx-target="#widget-calendar" hx-swap="outerHTML">
+          {% if not bar.event.all_day %}<span class="cal-bar-time">{{ bar.event.time_label }}</span>{% endif %}
+          <span class="cal-bar-title">{{ bar.event.title }}</span>
         </div>
         {% endfor %}
-      {% endfor %}
+      </div>
+      {% endif %}
+      {% if week.days | selectattr('hidden_count', 'gt', 0) | list %}
+      <div class="cal-week-more">
+        {% for day in week.days %}
+        <span class="cal-more{{ '' if day.hidden_count > 0 else ' cal-more-empty' }}"
+              {% if day.hidden_count > 0 %}hx-get="/widgets/calendar/day/{{ day.date }}" hx-target="#widget-calendar" hx-swap="outerHTML"{% endif %}>
+          {% if day.hidden_count > 0 %}+{{ day.hidden_count }} more{% endif %}
+        </span>
+        {% endfor %}
+      </div>
+      {% endif %}
     </div>
+    {% endfor %}
     {% endif %}
   </div>
 </div>

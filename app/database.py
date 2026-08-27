@@ -85,15 +85,17 @@ CREATE TABLE IF NOT EXISTS app_settings (
 );
 """
 
+LAYOUT_VERSION = "2"  # bump + branch init_db's migration when DEFAULT_LAYOUT changes shape
+
 DEFAULT_LAYOUT = [
     # widget_id, x, y, w, h
-    ("calendar", 0, 0, 8, 4),
-    ("tasks", 0, 4, 4, 4),
-    ("shopping", 4, 4, 2, 4),
-    ("meals", 6, 4, 2, 4),
-    ("weather", 8, 0, 2, 2),
-    ("photos", 8, 2, 2, 2),
-    ("homework", 8, 4, 2, 2),
+    ("calendar", 0, 0, 12, 7),
+    ("tasks", 0, 7, 4, 4),
+    ("shopping", 4, 7, 2, 4),
+    ("meals", 6, 7, 2, 4),
+    ("weather", 8, 7, 2, 2),
+    ("photos", 8, 9, 2, 2),
+    ("homework", 10, 7, 2, 4),
 ]
 
 DEFAULT_PROFILES = [
@@ -109,6 +111,7 @@ async def init_db():
     """Create tables (if needed) and seed default data on first run."""
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
         await db.execute("PRAGMA journal_mode=WAL;")
         await db.execute("PRAGMA synchronous=NORMAL;")
         await db.execute("PRAGMA foreign_keys=ON;")
@@ -133,6 +136,23 @@ async def init_db():
                    VALUES (?, ?, ?, ?, ?, 1)""",
                 DEFAULT_LAYOUT,
             )
+
+        # Migration: Calendar became the dashboard's hero widget (Google-style
+        # month grid with event bars + a day view) and needs far more room,
+        # so every widget's default position changed shape. One-time, keyed
+        # on a version flag rather than re-running every boot: wipes the
+        # layout and lets the "seed if empty" block above re-insert the new
+        # DEFAULT_LAYOUT. This intentionally resets any custom drag/resize
+        # positions — unavoidable given how much bigger Calendar needs to be.
+        current_layout_version = await get_setting(db, "layout_version")
+        if current_layout_version != LAYOUT_VERSION:
+            await db.execute("DELETE FROM layout_state")
+            await db.executemany(
+                """INSERT INTO layout_state (widget_id, grid_x, grid_y, grid_w, grid_h, is_visible)
+                   VALUES (?, ?, ?, ?, ?, 1)""",
+                DEFAULT_LAYOUT,
+            )
+            await set_setting(db, "layout_version", LAYOUT_VERSION)
 
         # Migration: the Calendar widget absorbed Upcoming Events (now a
         # month grid instead of two agenda lists) — widen calendar's slot by

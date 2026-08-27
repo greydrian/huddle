@@ -8,6 +8,7 @@ app.google_oauth.get_valid_access_token() returns None.
 
 import secrets
 import time as time_module
+from datetime import date as date_cls
 
 from fastapi import APIRouter, Request, Depends, Form
 from fastapi.responses import RedirectResponse, HTMLResponse
@@ -91,4 +92,26 @@ async def save_selected_calendars(calendar_id: list[str] = Form(default=[])):
 async def calendar_widget(request: Request, year: int | None = None, month: int | None = None):
     async with get_db() as db:
         calendar_month = await google_oauth.get_month_grid(db, year, month)
-    return templates.TemplateResponse(request, "widgets/calendar.html", {"calendar_month": calendar_month})
+    return templates.TemplateResponse(
+        request, "widgets/calendar.html", {"view": "month", "calendar_month": calendar_month}
+    )
+
+
+@router.get("/widgets/calendar/day/{date}", response_class=HTMLResponse)
+async def calendar_day_widget(request: Request, date: str):
+    async with get_db() as db:
+        day_events = await google_oauth.get_day_events(db, date)
+    parsed = date_cls.fromisoformat(date)
+    day_label = parsed.strftime("%A, %d %B").replace(" 0", " ")  # no leading zero, cross-platform
+    return templates.TemplateResponse(
+        request,
+        "widgets/calendar.html",
+        {
+            "view": "day",
+            "day_date": date,
+            "day_year": parsed.year,
+            "day_month": parsed.month,
+            "day_label": day_label,
+            "day_events": day_events,
+        },
+    )
