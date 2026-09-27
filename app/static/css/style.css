@@ -677,6 +677,21 @@ html:has(.admin-shell), html:has(.admin-shell) body { height: auto; overflow-y: 
 .admin-hint { color: var(--ink-soft); font-size: 0.9rem; margin: 6px 0 10px; }
 .admin-shell a:not(.btn):not(.btn-ghost) { color: var(--accent); }
 .admin-shell code { font-size: 0.9em; background: var(--sunken); padding: 1px 5px; border-radius: 5px; }
+.admin-label { display: block; }
+.admin-form-note { align-self: center; }
+.admin-submit { margin-top: 4px; }
+.admin-footnote { margin-top: 14px; }
+
+/* Google Account panel: calendar picker and Task Sync list pickers. */
+.calendar-picker { margin-top: 12px; }
+.calendar-picker .btn { margin-top: 8px; }
+.calendar-swatch {
+  display: inline-block; width: 10px; height: 10px; flex-shrink: 0;
+  border-radius: 50%; background: var(--cal);
+}
+.shopping-list-picker { margin-bottom: 16px; }
+.tasklist-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.tasklist-person { min-width: 130px; }
 
 /* Admin task-schedule day picker — touch-sized toggle chips (checkbox hidden,
    its label is the tap target). */
@@ -691,10 +706,12 @@ html:has(.admin-shell), html:has(.admin-shell) body { height: auto; overflow-y: 
 .day-chip input:checked + span { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
 .day-chip input:focus-visible + span { outline: 2px solid var(--ink); outline-offset: 2px; }
 
-/* Admin task rows: "Edit" is a <details> that expands a pre-filled form
+/* Admin item rows (task schedules, homework, word lists): "Edit" is a <details> that expands a pre-filled form
    onto its own full-width line below the row (no JS). */
-.task-row { flex-wrap: wrap; }
-.task-row-label { flex: 1; min-width: 0; }
+.admin-item { flex-wrap: wrap; }
+/* Like the dashboard rows: no rule under the last one in a group. */
+.admin-item:last-child { border-bottom: none; }
+.admin-item-label { flex: 1; min-width: 0; }
 .task-edit summary {
   list-style: none; display: inline-flex; min-height: 38px; padding: 8px 14px;
   font-size: 0.9rem; background: var(--sunken); color: var(--ink);
@@ -712,7 +729,7 @@ html:has(.admin-shell), html:has(.admin-shell) body { height: auto; overflow-y: 
 .schedule-person h3 { margin: 0; }
 .schedule-person h3 .person-dot { vertical-align: middle; margin-right: 8px; }
 .schedule-person h3 .admin-meta { font-weight: 400; }
-.schedule-person .task-row { padding: 4px 0; }
+.schedule-person .admin-item { padding: 4px 0; }
 .schedule-person .task-edit summary { min-height: 0; padding: 6px 12px; }
 .schedule-person .task-edit .admin-form { margin: 4px 0 6px; }
 .schedule-empty { margin: 2px 0 0; }

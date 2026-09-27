@@ -1,21 +1,17 @@
 {% from "_icons.html" import icon, person_pill %}
+{% from "widgets/_widget.html" import widget_header, tick_button %}
 {% macro task_row(task) %}
 <div class="task-row {{ 'completed' if task.is_completed else '' }}">
   {# Ticking an open task shows the (bouncy) tick first, then the swap folds it away. #}
-  <button class="task-check" aria-label="{{ 'Mark not done' if task.is_completed else 'Mark done' }}"
-          hx-post="/api/tasks/{{ task.id }}/toggle"
-          hx-target="#widget-tasks"
-          {% if task.is_completed %}hx-swap="outerHTML"
-          {% else %}hx-swap="outerHTML swap:450ms"
-          hx-on:click="this.closest('.task-row').classList.add('completed', 'just-ticked')"{% endif %}>{{ icon("check", 20) }}</button>
+  {% call tick_button("/api/tasks/" ~ task.id ~ "/toggle", "#widget-tasks", task.is_completed, "task-check", "completed",
+                      reveal_on=".task-row", aria_label="Mark not done" if task.is_completed else "Mark done") -%}
+    {{ icon("check", 20) }}
+  {%- endcall %}
   <span class="task-title">{{ task.title }}</span>
 </div>
 {% endmacro %}
 <div class="widget-card" id="widget-tasks">
-  <div class="widget-header drag-handle">
-    {{ icon("list-checks", 22, "widget-icon") }}
-    <h2 class="widget-title">Today's Tasks</h2>
-  </div>
+  {{ widget_header("list-checks", "Today's Tasks") }}
   <div class="widget-body">
     {% for profile in profiles %}
     {% set open_tasks = profile.tasks | rejectattr('is_completed') | list %}

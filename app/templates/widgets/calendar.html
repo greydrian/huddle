@@ -1,4 +1,5 @@
 {% from "_icons.html" import icon %}
+{% from "widgets/_widget.html" import widget_header, stub_empty %}
 <div class="widget-card" id="widget-calendar"
      {% if view == 'day' and day_events is not none %}
      hx-get="/widgets/calendar/day/{{ day_date }}"
@@ -8,19 +9,12 @@
      hx-trigger="every 180s" hx-swap="outerHTML"
      {% endif %}>
   {#- One title only: the month (or day) being shown, with its navigation.
-      Only the icon + title are the drag handle: Gridstack swallows every other
-      touch tap on a button inside a handle. -#}
-  <div class="widget-header cal-header">
-    <div class="widget-heading drag-handle">
-      {{ icon("calendar-days", 22, "widget-icon") }}
-      {% if (view == 'day' and day_events is none) or (view != 'day' and calendar_month is none) %}
-      <h2 class="widget-title">Calendar</h2>
-      {% elif view == 'day' %}
-      <h2 class="widget-title">{{ day_label }}</h2>
-      {% else %}
-      <h2 class="widget-title">{{ calendar_month.label }}</h2>
-      {% endif %}
-    </div>
+      Only the icon + title are the drag handle (split=true): Gridstack
+      swallows every other touch tap on a button inside a handle. -#}
+  {% set not_connected = (view == 'day' and day_events is none) or (view != 'day' and calendar_month is none) %}
+  {% call widget_header("calendar-days",
+                        "Calendar" if not_connected else (day_label if view == 'day' else calendar_month.label),
+                        split=true, cls="cal-header") %}
     {% if view == 'day' and day_events is not none %}
     <button class="cal-back-btn"
             hx-get="/widgets/calendar?year={{ day_year }}&month={{ day_month }}"
@@ -38,15 +32,12 @@
               hx-target="#widget-calendar" hx-swap="outerHTML" aria-label="Next month">{{ icon("chevron-right", 24) }}</button>
     </div>
     {% endif %}
-  </div>
+  {% endcall %}
   <div class="widget-body">
-    {% if (view == 'day' and day_events is none) or (view != 'day' and calendar_month is none) %}
-    <div class="stub-empty">
-      <div class="stub-badge">{{ icon("calendar-days", 44) }}</div>
-      <p class="stub-title">Not connected yet</p>
-      <p class="stub-caption">Connect a Google account in Admin to bring your family calendar onto the wall.</p>
-      <a href="/admin" class="stub-cta">Connect in Admin →</a>
-    </div>
+    {% if not_connected %}
+    {{ stub_empty("calendar-days", "Not connected yet",
+                  "Connect a Google account in Admin to bring your family calendar onto the wall.",
+                  cta_href="/admin", cta_label="Connect in Admin →", compact=false, icon_size=44) }}
 
     {% elif view == 'day' %}
     {% if day_offline %}<p class="cal-offline">Couldn't reach Google — some events may be missing.</p>{% endif %}

@@ -5,10 +5,11 @@ profiles, task schedules, and (eventually) Google account connections.
 """
 
 import json
+import re
 from datetime import datetime, timedelta, timezone
 
 import httpx
-from fastapi import APIRouter, Depends, Form, HTTPException, Request
+from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app import appearance, google_oauth, google_tasks, recurrence, task_sync
@@ -23,6 +24,37 @@ from app.templating import templates
 __all__ = ["SESSION_COOKIE", "require_admin", "router"]
 
 router = APIRouter(prefix="/admin")
+
+# A form that can't be saved redirects back to its Admin section with
+# ?error=<code> (like ?weather_error=), and the page shows that section's
+# message. Only these fixed messages are shown, never text from the URL.
+ADMIN_ERRORS = {
+    "task-missing": ("tasks", "That task no longer exists. It may have been deleted in Google Tasks."),
+    "task-unknown-person": ("tasks", "That family member no longer exists."),
+    "task-no-list": ("tasks", "That family member has no Google list linked yet, so the task can't move to "
+                              "them. Link one under Google Account → Task Sync first."),
+    "homework-missing": ("homework", "That homework no longer exists. It may have just been deleted."),
+    "words-missing": ("practice-words", "That word list no longer exists. It may have just been deleted."),
+    "handwriting-style": ("practice-words", "Pick one of the handwriting styles."),
+    "appearance": ("display", "Pick one of the appearance options."),
+    "pin-invalid": ("pin", "A PIN must be 4 to 8 digits, numbers only. Your PIN hasn't changed."),
+}
+
+# The login form only takes digits (inputmode=numeric, maxlength=8), so a PIN
+# it can't type would lock the family out of Admin.
+PIN_PATTERN = re.compile(r"[0-9]{4,8}")
+
+
+def _admin_error(code: str) -> RedirectResponse:
+    section, _ = ADMIN_ERRORS[code]
+    return RedirectResponse(url=f"/admin?error={code}#{section}", status_code=303)
+
+
+def _form_error(code: str | None) -> dict | None:
+    if code not in ADMIN_ERRORS:
+        return None
+    section, message = ADMIN_ERRORS[code]
+    return {"section": section, "message": message}
 
 
 def _parse_utc(value: str) -> datetime:
@@ -86,13 +118,14 @@ async def logout():
 
 
 @router.get("", response_class=HTMLResponse, dependencies=[Depends(require_admin)])
-async def admin_home(request: Request, weather_error: str | None = None):
-    return await _render_admin(request, weather_error=weather_error)
+async def admin_home(request: Request, weather_error: str | None = None, error: str | None = None):
+    return await _render_admin(request, weather_error=weather_error, error=error)
 
 
 async def _render_admin(
     request: Request,
     weather_error: str | None = None,
+    error: str | None = None,
     homework_error: str | None = None,
     words_error: str | None = None,
     homework_form: dict | None = None,
@@ -162,6 +195,7 @@ async def _render_admin(
             "shopping_tasklist": shopping_tasklist,
             "weather_location": weather_location,
             "weather_error": weather_error,
+            "form_error": _form_error(error),
             "homework_items": homework_items,
             "finished_homework": finished_homework,
             "homework_form": homework_form,
@@ -174,6 +208,7 @@ async def _render_admin(
             "appearance": mode,
             "appearance_setting": current_appearance,
             "appearances": appearance.APPEARANCES,
+            "weekdays": recurrence.WEEKDAYS,
         },
         status_code=status_code,
     )
@@ -222,7 +257,7 @@ async def edit_task(
             "SELECT profile_id FROM tasks WHERE id = ? AND archived = 0", (task_id,)
         )).fetchone()
         if task is None:
-            raise HTTPException(status_code=404, detail="Task not found")
+            return _admin_error("task-missing")
         if profile_id == task["profile_id"]:
             # The schedule is local-only (never pushed, never reconciled), so
             # don't bump updated_at or queue a push: that would overwrite a
@@ -236,10 +271,10 @@ async def edit_task(
                 "SELECT google_tasklist_id FROM profiles WHERE id = ?", (profile_id,)
             )).fetchone()
             if target is None:
-                raise HTTPException(status_code=400, detail="Unknown family member")
+                return _admin_error("task-unknown-person")
             if not target["google_tasklist_id"]:
                 # Its Google copy would be deleted, leaving a task nothing can rename or remove.
-                raise HTTPException(status_code=400, detail="That family member has no Google list linked")
+                return _admin_error("task-no-list")
             await task_sync.detach_from_profile_list(db, task_id)
             await db.execute(
                 """UPDATE tasks SET profile_id = ?, is_recurring = ?, recurrence_rule = ?,
@@ -290,7 +325,7 @@ async def edit_homework(
 ):
     async with get_db() as db:
         if not await (await db.execute("SELECT 1 FROM homework WHERE id = ?", (homework_id,))).fetchone():
-            raise HTTPException(status_code=404, detail="Homework not found")
+            return _admin_error("homework-missing")
         try:
             fields = await homework.homework_fields(db, profile_id, subject, title, details, due_date)
         except homework.ValidationError as exc:
@@ -365,7 +400,7 @@ async def edit_word_list(
 ):
     async with get_db() as db:
         if not await (await db.execute("SELECT 1 FROM practice_word_lists WHERE id = ?", (list_id,))).fetchone():
-            raise HTTPException(status_code=404, detail="Word list not found")
+            return _admin_error("words-missing")
         try:
             fields = await homework.word_list_fields(db, profile_id, title, words, starts_on, ends_on)
         except homework.ValidationError as exc:
@@ -405,7 +440,7 @@ async def delete_word_list(list_id: int):
 @router.post("/handwriting-style", dependencies=[Depends(require_admin)])
 async def save_handwriting_style(style: str = Form("")):
     if style not in homework.HANDWRITING_STYLES:
-        raise HTTPException(status_code=400, detail="Unknown handwriting style")
+        return _admin_error("handwriting-style")
     async with get_db() as db:
         await set_setting(db, homework.HANDWRITING_SETTING, style)
         await db.commit()
@@ -476,7 +511,7 @@ async def save_onscreen_keyboard(enabled: bool = Form(False)):
 @router.post("/appearance", dependencies=[Depends(require_admin)])
 async def save_appearance(value: str = Form("")):
     if value not in appearance.APPEARANCES:
-        raise HTTPException(status_code=400, detail="Unknown appearance")
+        return _admin_error("appearance")
     async with get_db() as db:
         await appearance.set_appearance(db, value)
     return RedirectResponse(url="/admin#display", status_code=303)
@@ -486,6 +521,8 @@ async def save_appearance(value: str = Form("")):
 
 @router.post("/change-pin", dependencies=[Depends(require_admin)])
 async def change_pin(new_pin: str = Form(...)):
+    if not PIN_PATTERN.fullmatch(new_pin):
+        return _admin_error("pin-invalid")
     async with get_db() as db:
         await set_setting(db, "pin_hash", hash_pin(new_pin))
         await db.commit()

@@ -1,0 +1,56 @@
+{#- Shared building blocks for the widget templates.
+    Usage: {% from "widgets/_widget.html" import widget_header, stub_empty, tick_button %} -#}
+{% from "_icons.html" import icon %}
+
+{#- The widget's one header, which is also its one Gridstack .drag-handle
+    (tests/test_dashboard_scroll.py). Keep controls out of the handle —
+    Gridstack swallows touch taps on them:
+    - {% call widget_header(...) %} puts static extras (e.g. the weather place)
+      inside the handle, after the title;
+    - with split=true only the icon + title are the handle, and the caller's
+      content (e.g. the calendar's nav buttons) sits beside it. -#}
+{% macro widget_header(icon_name, title, split=false, cls="") -%}
+{% if split %}
+<div class="widget-header{{ ' ' ~ cls if cls else '' }}">
+  <div class="widget-heading drag-handle">
+    {{ icon(icon_name, 22, "widget-icon") }}
+    <h2 class="widget-title">{{ title }}</h2>
+  </div>
+  {% if caller %}{{ caller() }}{% endif %}
+</div>
+{% else %}
+<div class="widget-header drag-handle{{ ' ' ~ cls if cls else '' }}">
+  {{ icon(icon_name, 22, "widget-icon") }}
+  <h2 class="widget-title">{{ title }}</h2>
+  {% if caller %}{{ caller() }}{% endif %}
+</div>
+{% endif %}
+{%- endmacro %}
+
+{#- The not-connected / nothing-here block. {% call stub_empty(...) %} replaces
+    the badge's Lucide icon with the caller's content. -#}
+{% macro stub_empty(icon_name=none, title=none, caption=none, cta_href=none, cta_label=none,
+                    compact=true, icon_size=30) -%}
+<div class="stub-empty{{ ' compact' if compact else '' }}">
+  <div class="stub-badge">{% if caller %}{{ caller() }}{% else %}{{ icon(icon_name, icon_size) }}{% endif %}</div>
+  {% if title %}<p class="stub-title">{{ title }}</p>{% endif %}
+  {% if caption %}<p class="stub-caption">{{ caption }}</p>{% endif %}
+  {% if cta_href %}<a href="{{ cta_href }}" class="stub-cta">{{ cta_label }}</a>{% endif %}
+</div>
+{%- endmacro %}
+
+{#- A kiosk tick toggle that re-renders its widget. Ticking (not unticking)
+    shows the done state straight away (+ .just-ticked for the bouncy tick)
+    and holds the swap 450ms so the animation plays before the re-render.
+    `done_class` goes on the button itself, or on its closest `reveal_on`
+    ancestor. The caller's content is the button's inside. -#}
+{% macro tick_button(url, target, done, cls, done_class, reveal_on=none, aria_label=none, pressed=false) -%}
+<button type="button" class="{{ cls }}"
+        {%- if aria_label %} aria-label="{{ aria_label }}"{% endif %}
+        {%- if pressed %} aria-pressed="{{ 'true' if done else 'false' }}"{% endif %}
+        hx-post="{{ url }}"
+        hx-target="{{ target }}"
+        {% if done %}hx-swap="outerHTML"
+        {% else %}hx-swap="outerHTML swap:450ms"
+        hx-on:click="{% if reveal_on %}this.closest('{{ reveal_on }}'){% else %}this{% endif %}.classList.add('{{ done_class }}', 'just-ticked')"{% endif %}>{{ caller() }}</button>
+{%- endmacro %}
