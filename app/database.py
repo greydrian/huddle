@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS profiles (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
     colour_hex TEXT NOT NULL,
-    avatar_path TEXT,
+    avatar_path TEXT,  -- reserved/unused: nothing reads it (kept for the live DB)
     sort_order INTEGER NOT NULL DEFAULT 0,
     google_tasklist_id TEXT
 );
@@ -66,7 +66,7 @@ CREATE TABLE IF NOT EXISTS layout_state (
     grid_w INTEGER NOT NULL,
     grid_h INTEGER NOT NULL,
     is_visible INTEGER NOT NULL DEFAULT 1,
-    config_json TEXT
+    config_json TEXT  -- reserved/unused: nothing reads it (kept for the live DB)
 );
 
 CREATE TABLE IF NOT EXISTS sync_queue (
@@ -81,7 +81,7 @@ CREATE TABLE IF NOT EXISTS auth_tokens (
     service_name TEXT PRIMARY KEY,
     account_email TEXT,
     encrypted_token_json TEXT,
-    sync_token TEXT
+    sync_token TEXT  -- reserved/unused: nothing reads it (kept for the live DB)
 );
 
 -- Homework and handwriting practice words (Admin-entered for now; `source`
@@ -323,6 +323,9 @@ async def get_db():
     # SQLite's foreign_keys pragma is per-connection, not per-database —
     # without this, ON DELETE CASCADE (profiles -> tasks) silently does nothing.
     await db.execute("PRAGMA foreign_keys=ON;")
+    # Also per-connection: WAL + NORMAL is the durability the spec intends
+    # (init_db sets it too, but only on its own connection).
+    await db.execute("PRAGMA synchronous=NORMAL;")
     try:
         yield db
     finally:
