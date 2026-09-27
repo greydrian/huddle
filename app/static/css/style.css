@@ -578,6 +578,22 @@ html, body {
 .day-chip input:checked + span { background: var(--system-accent); border-color: var(--system-accent); color: var(--wall); font-weight: 600; }
 .day-chip input:focus-visible + span { outline: 2px solid var(--ink); outline-offset: 2px; }
 
+/* Admin task rows: "Edit" is a <details> that expands a pre-filled form
+   onto its own full-width line below the row (no JS). */
+.task-row { flex-wrap: wrap; gap: 8px; }
+.task-row-label { flex: 1; min-width: 0; }
+.task-edit summary {
+  list-style: none; display: inline-block; min-height: 36px; padding: 8px 14px;
+  font-size: 0.85rem; background: var(--paper-shade); color: var(--ink);
+  border: 1.5px solid rgba(43,36,32,0.2);
+}
+.task-edit summary::-webkit-details-marker { display: none; }
+.task-edit .task-edit-close, .task-edit[open] .task-edit-open { display: none; }
+.task-edit[open] .task-edit-close { display: inline; }
+.task-edit[open] { order: 3; flex-basis: 100%; }
+.task-edit .admin-form { margin-top: 8px; }
+.task-edit .admin-form input[type="text"] { flex: 1; min-width: 160px; }
+
 /* Quiet outline button for the topbar — sits next to the ochre
    notification pill without competing with it for attention. */
 .btn-ghost {

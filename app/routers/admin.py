@@ -111,6 +111,9 @@ async def admin_home(request: Request):
         )).fetchall()]
         for task in tasks:
             task["schedule"] = recurrence.describe(task["recurrence_rule"]) if task["is_recurring"] else None
+            # Day chips to pre-tick in the edit form; empty = every day (or one-off).
+            days = recurrence.parse_rule(task["recurrence_rule"]) if task["is_recurring"] else None
+            task["days"] = [recurrence.WEEKDAYS[i] for i in sorted(days)] if days else []
         google_account = await google_oauth.get_connected_account(db)
 
         available_calendars = []
@@ -204,6 +207,39 @@ async def add_task(
             (profile_id, title.strip(), int(recurring), rule),
         )
         await _queue_sync(db, "tasks", {"task_id": cursor.lastrowid})
+        await db.commit()
+    return RedirectResponse(url="/admin", status_code=303)
+
+
+@router.post("/tasks/{task_id}/edit", dependencies=[Depends(require_admin)])
+async def edit_task(
+    task_id: int,
+    profile_id: int = Form(...),
+    title: str = Form(...),
+    is_recurring: bool = Form(False),
+    days: list[str] = Form(default=[]),
+):
+    title = title.strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="Task title can't be blank")
+    recurring = is_recurring or bool(days)
+    rule = recurrence.normalize_rule(days) if recurring else None
+    async with get_db() as db:
+        task = await (await db.execute(
+            "SELECT profile_id FROM tasks WHERE id = ? AND archived = 0", (task_id,)
+        )).fetchone()
+        if task is None:
+            raise HTTPException(status_code=404, detail="Task not found")
+        if not await (await db.execute("SELECT 1 FROM profiles WHERE id = ?", (profile_id,))).fetchone():
+            raise HTTPException(status_code=400, detail="Unknown family member")
+        if profile_id != task["profile_id"]:
+            await task_sync.detach_from_profile_list(db, task_id)
+        await db.execute(
+            """UPDATE tasks SET profile_id = ?, title = ?, is_recurring = ?, recurrence_rule = ?,
+                   updated_at = datetime('now') WHERE id = ?""",
+            (profile_id, title, int(recurring), rule, task_id),
+        )
+        await _queue_sync(db, "tasks", {"task_id": task_id})
         await db.commit()
     return RedirectResponse(url="/admin", status_code=303)
 

@@ -93,6 +93,26 @@ async def relink_profile(db, profile_id: int):
     await db.commit()
 
 
+async def detach_from_profile_list(db, task_id: int):
+    """A task is moving to another family member: its Google copy lives on
+    the old member's list. Queue that copy's delete (carrying the old list id,
+    since the task row will no longer point there) and forget the Google id,
+    so the task's next push inserts it into the new member's list. Call before
+    changing profile_id; the caller queues the task and commits."""
+    row = await (await db.execute(
+        """SELECT tasks.google_task_id, profiles.google_tasklist_id FROM tasks
+           LEFT JOIN profiles ON profiles.id = tasks.profile_id WHERE tasks.id = ?""",
+        (task_id,),
+    )).fetchone()
+    if row is None or not row["google_task_id"]:
+        return
+    if row["google_tasklist_id"]:
+        await _queue(db, "tasks", {
+            "action": "delete", "tasklist_id": row["google_tasklist_id"], "google_task_id": row["google_task_id"],
+        })
+    await db.execute("UPDATE tasks SET google_task_id = NULL WHERE id = ?", (task_id,))
+
+
 # --- Push: local mutation -> Google -------------------------------------
 
 async def _push_shopping_change(db, access_token: str, payload: dict):
@@ -124,6 +144,11 @@ async def _push_shopping_change(db, access_token: str, payload: dict):
 
 
 async def _push_task_change(db, access_token: str, payload: dict):
+    if payload.get("action") == "delete":
+        # A Google copy left behind on a list the task no longer belongs to.
+        await google_tasks.delete_task(access_token, payload["tasklist_id"], payload["google_task_id"])
+        return
+
     task_id = payload.get("task_id")
     task = await (await db.execute("SELECT * FROM tasks WHERE id = ?", (task_id,))).fetchone()
     if task is None:
