@@ -361,14 +361,14 @@ body:has(> .dashboard-scroll) > .topbar { flex-shrink: 0; }
 }
 .shopping-add-form { display: flex; gap: 8px; margin-top: 12px; }
 .shopping-add-form input {
-  flex: 1; min-width: 0; padding: 10px 12px;
+  flex: 1; min-width: 0; padding: 10px 8px;
   border-radius: var(--radius-control); border: 1px solid var(--line);
   background: var(--sunken); font-size: 1rem;
 }
 .shopping-add-form input::placeholder, .meal-desc-input::placeholder { color: var(--ink-soft); opacity: 1; }
 .shopping-add-form button {
   background: var(--accent); color: var(--on-accent); border: none;
-  border-radius: var(--radius-control); padding: 0 14px;
+  border-radius: var(--radius-control); padding: 0 12px;
   font-size: 1rem; font-weight: 600; cursor: pointer;
 }
 
