@@ -49,19 +49,16 @@
 }
 .hw-item.done .hw-check { background: var(--success); border-color: var(--success); color: var(--paper); animation: check-pop 0.28s ease; }
 .hw-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.hw-title { font-size: 0.9rem; line-height: 1.3; overflow-wrap: anywhere; }
+.hw-title { font-size: 0.9rem; line-height: 1.3; overflow-wrap: break-word; }
 .hw-subject { font-weight: 700; }
-.hw-details { font-size: 0.75rem; color: var(--ink-soft); overflow-wrap: anywhere; }
+.hw-details { font-size: 0.75rem; color: var(--ink-soft); overflow-wrap: break-word; }
 .hw-item.done .hw-title, .hw-item.done .hw-details { text-decoration: line-through; color: var(--ink-soft); }
 .hw-due {
-  flex-shrink: 0;
   font-size: 0.68rem;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.03em;
   color: var(--ink-soft);
-  padding-top: 4px;
-  white-space: nowrap;
 }
 .hw-item.due-soon .hw-due { color: var(--system-accent-dark); }
 .hw-item.overdue .hw-due { color: var(--danger); }
@@ -70,12 +67,12 @@
 .pw-body { padding: 2px 14px 14px; }
 .pw-list { padding: 6px 0 12px; border-bottom: 1px dashed rgba(43,36,32,0.15); margin-bottom: 8px; }
 .pw-list:last-child { border-bottom: none; margin-bottom: 0; }
-.pw-list-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.pw-list-head { display: flex; align-items: center; gap: 6px 12px; flex-wrap: wrap; }
 .pw-list-head .task-group-name { margin-bottom: 0; }
-.pw-list-title { font-size: 0.75rem; color: var(--ink-soft); min-width: 0; overflow-wrap: anywhere; }
+.pw-list-title { flex: 1; font-size: 0.75rem; color: var(--ink-soft); min-width: 0; overflow-wrap: break-word; }
 .pw-words {
   list-style: none;
-  margin: 6px 0 10px;
+  margin: 4px 0 0;
   padding: 0;
   display: flex;
   flex-wrap: wrap;
@@ -84,7 +81,7 @@
   line-height: 1.9;
   color: var(--ink);
 }
-.pw-words li { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
+.pw-words li { min-width: 0; max-width: 100%; overflow-wrap: break-word; }
 .pw-words.hand-plain { font-size: 2.1rem; line-height: 1.5; }
 .pw-practised {
   display: inline-flex;

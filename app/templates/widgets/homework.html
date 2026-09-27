@@ -26,8 +26,8 @@
         <span class="hw-text">
           <span class="hw-title">{% if hw.subject %}<span class="hw-subject">{{ hw.subject }}</span> {% endif %}{{ hw.title }}</span>
           {% if hw.details %}<span class="hw-details">{{ hw.details }}</span>{% endif %}
+          {% if hw.label %}<span class="hw-due">{{ hw.label }}</span>{% endif %}
         </span>
-        {% if hw.label %}<span class="hw-due">{{ hw.label }}</span>{% endif %}
       </button>
       {% endfor %}
     </div>

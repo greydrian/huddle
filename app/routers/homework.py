@@ -1,5 +1,5 @@
 """
-Homework and handwriting practice words (Section 4.5, phase 1: entered in
+Homework and handwriting practice words (phase 1: entered by hand in
 Admin). Ticking homework done and marking a word list "practised today"
 are PIN-free kiosk taps, like tasks; nothing here is synced to Google and
 there are no points or rewards.
@@ -134,8 +134,8 @@ async def get_homework_groups(db) -> list[dict]:
         if not is_visible(item, today):
             continue
         due = date.fromisoformat(item["due_date"]) if item["due_date"] else None
-        item["label"] = due_label(due, today)
         item["overdue"] = bool(due and due < today and not item["done"])
+        item["label"] = None if item["done"] and due and due < today else due_label(due, today)
         item["due_soon"] = bool(due and 0 <= (due - today).days <= 1 and not item["done"])
         items.append(item)
     groups = []

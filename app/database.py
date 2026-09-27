@@ -138,7 +138,7 @@ DEFAULT_LAYOUT = [
     ("weather", 8, 7, 2, 2),
     ("photos", 8, 9, 2, 2),
     ("homework", 10, 7, 2, 4),
-    ("practice_words", 0, 11, 6, 3),
+    ("practice_words", 0, 11, 6, 4),
 ]
 
 DEFAULT_PROFILES = [

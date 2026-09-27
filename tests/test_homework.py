@@ -74,7 +74,7 @@ async def test_init_db_is_idempotent(db):
 
 async def test_fresh_install_gets_default_layout(db):
     layout = await _layout(db)
-    assert layout["practice_words"] == (0, 11, 6, 3)
+    assert layout["practice_words"] == (0, 11, 6, 4)
     assert layout["homework"] == (10, 7, 2, 4)
 
 
@@ -94,7 +94,7 @@ async def test_existing_layout_is_kept_and_new_widget_added_below(db):
     new = after.pop("practice_words")
     assert after == before
     assert after["homework"] == (0, 14, 3, 5)
-    assert new == (0, 19, 6, 3)  # below the lowest widget (homework ends at 14 + 5)
+    assert new == (0, 19, 6, 4)  # below the lowest widget (homework ends at 14 + 5)
     assert await database.get_setting(db, "layout_version") == database.LAYOUT_VERSION
 
 
@@ -148,7 +148,7 @@ async def test_done_items_drop_off_after_their_day(db, today):
         "Due today, done", "Due later, done early", "Overdue, done today", "Undated, done today", "Still overdue",
     }
     done_overdue = next(h for h in groups[0]["homework"] if h["title"] == "Overdue, done today")
-    assert not done_overdue["overdue"]
+    assert not done_overdue["overdue"] and done_overdue["label"] is None
 
 
 async def test_toggle_homework(db, client, today):

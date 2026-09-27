@@ -17,19 +17,19 @@
           {{ wl.profile_name }}
         </span>
         <span class="pw-list-title">{{ wl.title }}</span>
+        <button type="button"
+                class="pw-practised{{ ' on' if wl.practised_today else '' }}"
+                aria-pressed="{{ 'true' if wl.practised_today else 'false' }}"
+                hx-post="/api/practice-words/{{ wl.id }}/practised"
+                hx-target="#widget-practice_words"
+                hx-swap="outerHTML">
+          <span class="pw-tick" aria-hidden="true">✓</span>
+          {{ 'Practised today' if wl.practised_today else 'Practised today?' }}
+        </button>
       </div>
       <ul class="pw-words hand-{{ handwriting_style }}">
         {% for word in wl.word_items %}<li>{{ word }}</li>{% endfor %}
       </ul>
-      <button type="button"
-              class="pw-practised{{ ' on' if wl.practised_today else '' }}"
-              aria-pressed="{{ 'true' if wl.practised_today else 'false' }}"
-              hx-post="/api/practice-words/{{ wl.id }}/practised"
-              hx-target="#widget-practice_words"
-              hx-swap="outerHTML">
-        <span class="pw-tick" aria-hidden="true">✓</span>
-        {{ 'Practised today' if wl.practised_today else 'Practised today?' }}
-      </button>
     </section>
     {% else %}
     <div class="stub-empty compact">
