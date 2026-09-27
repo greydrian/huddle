@@ -4,13 +4,14 @@
   <link rel="stylesheet" href="/static/css/homework.css">{% with part = "head" %}{% include "_keyboard_assets.html" %}{% endwith %}{% endblock %}
 
 {% block content %}
+{% from "_icons.html" import icon %}
 <div class="topbar">
   <div class="today">
-    <span class="signature">Today</span> —
+    <span class="signature">Today</span>
     <span id="today-date" data-iso="{{ today }}"></span>
   </div>
   <div id="notification-banner" class="notification-banner"></div>
-  <a href="/admin" class="btn-ghost">Admin</a>
+  <a href="/admin" class="btn-ghost">{{ icon("settings", 20) }}Admin</a>
 </div>
 
 {# The scroller is its own element: Gridstack sizes #dashboard-grid with an

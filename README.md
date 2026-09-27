@@ -22,9 +22,11 @@ cloud component).
 - **Admin**: PIN-protected (default PIN is **1234** — change it immediately under
   Admin → Change Admin PIN), with exponential backoff on failed attempts,
   family member management, task management
-- **Design system**: self-hosted fonts (Fraunces/Inter/JetBrains Mono, no
-  external font CDN — this is fully offline-capable), warm "kitchen
-  noticeboard" visual language with per-person colour tabs on each widget
+- **Design system**: "Calm modern" — light rounded cards by day, a low-glare
+  night palette from 19:00 to 07:00 in the family's timezone (Admin →
+  Appearance can pin it light or dark), solid per-person colour name pills.
+  Self-hosted Figtree + Playwrite fonts, Lucide and Meteocons icons (no CDN —
+  fully offline-capable)
 
 ## What's stubbed (next build phase)
 
@@ -179,7 +181,8 @@ app/
     css/style.css      Design system (fonts, palette, widget styling)
     css/keyboard.css   On-screen keyboard styling (loaded only when enabled)
     js/keyboard.js     On-screen keyboard behaviour (loaded only when enabled)
-    fonts/             Self-hosted Fraunces/Inter/JetBrains Mono (woff2)
+    fonts/             Self-hosted Figtree (UI) + Playwrite (handwriting), OFL
+    icons/             Lucide sprite (ISC) + Meteocons weather (MIT)
     vendor/            Pinned HTMX 2.0.10, Alpine 3.16.3, Gridstack 13.2.0,
                        simple-keyboard 3.8.192
 data/                  SQLite DB + secret key — local dev only; in Docker this

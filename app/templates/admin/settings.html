@@ -3,12 +3,13 @@
 {% block head %}
   <link rel="stylesheet" href="/static/css/homework.css">{% with part = "head" %}{% include "_keyboard_assets.html" %}{% endwith %}{% endblock %}
 {% block content %}
+{% from "_icons.html" import icon, person_avatar %}
 <div class="admin-shell">
-  <div style="display:flex; justify-content:space-between; align-items:center;">
+  <div class="admin-topbar">
     <h1>Admin</h1>
-    <div>
-      <a href="/" class="btn" style="text-decoration:none; margin-right:8px;">← Dashboard</a>
-      <form method="post" action="/admin/logout" style="display:inline;">
+    <div class="admin-topbar-actions">
+      <a href="/" class="btn btn-quiet">{{ icon("arrow-left", 20) }}Dashboard</a>
+      <form method="post" action="/admin/logout">
         <button type="submit" class="btn btn-danger">Log out</button>
       </form>
     </div>
@@ -19,9 +20,9 @@
     <h2>Family Members</h2>
     {% for p in profiles %}
     <div class="admin-row">
-      <span><span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:{{ p.colour_hex }};margin-right:8px;"></span>{{ p.name }}</span>
+      <span class="admin-person">{{ person_avatar(p.name, p.colour_hex) }}{{ p.name }}</span>
       <form method="post" action="/admin/profiles/{{ p.id }}/delete">
-        <button type="submit" class="btn btn-danger" style="padding:4px 10px;font-size:0.8rem;">Remove</button>
+        <button type="submit" class="btn btn-danger btn-small">Remove</button>
       </form>
     </div>
     {% endfor %}
@@ -40,7 +41,7 @@
     {% for p in profiles %}
     {% set person_tasks = tasks | selectattr("profile_id", "equalto", p.id) | list %}
     <div class="schedule-person">
-      <h3>{{ p.name }}{% if not p.google_tasklist_id %} <span class="admin-meta">· {% if person_tasks %}These stay on this display only until a Google list is linked below (Google Account → Task Sync){% else %}Link a Google list under Google Account → Task Sync below to give them tasks{% endif %}</span>{% endif %}</h3>
+      <h3>{{ person_avatar(p.name, p.colour_hex) }}{{ p.name }}{% if not p.google_tasklist_id %} <span class="admin-meta">· {% if person_tasks %}These stay on this display only until a Google list is linked below (Google Account → Task Sync){% else %}Link a Google list under Google Account → Task Sync below to give them tasks{% endif %}</span>{% endif %}</h3>
       {% for t in person_tasks %}
       <div class="admin-row task-row">
         <span class="task-row-label">{{ t.title }} <span class="admin-meta">· {{ 'repeats ' ~ t.schedule if t.schedule else 'one-off' }}</span></span>
@@ -48,15 +49,15 @@
           <summary class="btn"><span class="task-edit-open">Schedule</span><span class="task-edit-close">Cancel</span></summary>
           <form class="admin-form" method="post" action="/admin/tasks/{{ t.id }}/edit">
             <div class="day-picker" role="group" aria-label="Repeats on">
-              <label style="display:flex;align-items:center;gap:4px;font-size:0.85rem;">
+              <label class="admin-check">
                 <input type="checkbox" name="is_recurring" value="true" {{ 'checked' if t.is_recurring and not t.days else '' }}> Every day
               </label>
-              <span style="font-size:0.85rem;color:var(--ink-soft);">or only:</span>
+              <span class="admin-meta">or only:</span>
               {% for d in ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] %}
               <label class="day-chip"><input type="checkbox" name="days" value="{{ d }}" {{ 'checked' if d in t.days else '' }}><span>{{ d }}</span></label>
               {% endfor %}
             </div>
-            <label style="display:flex;align-items:center;gap:6px;font-size:0.85rem;">Person
+            <label class="admin-check">Person
               <select name="profile_id" required aria-label="Person">
                 {#- Moving a task to someone with no Google list would delete its Google copy. -#}
                 {% for op in profiles %}{% if op.id == t.profile_id %}<option value="{{ op.id }}" selected>{{ op.name }}</option>
@@ -99,10 +100,10 @@
       </form>
     </details>
     <form method="post" action="/admin/homework/{{ h.id }}/archive">
-      <button type="submit" class="btn" style="padding:4px 10px;font-size:0.8rem;">{{ 'Restore' if h.archived else 'Archive' }}</button>
+      <button type="submit" class="btn btn-quiet btn-small">{{ 'Restore' if h.archived else 'Archive' }}</button>
     </form>
     <form method="post" action="/admin/homework/{{ h.id }}/delete">
-      <button type="submit" class="btn btn-danger" style="padding:4px 10px;font-size:0.8rem;">Delete</button>
+      <button type="submit" class="btn btn-danger btn-small">Delete</button>
     </form>
   </div>
   {% endmacro %}
@@ -157,10 +158,10 @@
         </form>
       </details>
       <form method="post" action="/admin/practice-words/{{ wl.id }}/archive">
-        <button type="submit" class="btn" style="padding:4px 10px;font-size:0.8rem;">{{ 'Restore' if wl.archived else 'Archive' }}</button>
+        <button type="submit" class="btn btn-quiet btn-small">{{ 'Restore' if wl.archived else 'Archive' }}</button>
       </form>
       <form method="post" action="/admin/practice-words/{{ wl.id }}/delete">
-        <button type="submit" class="btn btn-danger" style="padding:4px 10px;font-size:0.8rem;">Delete</button>
+        <button type="submit" class="btn btn-danger btn-small">Delete</button>
       </form>
     </div>
     {% else %}
@@ -177,8 +178,8 @@
       <button type="submit" class="btn">Add word list</button>
     </form>
 
-    <form method="post" action="/admin/handwriting-style" style="margin-top:16px; padding-top:12px; border-top:1px solid rgba(43,36,32,0.1);">
-      <h3 style="margin:0 0 6px; font-size:1rem;">Handwriting style</h3>
+    <form method="post" action="/admin/handwriting-style" class="admin-subsection">
+      <h3>Handwriting style</h3>
       {% for value, label in handwriting_styles.items() %}
       <label class="hand-option">
         <input type="radio" name="style" value="{{ value }}" {{ 'checked' if value == handwriting_style else '' }}>
@@ -186,7 +187,7 @@
         <span class="hand-sample hand-{{ value }}">little</span>
       </label>
       {% endfor %}
-      <button type="submit" class="btn" style="margin-top:4px;padding:6px 14px;font-size:0.85rem;">Save</button>
+      <button type="submit" class="btn btn-small" style="margin-top:4px;">Save</button>
     </form>
   </div>
 
@@ -197,16 +198,14 @@
     <div class="admin-row">
       <span>Connected as <strong>{{ google_account }}</strong> — Calendar (read-only) + Tasks</span>
       <form method="post" action="/admin/google/disconnect">
-        <button type="submit" class="btn btn-danger" style="padding:4px 10px;font-size:0.8rem;">Disconnect</button>
+        <button type="submit" class="btn btn-danger btn-small">Disconnect</button>
       </form>
     </div>
     {% if available_calendars %}
     <form method="post" action="/admin/google/calendars" style="margin-top:12px;">
-      <p style="color: var(--ink-soft); font-size: 0.85rem; margin-bottom: 6px;">
-        Calendars shown on the dashboard:
-      </p>
+      <p class="admin-hint">Calendars shown on the dashboard:</p>
       {% for cal in available_calendars %}
-      <label style="display:flex; align-items:center; gap:8px; padding:5px 0; font-size:0.9rem;">
+      <label class="admin-check">
         <input type="checkbox" name="calendar_id" value="{{ cal.id }}"
                {{ 'checked' if cal.id in selected_calendar_ids else '' }}>
         <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:{{ cal.color }};flex-shrink:0;"></span>
@@ -217,32 +216,32 @@
     </form>
     {% endif %}
     {% elif google_configured %}
-    <p style="color: var(--ink-soft); font-size: 0.9rem;">
+    <p class="admin-hint">
       Connect a Google account to bring your family calendar onto the dashboard.
     </p>
-    <a href="/admin/google/connect" class="btn" style="text-decoration:none;">Connect Google Account</a>
+    <a href="/admin/google/connect" class="btn">Connect Google Account</a>
     {% else %}
-    <p style="color: var(--ink-soft); font-size: 0.9rem;">
+    <p class="admin-hint">
       Not configured yet — set <code>GOOGLE_CLIENT_ID</code> and <code>GOOGLE_CLIENT_SECRET</code>
       (see README, "Connecting Google Calendar") before this can be connected.
     </p>
     {% endif %}
     {% if google_account %}
-    <div style="margin-top:16px; padding-top:16px; border-top:1px solid rgba(43,36,32,0.1);">
-      <h3 style="margin:0 0 8px; font-size:1rem;">Task Sync</h3>
+    <div class="admin-subsection">
+      <h3>Task Sync</h3>
       {% if google_offline %}
-      <p style="color: var(--danger); font-size: 0.85rem;">
+      <p class="admin-error">
         Couldn't reach Google just now — lists below may be incomplete. Try again in a minute.
       </p>
       {% endif %}
       {% if tasklists_error %}
-      <p style="color: var(--danger); font-size: 0.85rem;">
+      <p class="admin-error">
         Couldn't load your Google Task lists — this account was likely connected before Task
         sync was added. Disconnect and reconnect above to grant access.
       </p>
       {% elif available_tasklists %}
       <form method="post" action="/admin/google/shopping-list" style="margin-bottom:16px;">
-        <label style="display:block; font-size:0.85rem; color:var(--ink-soft); margin-bottom:6px;">
+        <label class="admin-hint" style="display:block;">
           Shopping list syncs with:
         </label>
         <select name="tasklist_id" required>
@@ -251,16 +250,16 @@
           <option value="{{ tl.id }}" {{ 'selected' if shopping_tasklist and shopping_tasklist.id == tl.id else '' }}>{{ tl.title }}</option>
           {% endfor %}
         </select>
-        <button type="submit" class="btn" style="padding:6px 14px;font-size:0.85rem;">Save</button>
+        <button type="submit" class="btn btn-small">Save</button>
       </form>
 
       <form method="post" action="/admin/google/task-lists">
-        <label style="display:block; font-size:0.85rem; color:var(--ink-soft); margin-bottom:6px;">
+        <label class="admin-hint" style="display:block;">
           Task lists (per family member):
         </label>
         {% for p in profiles %}
-        <div style="display:flex; align-items:center; gap:8px; margin-bottom:6px;">
-          <span style="width:70px; font-size:0.9rem;">{{ p.name }}</span>
+        <div style="display:flex; align-items:center; gap:10px; margin-bottom:8px;">
+          <span class="admin-person" style="min-width:130px;">{{ person_avatar(p.name, p.colour_hex) }}{{ p.name }}</span>
           <select name="tasklist_{{ p.id }}">
             <option value="">Not synced</option>
             {% for tl in available_tasklists %}
@@ -269,16 +268,16 @@
           </select>
         </div>
         {% endfor %}
-        <button type="submit" class="btn" style="margin-top:4px;padding:6px 14px;font-size:0.85rem;">Save task lists</button>
+        <button type="submit" class="btn btn-small" style="margin-top:4px;">Save task lists</button>
       </form>
       {% else %}
-      <p style="color: var(--ink-soft); font-size: 0.85rem;">
+      <p class="admin-hint">
         No Google Tasks lists found on this account. Create one in the Google Tasks app first.
       </p>
       {% endif %}
     </div>
     {% endif %}
-    <p style="color: var(--ink-soft); font-size: 0.85rem; margin-top: 12px;">
+    <p class="admin-hint" style="margin-top: 14px;">
       Google Photos and Classroom access aren't wired up yet — see the project README for the plan.
     </p>
   </div>
@@ -287,18 +286,18 @@
   <div class="admin-panel" id="weather">
     <h2>Weather location</h2>
     {% if weather_error == 'notfound' %}
-    <p style="color: var(--danger); font-size: 0.85rem;">Couldn't find that place — try a nearby town or add the country.</p>
+    <p class="admin-error">Couldn't find that place — try a nearby town or add the country.</p>
     {% elif weather_error == 'offline' %}
-    <p style="color: var(--danger); font-size: 0.85rem;">Couldn't reach the weather service just now — try again in a minute.</p>
+    <p class="admin-error">Couldn't reach the weather service just now — try again in a minute.</p>
     {% endif %}
     {% if weather_location %}
-    <p style="font-size: 0.9rem;">
+    <p>
       Using: <strong>{{ weather_location.name }}{% if weather_location.country %}, {{ weather_location.country }}{% endif %}</strong>
-      <span style="color: var(--ink-soft); font-size: 0.8rem;">({{ '%.2f' % weather_location.latitude }}, {{ '%.2f' % weather_location.longitude }})</span>
+      <span class="admin-meta">({{ '%.2f' % weather_location.latitude }}, {{ '%.2f' % weather_location.longitude }})</span>
     </p>
-    <p style="color: var(--ink-soft); font-size: 0.85rem;">Wrong place? Add the county or country, e.g. "Reading, Berkshire".</p>
+    <p class="admin-hint">Wrong place? Add the county or country, e.g. "Reading, Berkshire".</p>
     {% else %}
-    <p style="color: var(--ink-soft); font-size: 0.9rem;">Type your town and the dashboard will show its forecast.</p>
+    <p class="admin-hint">Type your town and the dashboard will show its forecast.</p>
     {% endif %}
     <form class="admin-form" method="post" action="/admin/weather-location">
       <input type="text" name="place" placeholder="Town or city" required>
@@ -306,10 +305,25 @@
     </form>
   </div>
 
+  <!-- Appearance -->
+  <div class="admin-panel" id="display">
+    <h2>Appearance</h2>
+    <form method="post" action="/admin/appearance">
+      {% for value, label in appearances.items() %}
+      <label class="admin-check">
+        <input type="radio" name="value" value="{{ value }}" {{ 'checked' if value == appearance_setting else '' }}>
+        {{ label }}
+      </label>
+      {% endfor %}
+      <p class="admin-hint">Evening and morning follow the family's timezone (the connected calendar's). The dashboard switches by itself — no reload needed.</p>
+      <button type="submit" class="btn btn-small">Save</button>
+    </form>
+  </div>
+
   <!-- Device management -->
   <div class="admin-panel">
     <h2>Device</h2>
-    <p style="color: var(--ink-soft); font-size: 0.9rem;">
+    <p class="admin-hint">
       Wi-Fi settings and restart/sleep controls are planned but not yet built
       (v1 scope per the spec — software update button intentionally deferred).
     </p>
@@ -319,14 +333,14 @@
   <div class="admin-panel">
     <h2>On-screen Keyboard</h2>
     <form method="post" action="/admin/onscreen-keyboard">
-      <label style="display:flex; align-items:center; gap:8px; font-size:0.9rem;">
+      <label class="admin-check">
         <input type="checkbox" name="enabled" value="true" {{ 'checked' if onscreen_keyboard else '' }}>
         Use the built-in keyboard on the dashboard and PIN screen
       </label>
-      <p style="color: var(--ink-soft); font-size: 0.85rem; margin: 6px 0 10px;">
+      <p class="admin-hint">
         Replaces the tablet's own keyboard (which is suppressed while this is on).
       </p>
-      <button type="submit" class="btn" style="padding:6px 14px;font-size:0.85rem;">Save</button>
+      <button type="submit" class="btn btn-small">Save</button>
     </form>
   </div>
 

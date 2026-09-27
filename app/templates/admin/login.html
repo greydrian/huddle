@@ -2,15 +2,19 @@
 {% block title %}Admin — Family Display{% endblock %}
 {% block head %}{% with part = "head" %}{% include "_keyboard_assets.html" %}{% endwith %}{% endblock %}
 {% block content %}
-<div class="admin-shell" style="text-align:center;">
-  <h1>Admin</h1>
-  <p style="color: var(--chalk-dim);">Enter the PIN to manage family members and tasks.</p>
-  <form class="pin-pad-form" method="post" action="/admin/login">
-    <input type="password" name="pin" inputmode="numeric" pattern="[0-9]*" maxlength="8" autofocus autocomplete="off"{% if onscreen_keyboard %} data-osk="numeric"{% endif %}>
-    {% if error %}<div class="pin-error">{{ error }}</div>{% endif %}
-    <button type="submit" class="btn">Unlock</button>
-  </form>
-  <p style="margin-top: 40px;"><a href="/" style="color: var(--chalk-dim);">← Back to dashboard</a></p>
+{% from "_icons.html" import icon %}
+<div class="admin-shell pin-shell">
+  <div class="admin-panel pin-card">
+    <div class="pin-lock">{{ icon("settings", 32) }}</div>
+    <h1>Admin</h1>
+    <p class="admin-hint">Enter the PIN to manage family members and tasks.</p>
+    <form class="pin-pad-form" method="post" action="/admin/login">
+      <input type="password" name="pin" aria-label="PIN" inputmode="numeric" pattern="[0-9]*" maxlength="8" autofocus autocomplete="off"{% if onscreen_keyboard %} data-osk="numeric"{% endif %}>
+      {% if error %}<div class="pin-error" role="alert">{{ error }}</div>{% endif %}
+      <button type="submit" class="btn">Unlock</button>
+    </form>
+  </div>
+  <a href="/" class="btn btn-quiet pin-back">{{ icon("arrow-left", 20) }}Back to dashboard</a>
 </div>
 {% endblock %}
 {% block scripts %}{% with part = "scripts" %}{% include "_keyboard_assets.html" %}{% endwith %}{% endblock %}

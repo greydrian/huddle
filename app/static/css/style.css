@@ -1,94 +1,97 @@
 /* ============================================================
-   Family Display — design system
-   Vernacular: the kitchen noticeboard / pinboard, reinvented.
-   Each widget is a paper card pinned to a wall-coloured background,
-   with a coloured tab that carries real meaning (whose task list,
-   which calendar) rather than decoration.
+   Family Display — design system: "Calm modern", with a night palette.
+
+   By day: a warm light-grey ground, big white rounded cards, one friendly
+   sans (Figtree), Lucide line icons, Meteocons weather, and colour used
+   only where it means something — people, events, today. From 19:00 to
+   07:00 (family timezone, decided server-side in app/appearance.py) <html>
+   gets data-mode="night" and the tokens below swap to a low-glare dark
+   palette with an amber accent and no pure white.
+
+   The kid-friendly accent: each person is a solid name pill in their own
+   colour (ink picked for contrast by the person_ink filter), and ticking a
+   task gives a bouncy tick.
+
+   Read from 1–3 m across a kitchen: body text is never below 1rem and
+   secondary text never below 0.8rem. Every text pair meets WCAG AA.
    ============================================================ */
 
 @font-face {
-  font-family: "Fraunces";
-  src: url("/static/fonts/fraunces-latin-400-normal.woff2") format("woff2");
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-}
-@font-face {
-  font-family: "Fraunces";
-  src: url("/static/fonts/fraunces-latin-600-normal.woff2") format("woff2");
-  font-weight: 600;
-  font-style: normal;
-  font-display: swap;
-}
-@font-face {
-  font-family: "Fraunces";
-  src: url("/static/fonts/fraunces-latin-900-italic.woff2") format("woff2");
-  font-weight: 900;
-  font-style: italic;
-  font-display: swap;
-}
-@font-face {
-  font-family: "Inter";
-  src: url("/static/fonts/inter-latin-400-normal.woff2") format("woff2");
+  font-family: "Figtree";
+  src: url("/static/fonts/figtree-latin-400-normal.woff2") format("woff2");
   font-weight: 400;
   font-display: swap;
 }
 @font-face {
-  font-family: "Inter";
-  src: url("/static/fonts/inter-latin-500-normal.woff2") format("woff2");
+  font-family: "Figtree";
+  src: url("/static/fonts/figtree-latin-500-normal.woff2") format("woff2");
   font-weight: 500;
   font-display: swap;
 }
 @font-face {
-  font-family: "Inter";
-  src: url("/static/fonts/inter-latin-600-normal.woff2") format("woff2");
+  font-family: "Figtree";
+  src: url("/static/fonts/figtree-latin-600-normal.woff2") format("woff2");
   font-weight: 600;
   font-display: swap;
 }
 @font-face {
-  font-family: "Inter";
-  src: url("/static/fonts/inter-latin-700-normal.woff2") format("woff2");
+  font-family: "Figtree";
+  src: url("/static/fonts/figtree-latin-700-normal.woff2") format("woff2");
   font-weight: 700;
-  font-display: swap;
-}
-@font-face {
-  font-family: "JetBrains Mono";
-  src: url("/static/fonts/jetbrains-mono-latin-400-normal.woff2") format("woff2");
-  font-weight: 400;
-  font-display: swap;
-}
-@font-face {
-  font-family: "JetBrains Mono";
-  src: url("/static/fonts/jetbrains-mono-latin-500-normal.woff2") format("woff2");
-  font-weight: 500;
   font-display: swap;
 }
 
 :root {
-  /* --- Palette --- */
-  --wall: #24333B;         /* background: deep slate teal, like a kitchen wall at dusk */
-  --wall-soft: #2C3E47;    /* subtle depth for headers/footers on the wall */
-  --paper: #F7F3EC;        /* card surface: warm index-card paper */
-  --paper-shade: #EDE6D8;  /* secondary panel / input surface */
-  --ink: #2B2420;          /* body text on paper */
-  --ink-soft: #6B6157;     /* secondary text on paper */
-  --chalk: #F1EAD9;        /* text on the wall */
-  --chalk-dim: #A9BAC0;    /* secondary text on the wall */
-  --system-accent: #D6A02C; /* ochre — buttons, focus rings, the pin colour */
-  --system-accent-dark: #A87B1E;
-  --danger: #B4453A;
-  --success: #4C8577;
-  --pin-hi: #D9C3A0;  /* thumbtack highlight/shadow — the "pinned to the board" detail */
-  --pin-lo: #8B7355;
+  /* --- Day palette --- */
+  --ground: #F2F0EB;        /* page background */
+  --card: #FFFFFF;          /* widget cards, Admin panels */
+  --sunken: #F4F2EE;        /* inputs, chips, hover, stub badges */
+  --ink: #1D2127;           /* body text */
+  --ink-soft: #5B636E;      /* secondary text */
+  --line: #E7E3DC;          /* hairlines between rows */
+  --control: #8A919B;       /* unticked checkbox rings (3:1 on card) */
+  --accent: #2D6E62;        /* sage: today, buttons, ticks */
+  --accent-soft: #E3EFEC;   /* accent-tinted surfaces */
+  --on-accent: #FFFFFF;     /* text/icons on a solid accent fill */
+  --danger: #B3372B;
+  --danger-soft: #FBEDEA;
+  --pill-light: #FFFFFF;    /* person-pill ink on dark person colours */
+  --pill-dark: #1D2127;     /* person-pill ink on light person colours */
+  --event-tint: 16%;        /* how much of a calendar colour tints its chip */
+  --shadow-card: 0 1px 2px rgba(40, 35, 25, 0.05), 0 8px 28px rgba(40, 35, 25, 0.07);
+  --card-edge: rgba(40, 35, 25, 0.05);
+  --scrollbar: rgba(29, 33, 39, 0.18);
 
-  /* --- Type --- */
-  --font-display: "Fraunces", Georgia, serif;
-  --font-body: "Inter", "Noto Sans", system-ui, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+  /* --- Type & shape --- */
+  --font-ui: "Figtree", "Noto Sans", system-ui, sans-serif;
+  --radius-card: 24px;
+  --radius-control: 12px;
 
-  /* --- Radii / shadows: paper pinned to a wall, not glassy UI chrome --- */
-  --radius-card: 14px;
-  --shadow-card: 0 6px 16px rgba(0, 0, 0, 0.28), 0 1px 0 rgba(255, 255, 255, 0.04) inset;
+  color-scheme: light;
+}
+
+/* --- Night palette: same roles, low glare, warm amber, no pure white --- */
+:root[data-mode="night"] {
+  --ground: #0F1318;
+  --card: #181D24;
+  --sunken: #222933;
+  --ink: #E4E1DA;
+  --ink-soft: #9CA3AD;
+  --line: #2A313B;
+  --control: #6E7783;
+  --accent: #E8B04B;
+  --accent-soft: #2E2A20;
+  --on-accent: #1A1407;
+  --danger: #E57A6E;
+  --danger-soft: #34201F;
+  --pill-light: #F4F1EA;
+  --pill-dark: #14171C;
+  --event-tint: 30%;
+  --shadow-card: 0 0 0 1px #232A33;
+  --card-edge: transparent;
+  --scrollbar: rgba(228, 225, 218, 0.2);
+
+  color-scheme: dark;
 }
 
 * { box-sizing: border-box; }
@@ -97,44 +100,67 @@ html, body {
   margin: 0;
   padding: 0;
   height: 100%;
-  background: var(--wall);
-  color: var(--chalk);
-  font-family: var(--font-body);
+  background: var(--ground);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: 16px;
   -webkit-user-select: none;
   user-select: none; /* kiosk: no accidental text selection on touch */
   overflow: hidden;
 }
 
-/* Top bar: date + notifications banner */
+button, input, select, textarea { font-family: inherit; color: inherit; }
+input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-visible, a:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Lucide icons from the sprite (see templates/_icons.html). */
+.icon {
+  flex-shrink: 0;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vertical-align: middle;
+}
+
+/* Top bar: date + notifications banner. Its height is what #dashboard-grid
+   subtracts from the viewport, so it's pinned at 76px. */
 .topbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 18px 28px;
-  background: var(--wall-soft);
-  border-bottom: 1px solid rgba(241, 234, 217, 0.08);
+  gap: 16px;
+  height: 76px;
+  padding: 0 28px;
 }
 
 .topbar .today {
-  font-family: var(--font-display);
-  font-weight: 600;
-  font-size: 1.6rem;
-  color: var(--chalk);
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  font-weight: 700;
+  font-size: 2rem;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+  white-space: nowrap;
 }
 
 .topbar .today .signature {
-  font-family: var(--font-display);
-  font-weight: 900;
-  font-style: italic;
-  color: var(--system-accent);
+  font-weight: 600;
+  font-size: 1.1rem;
+  letter-spacing: 0.02em;
+  color: var(--accent);
 }
 
 .notification-banner {
-  font-family: var(--font-body);
-  font-size: 0.95rem;
-  color: var(--wall);
-  background: var(--system-accent);
-  padding: 8px 16px;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--on-accent);
+  background: var(--accent);
+  padding: 8px 18px;
   border-radius: 999px;
   display: none; /* shown via JS when a notification is active */
 }
@@ -159,250 +185,257 @@ body:has(> .dashboard-scroll) > .topbar { flex-shrink: 0; }
 }
 #dashboard-grid { padding: 16px; }
 
-/* --- Widget card: the "paper pinned to the wall" signature --- */
+/* --- Widget card --- */
 .widget-card {
-  background: var(--paper);
+  background: var(--card);
   color: var(--ink);
   border-radius: var(--radius-card);
-  box-shadow: var(--shadow-card);
+  box-shadow: var(--shadow-card), 0 0 0 1px var(--card-edge);
   height: 100%;
   display: flex;
   flex-direction: column;
   position: relative;
-  /* No overflow:hidden here — the pin and tab intentionally poke above
-     the card's own top edge, and clipping this box would cut them off.
-     widget-body clips its own scroll content instead (see below), so
-     nothing actually needs the card itself to clip. */
+  min-height: 0;
 }
 
-/* A small brass thumbtack pinning each card's tab down — the literal
-   "pinned to the noticeboard" detail. */
-.widget-pin {
-  position: absolute;
-  top: -5px;
-  left: 27px;
-  width: 13px;
-  height: 13px;
-  border-radius: 50%;
-  background: radial-gradient(circle at 35% 32%, var(--pin-hi), var(--pin-lo) 70%);
-  box-shadow: 0 2px 4px rgba(0,0,0,0.35);
-  z-index: 2;
-}
-
-/* The coloured tab: encodes whose widget this is (family colour) or
-   category (system accent for shared widgets like shopping/meals).
-   Carries a small icon identifying the widget, ahead of the label. */
-.widget-tab {
-  position: absolute;
-  top: -10px;
-  left: 20px;
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  padding: 4px 14px 6px 22px;
-  border-radius: 6px 6px 3px 3px;
-  font-family: var(--font-body);
-  font-weight: 600;
-  font-size: 0.7rem;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--paper);
-  box-shadow: 0 3px 6px rgba(0,0,0,0.25);
-  z-index: 1;
-}
-.widget-tab svg { flex-shrink: 0; opacity: 0.92; }
-
+/* The one title each widget carries: icon + name (+ extras). */
 .widget-header {
   display: flex;
   align-items: center;
-  gap: 9px;
-  font-family: var(--font-display);
-  font-weight: 600;
-  font-size: 1.15rem;
-  padding: 20px 18px 8px;
+  gap: 10px;
+  min-width: 0;
+  padding: 16px 20px 8px;
   color: var(--ink);
 }
-.widget-header svg { flex-shrink: 0; opacity: 0.82; }
+.widget-header .widget-icon { color: var(--ink-soft); }
+.widget-title {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
 
 .widget-body {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
-  padding: 4px 18px 16px;
+  padding: 4px 20px 16px;
 }
-
 .widget-body::-webkit-scrollbar { width: 6px; }
-.widget-body::-webkit-scrollbar-thumb { background: rgba(43,36,32,0.2); border-radius: 3px; }
+.widget-body::-webkit-scrollbar-thumb { background: var(--scrollbar); border-radius: 3px; }
+
+#widget-shopping .widget-body, #widget-meals .widget-body, #widget-photos .widget-body { padding-left: 16px; padding-right: 16px; }
+#widget-shopping .widget-header, #widget-meals .widget-header, #widget-photos .widget-header,
+#widget-homework .widget-header, #widget-weather .widget-header { padding-left: 16px; padding-right: 16px; }
+
+/* Small inline "list is empty" text. */
+.widget-note { padding: 6px 0; font-size: 0.95rem; color: var(--ink-soft); }
+
+/* --- People: solid name pill in the person's colour + initial avatar --- */
+.ink-light { --person-ink: var(--pill-light); }
+.ink-dark { --person-ink: var(--pill-dark); }
+.person-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  padding: 3px 14px 3px 3px;
+  border-radius: 999px;
+  background: var(--person);
+  color: var(--person-ink);
+  /* 1.2rem bold = WCAG "large text"; person_ink keeps it >= 3:1 on any colour. */
+  font-size: 1.2rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+.person-avatar {
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--person-ink);
+  color: var(--person);
+  font-size: 1.2rem;
+  font-weight: 700;
+}
+.person-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+/* Stand-alone coloured-initial avatar (Admin). */
+.person-dot {
+  flex-shrink: 0;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--person);
+  color: var(--person-ink);
+  font-size: 1.2rem;
+  font-weight: 700;
+}
 
 /* --- Task list --- */
 .task-group { margin-bottom: 14px; }
-.task-group-name {
-  font-weight: 700;
-  font-size: 0.85rem;
-  margin-bottom: 4px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.task-group-dot {
-  width: 10px; height: 10px; border-radius: 50%;
-  display: inline-block;
-}
+.task-group:last-child { margin-bottom: 0; }
+.task-group .person-pill { margin: 4px 0 4px; }
 .task-row {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 8px 4px;
-  border-bottom: 1px solid rgba(43,36,32,0.08);
+  gap: 12px;
+  padding: 8px 2px;
+  border-bottom: 1px solid var(--line);
 }
+.task-row:last-child { border-bottom: none; }
 .task-row.completed .task-title {
   text-decoration: line-through;
   color: var(--ink-soft);
 }
 .task-check {
-  width: 30px; height: 30px;
-  border-radius: 8px;
-  border: 2px solid var(--ink-soft);
+  width: 36px; height: 36px;
+  border-radius: 50%;
+  border: 2px solid var(--control);
   background: transparent;
   display: flex; align-items: center; justify-content: center;
   flex-shrink: 0;
-  font-size: 1.1rem;
+  padding: 0;
   color: transparent;
   cursor: pointer;
-  transition: transform 0.15s ease;
 }
 .task-row.completed .task-check {
-  background: var(--success);
-  border-color: var(--success);
-  color: var(--paper);
-  animation: check-pop 0.28s ease;
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
 }
-@keyframes check-pop {
-  0% { transform: scale(0.6); }
-  60% { transform: scale(1.15); }
-  100% { transform: scale(1); }
+/* The bouncy tick: the circle springs in and the check draws itself.
+   Only on the tap itself (.just-ticked), not on every re-render. */
+.task-row.just-ticked .task-check { animation: tick-bounce 0.45s cubic-bezier(0.3, 1.6, 0.5, 1); }
+.task-row.just-ticked .task-check .icon { animation: tick-draw 0.3s ease-out 0.08s both; }
+@keyframes tick-bounce {
+  0% { transform: scale(0.5) rotate(-18deg); }
+  65% { transform: scale(1.22) rotate(6deg); }
+  100% { transform: scale(1) rotate(0); }
 }
-.task-title { flex: 1; font-size: 0.95rem; }
-.task-all-done { padding: 6px 4px; font-size: 0.85rem; color: var(--ink-soft); }
+@keyframes tick-draw {
+  from { stroke-dasharray: 24; stroke-dashoffset: 24; }
+  to { stroke-dasharray: 24; stroke-dashoffset: 0; }
+}
+.task-title { flex: 1; min-width: 0; font-size: 1.1rem; overflow-wrap: break-word; }
+.task-all-done { padding: 6px 2px; font-size: 1rem; color: var(--ink-soft); }
 /* Finished tasks fold away under a touch-sized "✓ N done" toggle. */
 .task-done summary {
   list-style: none;
   cursor: pointer;
-  padding: 8px 4px;
-  font-size: 0.8rem;
+  padding: 8px 2px;
+  font-size: 0.95rem;
   font-weight: 600;
-  color: var(--success);
+  color: var(--accent);
 }
 .task-done summary::-webkit-details-marker { display: none; }
-.task-done .task-row { opacity: 0.75; }
 
 /* --- Shopping list --- */
-.shopping-row { display: flex; align-items: center; gap: 10px; padding: 7px 4px; }
+.shopping-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--line);
+}
 .shopping-row.checked .shopping-title { text-decoration: line-through; color: var(--ink-soft); }
-.shopping-check { width: 24px; height: 24px; border-radius: 6px; border: 2px solid var(--ink-soft); background: transparent; flex-shrink: 0; }
-.shopping-row.checked .shopping-check { background: var(--system-accent); border-color: var(--system-accent); }
-.shopping-title { flex: 1; font-size: 0.95rem; }
-.shopping-delete { background: none; border: none; color: var(--danger); font-size: 1.1rem; cursor: pointer; }
-.shopping-add-form { display: flex; gap: 8px; margin-top: 10px; }
+.shopping-check {
+  width: 30px; height: 30px; padding: 0;
+  border-radius: 50%; border: 2px solid var(--control); background: transparent;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0; color: transparent; cursor: pointer;
+}
+.shopping-row.checked .shopping-check { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.shopping-title { flex: 1; min-width: 0; font-size: 1.05rem; line-height: 1.25; overflow-wrap: break-word; hyphens: auto; }
+.shopping-delete {
+  width: 30px; height: 36px; padding: 0; flex-shrink: 0; margin-right: -6px;
+  display: flex; align-items: center; justify-content: center;
+  background: none; border: none; border-radius: 50%;
+  color: var(--ink-soft); cursor: pointer;
+}
+.shopping-add-form { display: flex; gap: 8px; margin-top: 12px; }
 .shopping-add-form input {
-  flex: 1; padding: 10px 12px; border-radius: 8px; border: 1px solid rgba(43,36,32,0.2);
-  background: var(--paper-shade); font-family: var(--font-body); font-size: 0.95rem;
+  flex: 1; min-width: 0; padding: 10px 12px;
+  border-radius: var(--radius-control); border: 1px solid var(--line);
+  background: var(--sunken); font-size: 1rem;
 }
+.shopping-add-form input::placeholder, .meal-desc-input::placeholder { color: var(--ink-soft); opacity: 1; }
 .shopping-add-form button {
-  background: var(--system-accent); color: var(--wall); border: none; border-radius: 8px;
-  padding: 0 16px; font-weight: 600; cursor: pointer;
+  background: var(--accent); color: var(--on-accent); border: none;
+  border-radius: var(--radius-control); padding: 0 14px;
+  font-size: 1rem; font-weight: 600; cursor: pointer;
 }
 
-/* --- Calendar: selected-day event list (below the month grid) --- */
-.event-row {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  padding: 7px 4px;
-  border-bottom: 1px solid rgba(43,36,32,0.08);
-}
-.event-time {
-  font-family: var(--font-mono);
-  font-size: 0.75rem;
-  width: 68px;
-  flex-shrink: 0;
-}
-.event-title { flex: 1; font-size: 0.9rem; }
-
-/* --- Calendar: month grid (hero widget — content flows naturally and the
-   dashboard grid scrolls if needed, so nothing here needs to be height-
-   constrained the way the earlier compact version did). --- */
-.cal-nav {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  padding: 2px 2px 12px;
-}
+/* --- Calendar --- */
+.cal-header { flex-wrap: nowrap; }
+.cal-header .widget-title { font-size: 1.5rem; margin-right: auto; }
+.cal-nav { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 .cal-nav-btn {
-  width: 26px; height: 26px;
-  border-radius: 7px;
-  border: none;
-  background: var(--paper-shade);
-  color: var(--ink);
-  font-size: 1.1rem;
-  line-height: 1;
+  width: 42px; height: 42px; padding: 0;
+  border-radius: 50%; border: none;
+  background: var(--sunken); color: var(--ink);
+  display: flex; align-items: center; justify-content: center;
   cursor: pointer;
 }
-.cal-month-label {
-  font-family: var(--font-display);
-  font-weight: 600;
-  font-size: 1.1rem;
-  color: var(--ink);
-  min-width: 170px;
-  text-align: center;
-}
-.cal-today-btn {
-  font-family: var(--font-body);
-  font-weight: 600;
-  font-size: 0.75rem;
-  color: var(--system-accent-dark);
+.cal-today-btn, .cal-back-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-weight: 600; font-size: 0.95rem;
+  color: var(--accent);
   background: transparent;
-  border: 1.5px solid var(--system-accent);
+  border: 1.5px solid var(--accent);
   border-radius: 999px;
-  padding: 4px 12px;
+  padding: 8px 16px;
   cursor: pointer;
+  flex-shrink: 0;
 }
 
 .cal-weekdays {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
-  padding: 0 2px;
-  margin-bottom: 6px;
+  margin-bottom: 4px;
 }
 .cal-weekdays span {
   text-align: center;
-  font-family: var(--font-mono);
-  font-size: 0.7rem;
-  color: var(--ink-soft);
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
+  color: var(--ink-soft);
 }
-.cal-weekdays span.weekend { color: var(--system-accent-dark); }
 
-.cal-week { margin-bottom: 4px; }
+.cal-week { border-top: 1px solid var(--line); padding: 3px 0 4px; }
 .cal-week-days {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
   gap: 2px;
 }
 .cal-day-num {
-  text-align: center;
-  font-size: 0.85rem;
-  color: var(--ink);
-  padding: 4px 0;
-  border-radius: 5px;
+  display: flex;
+  justify-content: center;
+  padding: 1px 0;
+  border-radius: 8px;
   cursor: pointer;
 }
-.cal-day-num:hover { background: var(--paper-shade); }
-.cal-day-num.weekend { background: rgba(43,36,32,0.035); }
-.cal-day-num.other-month { color: var(--ink-soft); opacity: 0.4; }
-.cal-day-num.today {
-  background: var(--system-accent);
-  color: var(--paper);
+.cal-day-num span {
+  width: 30px; height: 30px; line-height: 30px;
+  border-radius: 50%;
+  text-align: center;
+  font-size: 1rem;
+  font-weight: 500;
+  color: var(--ink);
+}
+.cal-day-num:hover { background: var(--sunken); }
+.cal-day-num.other-month span { color: var(--ink-soft); font-weight: 400; }
+.cal-day-num.today span {
+  background: var(--accent);
+  color: var(--on-accent);
   font-weight: 700;
 }
 
@@ -412,22 +445,27 @@ body:has(> .dashboard-scroll) > .topbar { flex-shrink: 0; }
   gap: 2px;
   margin-top: 2px;
 }
+/* Event chips: a pale tint of the calendar colour with a solid stripe, ink
+   text — legible on any Google calendar colour, in either mode. */
 .cal-bar {
   display: flex;
   align-items: baseline;
-  gap: 4px;
-  padding: 1px 5px;
-  border-radius: 4px;
-  color: var(--paper);
-  font-size: 0.7rem;
-  line-height: 1.6;
+  gap: 5px;
+  padding: 1px 8px 1px 9px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--ev) var(--event-tint), var(--card));
+  box-shadow: inset 4px 0 0 var(--ev);
+  color: var(--ink);
+  font-size: 0.85rem;
+  font-weight: 500;
+  line-height: 1.7;
   overflow: hidden;
   white-space: nowrap;
   cursor: pointer;
 }
-.cal-bar-time { font-family: var(--font-mono); font-size: 0.63rem; opacity: 0.9; flex-shrink: 0; }
+.cal-bar-time { font-size: 0.8rem; font-weight: 700; flex-shrink: 0; }
 .cal-bar-title { overflow: hidden; text-overflow: ellipsis; }
-.cal-bar.all-day { font-weight: 600; }
+.cal-bar.all-day { font-weight: 700; }
 
 .cal-week-more {
   display: grid;
@@ -438,8 +476,8 @@ body:has(> .dashboard-scroll) > .topbar { flex-shrink: 0; }
 .cal-more {
   display: block;
   text-align: center;
-  font-family: var(--font-mono);
-  font-size: 0.63rem;
+  font-size: 0.8rem;
+  font-weight: 600;
   color: var(--ink-soft);
   cursor: pointer;
 }
@@ -447,195 +485,208 @@ body:has(> .dashboard-scroll) > .topbar { flex-shrink: 0; }
 
 .cal-offline {
   margin: 0 0 8px;
-  padding: 6px 10px;
-  border-radius: 6px;
-  background: var(--paper-shade);
+  padding: 6px 12px;
+  border-radius: var(--radius-control);
+  background: var(--danger-soft);
   color: var(--danger);
-  font-size: 0.78rem;
+  font-size: 0.9rem;
   text-align: center;
 }
 
-/* --- Calendar: day view --- */
-.cal-day-heading {
+/* Day view */
+.event-row {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: 14px;
-  padding-bottom: 10px;
-  margin-bottom: 8px;
-  border-bottom: 1px solid rgba(43,36,32,0.1);
+  margin-bottom: 6px;
+  padding: 8px 12px 8px 14px;
+  border-radius: var(--radius-control);
+  background: color-mix(in srgb, var(--ev) var(--event-tint), var(--card));
+  box-shadow: inset 5px 0 0 var(--ev);
 }
-.cal-back-btn {
-  font-family: var(--font-body);
-  font-weight: 600;
-  font-size: 0.8rem;
-  color: var(--system-accent-dark);
-  background: var(--paper-shade);
-  border: none;
-  border-radius: 999px;
-  padding: 6px 14px;
-  cursor: pointer;
-  flex-shrink: 0;
-}
-.cal-day-title {
-  font-family: var(--font-display);
-  font-weight: 600;
-  font-size: 1.05rem;
-  color: var(--ink);
-}
-.event-row.all-day .event-time {
-  font-family: var(--font-body);
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-  font-size: 0.68rem;
-}
+.event-time { width: 76px; flex-shrink: 0; font-size: 0.9rem; font-weight: 700; }
+.event-title { flex: 1; min-width: 0; font-size: 1.05rem; }
+.event-row.all-day .event-time { text-transform: uppercase; letter-spacing: 0.04em; font-size: 0.8rem; }
 
 /* --- Meal plan --- */
-.meal-row { display: flex; align-items: baseline; gap: 10px; padding: 6px 4px; }
-.meal-row.today .meal-weekday { color: var(--system-accent); }
-.meal-weekday { font-family: var(--font-mono); font-size: 0.78rem; width: 76px; color: var(--ink-soft); text-transform: uppercase; }
-.meal-desc-input { flex: 1; border: none; background: transparent; font-family: var(--font-body); font-size: 0.92rem; color: var(--ink); }
-.meal-desc-input:focus { outline: 1px solid var(--system-accent); border-radius: 4px; }
-
-/* --- Stub widgets: small inline "list is empty" fallback text --- */
-.stub-widget {
-  height: 100%; display: flex; align-items: center; justify-content: center;
-  flex-direction: column; gap: 6px; text-align: center; padding: 20px;
-  color: var(--ink-soft); font-size: 0.85rem;
+.meal-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--line);
 }
-.stub-widget strong { color: var(--ink); font-family: var(--font-display); font-size: 1.05rem; }
+.meal-row:last-child { border-bottom: none; }
+.meal-weekday { width: 40px; flex-shrink: 0; font-size: 0.85rem; font-weight: 700; color: var(--ink-soft); text-transform: uppercase; letter-spacing: 0.04em; }
+.meal-row.today .meal-weekday { color: var(--accent); }
+.meal-desc-input {
+  flex: 1; min-width: 0;
+  border: none; background: transparent;
+  font-size: 1rem; color: var(--ink);
+  padding: 4px 6px; border-radius: 8px;
+  text-overflow: ellipsis;
+}
+.meal-desc-input:focus { outline: 2px solid var(--accent); background: var(--sunken); }
 
-/* --- Stub widgets: not-yet-connected empty state (calendar, upcoming
-   events, weather, photos, homework) — an illustrated badge instead of
-   plain text. .compact is used by the smaller widgets in the grid. --- */
+/* --- Empty / not-connected states --- */
 .stub-empty {
   height: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 10px;
+  gap: 8px;
   text-align: center;
-  padding: 6px 12px;
+  padding: 4px 8px;
 }
 .stub-badge {
-  width: 118px;
-  height: 118px;
+  width: 96px;
+  height: 96px;
   border-radius: 50%;
-  background: var(--paper-shade);
+  background: var(--sunken);
+  color: var(--ink-soft);
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: inset 0 1px 3px rgba(43,36,32,0.08);
+  flex-shrink: 0;
 }
-.stub-empty.compact .stub-badge { width: 66px; height: 66px; }
-.stub-title {
-  font-family: var(--font-display);
-  font-weight: 600;
-  font-size: 1.02rem;
-  color: var(--ink);
-  margin: 0;
-}
-.stub-empty.compact .stub-title { font-size: 0.86rem; }
-.stub-caption {
-  font-family: var(--font-body);
-  font-size: 0.82rem;
-  color: var(--ink-soft);
-  line-height: 1.4;
-  max-width: 240px;
-  margin: 0;
-}
-.stub-empty.compact .stub-caption { font-size: 0.72rem; max-width: 150px; }
+.stub-empty.compact { gap: 4px; }
+.stub-empty.compact .stub-badge { width: 52px; height: 52px; }
+#widget-photos .widget-body { padding-bottom: 10px; }
+#widget-photos .stub-badge { width: 40px; height: 40px; }
+#widget-photos .stub-badge .icon { width: 24px; height: 24px; }
+.stub-title { margin: 0; font-size: 1.05rem; font-weight: 700; color: var(--ink); }
+.stub-caption { margin: 0; max-width: 260px; font-size: 0.9rem; line-height: 1.35; color: var(--ink-soft); }
 .stub-cta {
   margin-top: 2px;
-  font-family: var(--font-body);
   font-weight: 600;
-  font-size: 0.78rem;
-  color: var(--system-accent-dark);
-  background: transparent;
-  border: 1.5px dashed var(--system-accent);
+  font-size: 0.95rem;
+  color: var(--accent);
+  border: 1.5px solid var(--accent);
   border-radius: 999px;
-  padding: 6px 16px;
+  padding: 7px 16px;
   text-decoration: none;
   display: inline-flex;
   align-items: center;
   gap: 5px;
 }
 
-/* --- Weather widget (Open-Meteo): sized for its small 2x2 slot — big
-   current temperature on top, a 3-day strip below. --- */
+/* --- Weather (Open-Meteo + Meteocons): sized for its small 2x2 slot --- */
+#widget-weather .widget-header { padding-bottom: 2px; }
+#widget-weather .widget-body { padding: 0 14px 10px; }
 .wx-place {
   margin-left: auto;
-  font-family: var(--font-body);
-  font-weight: 500;
-  font-size: 0.72rem;
+  font-size: 0.8rem;
+  font-weight: 600;
   color: var(--ink-soft);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   min-width: 0;
 }
-.wx { height: 100%; display: flex; flex-direction: column; justify-content: space-between; gap: 6px; }
-.wx-icon { flex-shrink: 0; color: var(--ink); }
-.wx-now { display: flex; align-items: center; gap: 6px; min-width: 0; padding: 0 2px; }
-.wx-temp {
-  font-family: var(--font-display);
-  font-weight: 600;
-  font-size: 2.1rem;
-  line-height: 1;
-  color: var(--ink);
-}
-.wx-now-meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.wx-condition {
-  font-size: 0.78rem;
-  font-weight: 600;
-  color: var(--ink);
-  white-space: nowrap;
+.wx { height: 100%; display: flex; flex-direction: column; justify-content: space-between; gap: 2px; }
+.wx-icon { flex-shrink: 0; display: block; }
+.wx-now { display: flex; align-items: center; gap: 2px; min-width: 0; }
+.wx-now .wx-icon { width: 58px; height: 58px; margin: -10px -6px -10px -10px; }
+.wx-temp { font-size: 2.2rem; font-weight: 700; line-height: 1; letter-spacing: -0.03em; }
+.wx-now-meta { display: flex; flex-direction: column; gap: 1px; min-width: 0; margin-left: 6px; }
+.wx-condition, .wx-hilo {
+  font-size: 0.85rem;
+  line-height: 1.15;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.wx-hilo { font-family: var(--font-mono); font-size: 0.7rem; color: var(--ink-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wx-hilo { white-space: nowrap; }
+/* "Partly cloudy" may take two lines rather than be cut off. */
+.wx-condition { font-weight: 600; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.wx-hilo { color: var(--ink-soft); font-weight: 600; }
 .wx-days {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 4px;
-  border-top: 1px solid rgba(43,36,32,0.1);
-  padding-top: 6px;
+  gap: 2px;
+  border-top: 1px solid var(--line);
+  padding-top: 4px;
 }
-.wx-day { display: flex; flex-direction: column; align-items: center; gap: 1px; }
-.wx-day-label { font-size: 0.68rem; font-weight: 600; color: var(--ink-soft); text-transform: uppercase; letter-spacing: 0.04em; }
-.wx-day-temps { font-family: var(--font-mono); font-size: 0.7rem; color: var(--ink); white-space: nowrap; }
-.wx-low { color: var(--ink-soft); }
-.wx-stale { margin: 0; font-size: 0.66rem; color: var(--ink-soft); text-align: right; }
+.wx-day { display: flex; flex-direction: column; align-items: center; min-width: 0; }
+.wx-day .wx-icon { width: 38px; height: 38px; margin: -6px 0 -7px; }
+/* Meteocons' clouds are near-white; take the glare off at night. */
+:root[data-mode="night"] .wx-icon { filter: brightness(0.85); }
+.wx-day-label { font-size: 0.8rem; font-weight: 700; color: var(--ink-soft); text-transform: uppercase; letter-spacing: 0.04em; }
+.wx-day-temps { font-size: 0.85rem; font-weight: 700; white-space: nowrap; }
+.wx-low { color: var(--ink-soft); font-weight: 600; }
+.wx-stale { margin: 0; font-size: 0.8rem; color: var(--ink-soft); text-align: right; }
 
 /* --- Gridstack overrides --- */
 .grid-stack { background: transparent; }
-/* Gridstack's own CSS clips this box (overflow-y: auto) by default,
-   which would cut off the pin/tab poking above each widget-card just
-   like the card's own overflow did — override it open. Actual list
-   scrolling still works because widget-body clips and scrolls itself. */
+/* Gridstack's own CSS clips this box (overflow-y: auto) by default; keep it
+   open so card shadows aren't cut off. List scrolling still works because
+   widget-body clips and scrolls itself. */
 .grid-stack-item-content { inset: 6px !important; border-radius: var(--radius-card); overflow: visible !important; }
 .grid-stack > .grid-stack-item > .ui-resizable-handle { opacity: 0.5; }
+
+/* --- Buttons --- */
+.btn, .admin-form button {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  min-height: 42px;
+  background: var(--accent); color: var(--on-accent);
+  border: none; border-radius: var(--radius-control);
+  padding: 9px 18px;
+  font-size: 1rem; font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+}
+.btn-danger { background: var(--danger); color: var(--on-accent); }
+.btn-quiet { background: var(--sunken); color: var(--ink); }
+.btn-small { min-height: 36px; padding: 6px 14px; font-size: 0.9rem; }
+/* Quiet outline button for the topbar. */
+.btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--ink-soft);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 10px 20px;
+  text-decoration: none;
+  cursor: pointer;
+  flex-shrink: 0;
+}
 
 /* --- Admin --- */
 /* The kiosk locks html/body scrolling (above) for the dashboard; Admin and
    the PIN page are ordinary documents that outgrow the screen, so unlock it. */
 html:has(.admin-shell), html:has(.admin-shell) body { height: auto; overflow-y: auto; }
-.admin-shell { max-width: 720px; margin: 0 auto; padding: 32px 20px; color: var(--chalk); }
-.admin-shell h1, .admin-shell h2 { font-family: var(--font-display); font-weight: 600; }
-.admin-panel { background: var(--paper); color: var(--ink); border-radius: var(--radius-card); padding: 20px 24px; margin-bottom: 20px; }
-.admin-panel h2 { margin-top: 0; font-size: 1.1rem; }
-.admin-row { display: flex; align-items: center; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid rgba(43,36,32,0.08); }
+.admin-shell { max-width: 760px; margin: 0 auto; padding: 28px 20px 48px; color: var(--ink); }
+.admin-shell h1 { margin: 0; font-size: 2rem; font-weight: 700; letter-spacing: -0.02em; }
+.admin-topbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; }
+.admin-topbar-actions { display: flex; gap: 8px; align-items: center; }
+.admin-panel {
+  background: var(--card); color: var(--ink);
+  border-radius: 20px; box-shadow: var(--shadow-card), 0 0 0 1px var(--card-edge);
+  padding: 20px 24px; margin-bottom: 18px;
+  font-size: 1rem;
+}
+.admin-panel h2 { margin: 0 0 8px; font-size: 1.25rem; font-weight: 700; }
+.admin-panel h3 { margin: 0 0 6px; font-size: 1.05rem; font-weight: 700; }
+.admin-subsection { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
+.admin-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 10px 0; border-bottom: 1px solid var(--line);
+}
+.admin-person { display: inline-flex; align-items: center; gap: 10px; font-weight: 600; }
 .admin-form { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
-.admin-form input, .admin-form select {
-  padding: 9px 10px; border-radius: 8px; border: 1px solid rgba(43,36,32,0.2);
-  background: var(--paper-shade); font-family: var(--font-body); font-size: 0.9rem;
+.admin-form input, .admin-form select, .admin-panel select, .admin-form textarea {
+  min-height: 42px;
+  padding: 9px 12px; border-radius: var(--radius-control); border: 1px solid var(--line);
+  background: var(--sunken); color: var(--ink); font-size: 1rem;
 }
-.admin-form button, .btn {
-  background: var(--system-accent); color: var(--wall); border: none; border-radius: 8px;
-  padding: 9px 16px; font-weight: 600; cursor: pointer; font-family: var(--font-body);
-}
-.btn-danger { background: var(--danger); color: var(--paper); }
+.admin-form input[type="color"] { padding: 4px; width: 56px; }
+.admin-panel input[type="checkbox"], .admin-panel input[type="radio"] { width: 20px; height: 20px; accent-color: var(--accent); }
+.admin-check { display: flex; align-items: center; gap: 10px; padding: 6px 0; font-size: 1rem; }
+.admin-hint { color: var(--ink-soft); font-size: 0.9rem; margin: 6px 0 10px; }
+.admin-shell a:not(.btn):not(.btn-ghost) { color: var(--accent); }
+.admin-shell code { font-size: 0.9em; background: var(--sunken); padding: 1px 5px; border-radius: 5px; }
 
 /* Admin task-schedule day picker — touch-sized toggle chips (checkbox hidden,
    its label is the tap target). */
@@ -643,21 +694,21 @@ html:has(.admin-shell), html:has(.admin-shell) body { height: auto; overflow-y: 
 .day-chip { position: relative; }
 .day-chip input { position: absolute; opacity: 0; pointer-events: none; }
 .day-chip span {
-  display: inline-block; min-width: 44px; padding: 8px 10px; text-align: center;
-  border-radius: 999px; border: 1.5px solid rgba(43,36,32,0.2); background: var(--paper-shade);
-  font-size: 0.85rem; cursor: pointer; user-select: none;
+  display: inline-block; min-width: 52px; padding: 9px 12px; text-align: center;
+  border-radius: 999px; border: 1.5px solid var(--line); background: var(--sunken);
+  font-size: 0.95rem; cursor: pointer; user-select: none;
 }
-.day-chip input:checked + span { background: var(--system-accent); border-color: var(--system-accent); color: var(--wall); font-weight: 600; }
+.day-chip input:checked + span { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
 .day-chip input:focus-visible + span { outline: 2px solid var(--ink); outline-offset: 2px; }
 
 /* Admin task rows: "Edit" is a <details> that expands a pre-filled form
    onto its own full-width line below the row (no JS). */
-.task-row { flex-wrap: wrap; gap: 8px; }
+.task-row { flex-wrap: wrap; }
 .task-row-label { flex: 1; min-width: 0; }
 .task-edit summary {
-  list-style: none; display: inline-block; min-height: 36px; padding: 8px 14px;
-  font-size: 0.85rem; background: var(--paper-shade); color: var(--ink);
-  border: 1.5px solid rgba(43,36,32,0.2);
+  list-style: none; display: inline-flex; min-height: 38px; padding: 8px 14px;
+  font-size: 0.9rem; background: var(--sunken); color: var(--ink);
+  border: 1px solid var(--line);
 }
 .task-edit summary::-webkit-details-marker { display: none; }
 .task-edit .task-edit-close, .task-edit[open] .task-edit-open { display: none; }
@@ -667,33 +718,34 @@ html:has(.admin-shell), html:has(.admin-shell) body { height: auto; overflow-y: 
 .task-edit .admin-form input[type="text"] { flex: 1; min-width: 160px; }
 /* Task Schedules panel: tasks grouped under each person's name, rows kept
    tighter than other Admin rows since there's one per task. */
-.schedule-person { margin-top: 12px; }
-.schedule-person h3 { margin: 0; font-size: 0.95rem; }
+.schedule-person { margin-top: 14px; }
+.schedule-person h3 { margin: 0; }
+.schedule-person h3 .person-dot { vertical-align: middle; margin-right: 8px; }
 .schedule-person h3 .admin-meta { font-weight: 400; }
-.schedule-person .task-row { padding: 3px 0; }
-.schedule-person .task-edit summary { min-height: 0; padding: 5px 12px; }
+.schedule-person .task-row { padding: 4px 0; }
+.schedule-person .task-edit summary { min-height: 0; padding: 6px 12px; }
 .schedule-person .task-edit .admin-form { margin: 4px 0 6px; }
 .schedule-empty { margin: 2px 0 0; }
 
-/* Quiet outline button for the topbar — sits next to the ochre
-   notification pill without competing with it for attention. */
-.btn-ghost {
-  font-family: var(--font-body);
-  font-weight: 600;
-  font-size: 0.85rem;
-  color: var(--chalk);
-  background: transparent;
-  border: 1.5px solid rgba(241,234,217,0.35);
-  border-radius: 999px;
-  padding: 8px 18px;
-  cursor: pointer;
-  text-decoration: none;
-  display: inline-flex;
-  align-items: center;
-}
-.pin-pad-form { display: flex; flex-direction: column; align-items: center; gap: 16px; margin-top: 40px; }
+/* --- PIN page --- */
+.pin-shell { text-align: center; max-width: 480px; padding-top: 72px; }
+.pin-card { padding: 32px 28px; }
+.pin-lock { width: 64px; height: 64px; margin: 0 auto 12px; border-radius: 50%; background: var(--accent-soft); color: var(--accent); display: flex; align-items: center; justify-content: center; }
+.pin-pad-form { display: flex; flex-direction: column; align-items: center; gap: 16px; margin-top: 20px; }
 .pin-pad-form input {
-  font-family: var(--font-mono); font-size: 1.8rem; letter-spacing: 0.4em; text-align: center;
-  width: 220px; padding: 14px; border-radius: 10px; border: none; background: var(--paper-shade);
+  font-size: 1.8rem; letter-spacing: 0.4em; text-align: center;
+  width: 240px; padding: 14px; border-radius: 16px;
+  border: 1px solid var(--line); background: var(--sunken); color: var(--ink);
 }
-.pin-error { color: var(--system-accent); font-size: 0.9rem; }
+.pin-pad-form .btn { min-width: 160px; }
+.pin-error { color: var(--danger); font-size: 1rem; font-weight: 600; }
+.pin-back { display: inline-flex; align-items: center; gap: 6px; margin-top: 28px; }
+
+/* Motion: keep it, unless the viewer asked for less. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

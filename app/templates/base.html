@@ -1,5 +1,7 @@
 <!doctype html>
-<html lang="en">
+{#- data-mode is decided server-side (app/appearance.py) in the family's
+    timezone; night tokens in style.css override under [data-mode="night"]. #}
+<html lang="en" data-mode="{{ appearance.mode if appearance else 'day' }}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
@@ -12,6 +14,36 @@
 
   <script src="/static/vendor/htmx/htmx.min.js"></script>
   <script src="/static/vendor/alpine/alpine.min.js" defer></script>
+  {% if appearance %}
+  <script>
+    // Day/night flip for the long-lived kiosk page. The server says how many
+    // seconds until the mode next changes; only elapsed time on the tablet is
+    // used (not its clock or timezone), and a periodic re-check also picks up
+    // an Admin "Appearance" change made from another device.
+    (function () {
+      var root = document.documentElement;
+      var due = null;
+      function schedule(switchIn) {
+        due = switchIn == null ? null : Date.now() + switchIn * 1000;
+      }
+      function refresh() {
+        fetch('/api/appearance', { cache: 'no-store' })
+          .then(function (r) { return r.json(); })
+          .then(function (a) { root.dataset.mode = a.mode; schedule(a.switch_in); })
+          .catch(function () { schedule(300); });  // offline: try again in 5 min
+      }
+      schedule({{ appearance.switch_in | tojson }});
+      var lastCheck = Date.now();
+      setInterval(function () {
+        var now = Date.now();
+        if ((due !== null && now >= due) || now - lastCheck >= 600000) {
+          lastCheck = now;
+          refresh();
+        }
+      }, 20000);
+    })();
+  </script>
+  {% endif %}
   {% block scripts %}{% endblock %}
 </body>
 </html>

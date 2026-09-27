@@ -1,19 +1,12 @@
+{% from "_icons.html" import widget_header %}
 <div class="widget-card" id="widget-meals">
-  <div class="widget-pin"></div>
-  <div class="widget-tab" style="background: var(--system-accent);">
-    <svg width="13" height="13" viewBox="0 0 24 24"><g stroke="currentColor" stroke-width="1.7" stroke-linecap="round" fill="none"><line x1="6" y1="3" x2="6" y2="9"/><line x1="4.6" y1="3" x2="4.6" y2="7"/><line x1="7.4" y1="3" x2="7.4" y2="7"/><line x1="6" y1="9" x2="6" y2="21"/><path d="M16,3 C14,3 13,4.6 13,7 C13,9 14,9.8 16,9.8 L16,21"/></g></svg>
-    This Week
-  </div>
-  <div class="widget-header drag-handle">
-    <svg width="17" height="17" viewBox="0 0 24 24"><g stroke="currentColor" stroke-width="1.6" stroke-linecap="round" fill="none"><line x1="6" y1="3" x2="6" y2="9"/><line x1="4.6" y1="3" x2="4.6" y2="7"/><line x1="7.4" y1="3" x2="7.4" y2="7"/><line x1="6" y1="9" x2="6" y2="21"/><path d="M16,3 C14,3 13,4.6 13,7 C13,9 14,9.8 16,9.8 L16,21"/></g></svg>
-    Meal Plan
-  </div>
+  {{ widget_header("utensils", "Meal Plan") }}
   <div class="widget-body">
     {% for day in days %}
     <div class="meal-row {{ 'today' if day.is_today else '' }}">
       <span class="meal-weekday">{{ day.weekday[:3] }}</span>
-      <input class="meal-desc-input" type="text" name="description"
-             value="{{ day.description }}" placeholder="Not planned yet" autocomplete="off"{% if onscreen_keyboard %} data-osk="text"{% endif %}
+      <input class="meal-desc-input" type="text" name="description" aria-label="{{ day.weekday }} meal"
+             value="{{ day.description }}" placeholder="Not planned" autocomplete="off"{% if onscreen_keyboard %} data-osk="text"{% endif %}
              hx-post="/api/meals/{{ day.date }}" hx-trigger="change"
              hx-target="#widget-meals" hx-swap="outerHTML">
     </div>
