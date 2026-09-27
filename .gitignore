@@ -1,8 +1,22 @@
+# Virtualenvs and caches
 venv/
+.venv/
 __pycache__/
 *.pyc
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Local data and secrets — never commit
 data/
-.DS_Store
+*.db
+*.db-wal
+*.db-shm
 .env
+
+.DS_Store
+
+# Claude Code: per-agent worktrees and personal settings
 .claude/worktrees/
 .claude/settings.local.json

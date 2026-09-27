@@ -154,17 +154,6 @@ input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-
   color: var(--accent);
 }
 
-.notification-banner {
-  font-size: 1rem;
-  font-weight: 600;
-  color: var(--on-accent);
-  background: var(--accent);
-  padding: 8px 18px;
-  border-radius: 999px;
-  display: none; /* shown via JS when a notification is active */
-}
-.notification-banner.active { display: inline-block; }
-
 /* The page stays locked (above); the area under the top bar scrolls.
    Gridstack gives #dashboard-grid an inline height as tall as its rows,
    so the scrolling happens on this wrapper instead of the grid itself. */
@@ -179,7 +168,7 @@ body:has(> .dashboard-scroll) > .topbar { flex-shrink: 0; }
   overflow-y: auto;
   overflow-x: hidden;
   overscroll-behavior: contain;
-  /* Room above the first row so its pins/tabs aren't clipped by this box. */
+  /* Breathing room so the first row's card shadows aren't clipped by this box. */
   padding-block: 16px;
 }
 #dashboard-grid { padding: 16px; }
