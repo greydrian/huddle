@@ -1,4 +1,4 @@
-"""Month-grid bar packing (google_oauth.get_month_grid) via a mocked events feed.
+"""Month-grid bar packing (google_calendar.get_month_grid) via a mocked events feed.
 
 August 2026 starts on a Saturday, so the Monday-start grid runs from Mon 27 Jul:
 week 1 = 27 Jul-2 Aug, week 2 = 3-9 Aug, week 3 = 10-16 Aug, ...
@@ -8,7 +8,7 @@ from datetime import date
 
 import pytest
 
-from app import google_oauth
+from app import google_calendar
 
 EVENTS_URL_PATTERN = r"https://www\.googleapis\.com/calendar/v3/calendars/.+/events"
 
@@ -44,7 +44,7 @@ async def test_bar_crossing_a_week_boundary_is_clipped_per_week(db, events):
     # Fri 7 - Tue 11 Aug inclusive (Google's all-day end is exclusive).
     events(all_day("Camping", "2026-08-07", "2026-08-12"))
 
-    grid = await google_oauth.get_month_grid(db, 2026, 8)
+    grid = await google_calendar.get_month_grid(db, 2026, 8)
     weeks = grid["weeks"]
 
     assert _bars(weeks[1]) == {"Camping": (5, 7, 0)}  # Fri..Sun
@@ -56,7 +56,7 @@ async def test_bar_spanning_a_whole_week_fills_every_column(db, events):
     # Sun 2 - Mon 17 Aug: starts in week 1, covers weeks 2 and 3, ends in week 4.
     events(all_day("Summer camp", "2026-08-02", "2026-08-18"))
 
-    weeks = (await google_oauth.get_month_grid(db, 2026, 8))["weeks"]
+    weeks = (await google_calendar.get_month_grid(db, 2026, 8))["weeks"]
 
     assert [_bars(w).get("Summer camp") for w in weeks[:5]] == [
         (7, 7, 0), (1, 7, 0), (1, 7, 0), (1, 1, 0), None,
@@ -70,7 +70,7 @@ async def test_slot_is_reused_once_a_bar_ends(db, events):
         timed("Swimming", "2026-08-12", 16),                    # Wed: Grandma has ended
     )
 
-    week = (await google_oauth.get_month_grid(db, 2026, 8))["weeks"][2]
+    week = (await google_calendar.get_month_grid(db, 2026, 8))["weeks"][2]
 
     assert _bars(week) == {
         "Grandma visits": (1, 2, 0),
@@ -84,11 +84,11 @@ async def test_slot_is_reused_once_a_bar_ends(db, events):
 async def test_overflow_beyond_the_visible_slots_becomes_plus_n_more(db, events, client):
     events(*[timed(f"Event {h}", "2026-08-12", h) for h in range(8, 13)])  # five on Wed
 
-    week = (await google_oauth.get_month_grid(db, 2026, 8))["weeks"][2]
+    week = (await google_calendar.get_month_grid(db, 2026, 8))["weeks"][2]
 
-    assert len(week["bars"]) == google_oauth.MAX_BAR_SLOTS
+    assert len(week["bars"]) == google_calendar.MAX_BAR_SLOTS
     assert sorted(_bars(week)) == ["Event 10", "Event 8", "Event 9"]  # earliest win the slots
-    assert week["row_count"] == google_oauth.MAX_BAR_SLOTS
+    assert week["row_count"] == google_calendar.MAX_BAR_SLOTS
     assert _hidden(week) == [0, 0, 2, 0, 0, 0, 0]
 
     html = (await client.get("/widgets/calendar?year=2026&month=8")).text
@@ -102,7 +102,7 @@ async def test_overflowing_multi_day_event_counts_on_each_of_its_days_in_the_wee
         all_day("Trip", "2026-08-12", "2026-08-18"),  # Wed 12 - Mon 17: overflows in week 3 only
     )
 
-    weeks = (await google_oauth.get_month_grid(db, 2026, 8))["weeks"]
+    weeks = (await google_calendar.get_month_grid(db, 2026, 8))["weeks"]
 
     assert "Trip" not in _bars(weeks[2])
     assert _hidden(weeks[2]) == [0, 0, 1, 1, 1, 1, 1]  # Wed..Sun, clipped to the week
@@ -116,7 +116,7 @@ async def test_longer_event_claims_a_slot_before_same_start_short_ones(db, event
         all_day("Long", "2026-08-10", "2026-08-15"),  # Mon-Fri, same start
     )
 
-    week = (await google_oauth.get_month_grid(db, 2026, 8))["weeks"][2]
+    week = (await google_calendar.get_month_grid(db, 2026, 8))["weeks"][2]
 
     assert _bars(week)["Long"] == (1, 5, 0)
     assert _hidden(week)[0] == 1  # one of the one-day events is the "+1 more"
@@ -131,8 +131,8 @@ async def test_all_day_event_outranks_timed_events_on_the_same_day(db, events):
         all_day("Inset day", "2026-08-12", "2026-08-13"),
     )
 
-    week = (await google_oauth.get_month_grid(db, 2026, 8))["weeks"][2]
-    day = await google_oauth.get_day_events(db, date(2026, 8, 12))
+    week = (await google_calendar.get_month_grid(db, 2026, 8))["weeks"][2]
+    day = await google_calendar.get_day_events(db, date(2026, 8, 12))
 
     assert _bars(week)["Inset day"][2] == 0
     assert "Football" not in _bars(week)  # the latest timed event is the one that overflows

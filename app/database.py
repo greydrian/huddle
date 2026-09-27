@@ -286,14 +286,19 @@ async def set_onscreen_keyboard(db, enabled: bool):
     onscreen_keyboard_enabled = enabled
 
 
+CALENDAR_TIMEZONE_SETTING = "calendar_timezone"
+
+
 async def family_timezone(db) -> ZoneInfo:
     """The household's timezone — the connected Google Calendar's own
-    (cached by google_oauth), else UTC. The container itself always runs in
+    (cached by google_calendar), else UTC. The container itself always runs in
     UTC, so naive date.today()/datetime.now() are wrong for "today" here."""
-    name = await get_setting(db, "calendar_timezone")
+    name = await get_setting(db, CALENDAR_TIMEZONE_SETTING)
     try:
         return ZoneInfo(name or "UTC")
-    except (ZoneInfoNotFoundError, ValueError):
+    except (ZoneInfoNotFoundError, ValueError, OSError):
+        # OSError: a tzdata directory name such as "Europe" raises
+        # IsADirectoryError/PermissionError rather than NotFound.
         return ZoneInfo("UTC")
 
 

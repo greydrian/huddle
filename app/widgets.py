@@ -11,7 +11,7 @@ database.DEFAULT_LAYOUT.
 from collections.abc import Awaitable, Callable
 from typing import NamedTuple
 
-from app import google_oauth
+from app import google_calendar
 from app.routers.meals import get_week_meal_plan  # TODO: move to app/services/meals.py
 from app.services import homework, shopping, tasks, weather
 
@@ -34,7 +34,7 @@ async def _meals(db) -> dict:
 
 
 async def _calendar(db) -> dict:
-    return {"view": "month", "calendar_month": await google_oauth.get_month_grid(db)}
+    return {"view": "month", "calendar_month": await google_calendar.get_month_grid(db)}
 
 
 async def _weather(db) -> dict:

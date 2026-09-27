@@ -3,7 +3,7 @@ import time
 import httpx
 import pytest
 
-from app import google_oauth
+from app import google_calendar, google_oauth
 
 TOKEN_URL = "https://oauth2.googleapis.com/token"
 EVENTS_URL_PATTERN = r"https://www\.googleapis\.com/calendar/v3/calendars/.+/events"
@@ -56,7 +56,7 @@ async def test_multi_day_event_renders_as_one_spanning_bar(db, connected, google
         "end": {"date": "2026-08-15"},
     }]})
 
-    grid = await google_oauth.get_month_grid(db, 2026, 8)
+    grid = await google_calendar.get_month_grid(db, 2026, 8)
 
     bars = [b for week in grid["weeks"] for b in week["bars"]]
     assert len(bars) == 1
