@@ -63,10 +63,12 @@
     margin: 8,
     float: true,
     disableOneColumnMode: true,
-    // Drag by the header/tab only: Gridstack preventDefault()s touchmove on
-    // its drag handles, so a whole-card handle would swallow every swipe
-    // meant to scroll the dashboard (or a widget's own list).
-    handle: '.widget-header, .widget-tab',
+    // Drag by each widget's .drag-handle (its header) only: Gridstack
+    // preventDefault()s touchmove on its drag handles, so a whole-card handle
+    // would swallow every swipe meant to scroll the dashboard (or a widget's
+    // own list). Every widget template needs exactly one .drag-handle —
+    // Gridstack silently falls back to the whole card when none matches.
+    handle: '.drag-handle',
   });
 
   function persistLayout() {
