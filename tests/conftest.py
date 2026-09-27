@@ -12,7 +12,7 @@ import httpx  # noqa: E402
 import pytest  # noqa: E402
 import respx  # noqa: E402
 
-from app import database, google_oauth, security  # noqa: E402
+from app import database, google_oauth, http_client, security  # noqa: E402
 from app.main import app  # noqa: E402
 
 
@@ -21,6 +21,7 @@ async def isolated_db(tmp_path, monkeypatch):
     """Every test gets its own fresh SQLite file and secret key."""
     monkeypatch.setattr(database, "DB_PATH", tmp_path / "test.db")
     monkeypatch.setattr(security, "SECRET_KEY_PATH", tmp_path / ".secret_key")
+    http_client.reset_failures()  # outage log state is module-level
     await database.init_db()
     async with database.get_db() as db:
         # Avoid a calendar-metadata network call just to learn the timezone.

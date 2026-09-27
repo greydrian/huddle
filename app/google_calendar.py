@@ -7,7 +7,9 @@ Plain httpx against the REST API, like app/google_tasks.py. OAuth, tokens
 and the calendar picker's settings live in app/google_oauth.py.
 """
 
+import asyncio
 import logging
+from collections.abc import Callable
 from datetime import date, datetime, timedelta
 from datetime import time as dtime
 from urllib.parse import quote
@@ -25,6 +27,12 @@ CALENDAR_METADATA_ENDPOINT = "https://www.googleapis.com/calendar/v3/calendars/p
 CALENDAR_EVENTS_ENDPOINT_TEMPLATE = "https://www.googleapis.com/calendar/v3/calendars/{calendar_id}/events"
 
 MAX_BAR_SLOTS = 3  # event bars shown per week in the month grid before "+N more"
+# Hard cap on Google time per calendar render (token refresh + every page of
+# every selected calendar). The dashboard awaits it inline, so a slow Google
+# shows the offline state instead of stalling the page — cf. weather's
+# FETCH_DEADLINE. Background sync keeps the full per-request timeouts.
+CALENDAR_DEADLINE = 6.0
+OUTAGE_KEY = "Google Calendar"
 
 
 async def cache_calendar_timezone(db, access_token: str):
@@ -111,24 +119,63 @@ async def _fetch_selected_events(db, access_token, tz, start: date, end: date) -
     """Events from every Admin-selected calendar, colour-tagged. One
     calendar failing (unshared, network blip) doesn't blank the others —
     it just flags the result as partial/offline."""
+    calendars = await get_selected_calendars(db)
+    time_min = datetime.combine(start, dtime.min, tzinfo=tz)
+    time_max = datetime.combine(end, dtime.min, tzinfo=tz)
+    # Concurrently: the request path waits on the slowest calendar, not the sum.
+    results = await asyncio.gather(
+        *(fetch_events(access_token, cal["id"], time_min, time_max) for cal in calendars),
+        return_exceptions=True,
+    )
     events: list[dict] = []
     offline = False
-    for cal in await get_selected_calendars(db):
-        try:
-            cal_events = await fetch_events(
-                access_token,
-                cal["id"],
-                datetime.combine(start, dtime.min, tzinfo=tz),
-                datetime.combine(end, dtime.min, tzinfo=tz),
+    for cal, result in zip(calendars, results, strict=True):
+        if isinstance(result, httpx.HTTPError):
+            http_client.report_failure(
+                logger, OUTAGE_KEY, "Couldn't fetch calendar events; showing offline: %s",
+                http_client.describe(result),
             )
-        except httpx.HTTPError as exc:
-            logger.warning("Couldn't fetch events for a selected calendar: %s", http_client.describe(exc))
             offline = True
             continue
-        for event in cal_events:
+        if isinstance(result, BaseException):
+            raise result
+        for event in result:
             event["color"] = cal.get("color") or DEFAULT_EVENT_COLOR
-        events.extend(cal_events)
+        events.extend(result)
     return events, offline
+
+
+async def _load_events(db, span: Callable[[datetime], tuple[date, date]]) -> dict | None:
+    """Everything the request path needs from Google, under one hard
+    deadline. None = not connected; otherwise {"now", "tz", "events",
+    "offline"}. `span` maps "now" in the calendar's timezone to the
+    [start, end) date range to fetch."""
+
+    async def load() -> dict | None:
+        access_token, offline = await connect(db)
+        if not access_token and not offline:
+            return None
+        tz = await _calendar_timezone(db, access_token)
+        now = datetime.now(tz)
+        events: list[dict] = []
+        if access_token:
+            start, end = span(now)
+            events, fetch_offline = await _fetch_selected_events(db, access_token, tz, start, end)
+            offline = offline or fetch_offline
+        if not offline:
+            http_client.report_success(logger, OUTAGE_KEY)
+        return {"now": now, "tz": tz, "events": events, "offline": offline}
+
+    try:
+        return await asyncio.wait_for(load(), CALENDAR_DEADLINE)
+    except asyncio.TimeoutError:
+        # Only a connected account makes network calls, so a timeout means
+        # connected-but-slow: render the offline state, never block the page.
+        http_client.report_failure(
+            logger, OUTAGE_KEY, "Google Calendar took over %ss; showing offline", CALENDAR_DEADLINE
+        )
+        tz = await family_timezone(db)
+        return {"now": datetime.now(tz), "tz": tz, "events": [], "offline": True}
 
 
 async def get_month_grid(db, year: int | None = None, month: int | None = None) -> dict | None:
@@ -144,24 +191,20 @@ async def get_month_grid(db, year: int | None = None, month: int | None = None) 
     If Google is unreachable the grid still renders (with "offline": True
     and whatever events could be fetched) — a network blip must never take
     down the whole dashboard."""
-    access_token, offline = await connect(db)
-    if not access_token and not offline:
-        return None
+    def grid_span(now: datetime) -> tuple[date, date]:
+        first = date(year or now.year, month or now.month, 1)
+        grid_start = first - timedelta(days=first.weekday())  # Monday on/before the 1st
+        return grid_start, grid_start + timedelta(days=42)
 
-    tz = await _calendar_timezone(db, access_token)
-    now = datetime.now(tz)
+    loaded = await _load_events(db, grid_span)
+    if loaded is None:
+        return None
+    now, all_events, offline = loaded["now"], loaded["events"], loaded["offline"]
     year = year or now.year
     month = month or now.month
     today = now.date()
-
     first_of_month = date(year, month, 1)
-    grid_start = first_of_month - timedelta(days=first_of_month.weekday())  # Monday on/before the 1st
-    grid_end = grid_start + timedelta(days=42)
-
-    all_events: list[dict] = []
-    if access_token:
-        all_events, fetch_offline = await _fetch_selected_events(db, access_token, tz, grid_start, grid_end)
-        offline = offline or fetch_offline
+    grid_start, _ = grid_span(now)
 
     weeks = []
     cursor = grid_start
@@ -233,14 +276,9 @@ async def get_day_events(db, target: date) -> dict | None:
     """None means not connected. Otherwise {"events": [...], "offline": bool}
     — every event on the given day across all selected calendars, all-day
     events first then by time."""
-    access_token, offline = await connect(db)
-    if not access_token and not offline:
+    loaded = await _load_events(db, lambda _now: (target, target + timedelta(days=1)))
+    if loaded is None:
         return None
-
-    events: list[dict] = []
-    if access_token:
-        tz = await _calendar_timezone(db, access_token)
-        events, fetch_offline = await _fetch_selected_events(db, access_token, tz, target, target + timedelta(days=1))
-        offline = offline or fetch_offline
+    events = loaded["events"]
     events.sort(key=lambda e: (0 if e["all_day"] else 1, e["sort_key"]))
-    return {"events": events, "offline": offline}
+    return {"events": events, "offline": loaded["offline"]}

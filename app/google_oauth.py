@@ -242,8 +242,12 @@ async def connect(db) -> tuple[str | None, bool]:
     try:
         token = await get_valid_access_token(db)
     except httpx.HTTPError as exc:
-        logger.warning("Google token refresh failed; showing offline: %s", http_client.describe(exc))
+        http_client.report_failure(
+            logger, "Google token refresh", "Google token refresh failed; showing offline: %s",
+            http_client.describe(exc),
+        )
         return None, True
+    http_client.report_success(logger, "Google token refresh")
     return token, False
 
 

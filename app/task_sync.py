@@ -27,6 +27,7 @@ from app.database import get_setting, set_setting
 
 SHOPPING_TASKLIST_SETTING = "google_shopping_tasklist"
 MAX_RETRY = 5
+SYNC_OUTAGE_KEY = "Google Tasks sync"
 
 logger = logging.getLogger(__name__)
 
@@ -331,6 +332,12 @@ async def run_sync(db):
             await reconcile_profile_tasks(db, access_token, profile)
     except (_StopCycle, httpx.HTTPError) as exc:
         # Offline, rate-limited, or the token lacks the `tasks` scope (needs
-        # a reconnect) — skip this cycle; the next one retries.
+        # a reconnect) — skip this cycle; the next one retries. Logged once
+        # per outage, not once a minute.
         cause = exc.__cause__ if isinstance(exc, _StopCycle) and exc.__cause__ else exc
-        logger.warning("Google Tasks sync skipped this cycle: %s", http_client.describe(cause))
+        http_client.report_failure(
+            logger, SYNC_OUTAGE_KEY, "Google Tasks sync failing; retrying every cycle: %s",
+            http_client.describe(cause),
+        )
+    else:
+        http_client.report_success(logger, SYNC_OUTAGE_KEY)

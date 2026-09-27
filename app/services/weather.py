@@ -184,7 +184,9 @@ async def get_weather(db) -> dict | None:
         try:
             forecast = await asyncio.wait_for(_fetch_forecast(location), FETCH_DEADLINE)
         except (httpx.HTTPError, asyncio.TimeoutError, KeyError, IndexError, TypeError, ValueError, AttributeError) as exc:
-            logger.warning("Weather fetch failed; backing off %s: %s", RETRY_BACKOFF, http_client.describe(exc))
+            http_client.report_failure(
+                logger, "Weather", "Weather fetch failed; retrying every %s: %s", RETRY_BACKOFF, http_client.describe(exc)
+            )
             await set_setting(db, FAILURE_SETTING, now.isoformat())
             await db.commit()
         else:
@@ -196,6 +198,7 @@ async def get_weather(db) -> dict | None:
             }))
             await set_setting(db, FAILURE_SETTING, "")
             await db.commit()
+            http_client.report_success(logger, "Weather")
             return _present(location, forecast, now, stale=False, now=now)
 
     # Open-Meteo is down (or backing off): this morning's forecast is fine, last week's isn't.

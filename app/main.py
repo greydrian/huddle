@@ -22,8 +22,30 @@ load_dotenv()  # local dev convenience — reads .env if present, before any
 # token revocation) show in `docker compose logs`. uvicorn configures only
 # its own loggers, so without this our WARNINGs would be the bare lastResort.
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
-# httpx logs every request at INFO — once a minute per sync is just noise.
+# httpx logs every request URL at INFO: noise once a minute, and the token
+# revoke URL carries the refresh token in its query string — keep it off.
 logging.getLogger("httpx").setLevel(logging.WARNING)
+# APScheduler logs "Running job…"/"executed successfully" every minute at INFO.
+logging.getLogger("apscheduler").setLevel(logging.WARNING)
+
+SENSITIVE_QUERY_PATHS = ("/admin/google/callback",)
+
+
+class RedactOAuthQuery(logging.Filter):
+    """uvicorn's access log prints the full path, which for the OAuth
+    callback includes the one-time ?code=…&state=…. Drop the query string
+    for those paths. uvicorn.access args: (client, method, path, http_version, status)."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        args = record.args
+        if isinstance(args, tuple) and len(args) >= 3 and isinstance(args[2], str):
+            path, sep, _query = args[2].partition("?")
+            if sep and path in SENSITIVE_QUERY_PATHS:
+                record.args = (*args[:2], path, *args[3:])
+        return True
+
+
+logging.getLogger("uvicorn.access").addFilter(RedactOAuthQuery())
 
 from urllib.parse import urlparse
 
