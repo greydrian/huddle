@@ -25,9 +25,7 @@
       {% elif widget.widget_id == 'meals' %}
         {% include "widgets/meals.html" %}
       {% elif widget.widget_id == 'calendar' %}
-        {% include "widgets/calendar_stub.html" %}
-      {% elif widget.widget_id == 'upcoming_events' %}
-        {% include "widgets/upcoming_events_stub.html" %}
+        {% include "widgets/calendar.html" %}
       {% elif widget.widget_id == 'weather' %}
         {% include "widgets/weather_stub.html" %}
       {% elif widget.widget_id == 'photos' %}
@@ -77,6 +75,17 @@
   document.body.addEventListener('htmx:afterSwap', () => {
     // No-op for now: swaps target elements *inside* grid-stack-item-content,
     // so Gridstack's own item wrapper is untouched and needs no re-init.
+  });
+
+  // Alpine only scans the DOM once on load — any widget swapped in by HTMX
+  // afterwards (the Calendar month grid's nav/polling) needs its x-data
+  // re-initialized explicitly, or its click/x-show bindings go dead after
+  // the first refresh. evt.target is the newly-inserted element itself
+  // (outerHTML swaps replace the node, so evt.detail.target can be stale).
+  document.body.addEventListener('htmx:afterSettle', (evt) => {
+    if (window.Alpine) {
+      window.Alpine.initTree(evt.target);
+    }
   });
 </script>
 {% endblock %}

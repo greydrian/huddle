@@ -1,16 +1,20 @@
 """
-Admin PIN hashing/verification and session tokens.
+Admin PIN hashing/verification, session tokens, and encryption for stored
+OAuth tokens.
 
 Uses stdlib PBKDF2 (no extra dependency) for PIN hashing, and itsdangerous
 for short-lived, signed session cookies. Failed attempts trigger exponential
 backoff, per the spec's admin hardening requirements.
 """
 
+import base64
 import hashlib
 import hmac
+import json
 import os
 import time
 from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
+from cryptography.fernet import Fernet, InvalidToken
 
 from app.database import DATA_DIR
 
@@ -67,3 +71,24 @@ def verify_session_token(token: str | None) -> bool:
         return bool(data.get("admin"))
     except (BadSignature, SignatureExpired):
         return False
+
+
+def _get_fernet() -> Fernet:
+    """Symmetric key for encrypting stored OAuth tokens at rest, derived
+    from the same local secret file the session-cookie signer uses —
+    one piece of key material for the whole app, not two to manage."""
+    return Fernet(base64.urlsafe_b64encode(_get_secret_key()))
+
+
+def encrypt_token_json(data: dict) -> str:
+    return _get_fernet().encrypt(json.dumps(data).encode()).decode()
+
+
+def decrypt_token_json(encrypted: str) -> dict | None:
+    """Returns None on a bad/foreign token rather than raising — a token
+    stored under an old secret key (or corrupted) should read back as
+    'not connected', not crash the dashboard."""
+    try:
+        return json.loads(_get_fernet().decrypt(encrypted.encode()))
+    except (InvalidToken, ValueError):
+        return None

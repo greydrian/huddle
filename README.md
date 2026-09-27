@@ -15,6 +15,10 @@ cloud component).
   purely functional (no points/rewards — per spec), admin can add/remove tasks
 - **Shopping list**: single shared list, add/tick/delete
 - **Meal planning**: simple text-based plan for the next 7 days, inline editing
+- **Calendar & Upcoming Events**: Google OAuth (read-only), Calendar shows today's
+  agenda and Upcoming Events shows the next 7 days, both self-refresh every 3 minutes;
+  falls back to an illustrated "not connected" state until Admin → Connect Google
+  Account is used (see "Connecting Google Calendar" below)
 - **Admin**: PIN-protected (default PIN is **1234** — change it immediately under
   Admin → Change Admin PIN), with exponential backoff on failed attempts,
   family member management, task management
@@ -26,7 +30,6 @@ cloud component).
 
 These show a placeholder card on the dashboard rather than live data:
 
-- **Calendar** and **Upcoming Events** — needs Google Calendar OAuth
 - **Weather** — needs the Open-Meteo integration (no API key required, just not wired up)
 - **Photos** — needs Google Photos Picker OAuth + the local image-cache layer
 - **Homework** — needs Gmail API access to parse the weekly Classroom guardian email
@@ -104,6 +107,52 @@ members (Mum, Dad, Riley, Jamie) — rename/replace these in Admin.
 **Default admin PIN is `1234`.** Change it immediately (Admin → Change Admin PIN)
 before this runs anywhere other than your own laptop.
 
+## Connecting Google Calendar
+
+The app talks to Google's OAuth and Calendar REST endpoints directly (via `httpx` —
+see `app/google_oauth.py`), no Google SDK. Calendar is **read-only** (`calendar.readonly`
+scope) and renders as a month grid with a day view; the `tasks` scope drives shopping-list
+and per-person task sync (`app/task_sync.py`). In-app event creation/editing is a separate
+follow-up.
+
+**1. Create a Google Cloud project and OAuth credentials** (one-time, in a browser):
+
+1. Go to [console.cloud.google.com](https://console.cloud.google.com), create a project
+   (or reuse one).
+2. **APIs & Services → Library** — enable the **Google Calendar API** and **Google Tasks API**.
+3. **APIs & Services → OAuth consent screen** — User type **External**. Add your own
+   Google account under **Test users**. **Warning:** while publishing status is
+   **Testing**, Google expires refresh tokens after 7 days, so the connection silently
+   drops weekly. For an always-on display, switch it to **In production** (an unverified
+   app is usable for personal use; you'll see a "Google hasn't verified this app" screen
+   when connecting) — otherwise plan on reconnecting in Admin every week.
+4. **APIs & Services → Credentials → Create Credentials → OAuth client ID** —
+   Application type **Web application**. Under **Authorized redirect URIs**, add both
+   `http://localhost:8000/admin/google/callback` and
+   `http://127.0.0.1:8000/admin/google/callback` (Google matches the string exactly, so
+   whichever host you type in the browser must be registered).
+   **For the G10:** Google rejects raw IP addresses (e.g. `192.168.x.x`) and requires
+   HTTPS for anything that isn't localhost, so the callback can't point at the G10's LAN
+   IP. Either put the app behind Caddy with a real hostname + HTTPS (spec 9.7) and register
+   that URL, or do the one-time Connect step through an SSH tunnel
+   (`ssh -L 8000:localhost:8000 <g10>`) so your browser reaches it as `localhost`.
+5. Copy the **Client ID** and **Client Secret**.
+
+**2. Configure the app:**
+
+```bash
+cp .env.example .env
+```
+
+Fill in `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in `.env` (gitignored — never commit
+real credentials). Restart the app (`docker compose up` picks up `.env` automatically via
+Compose variable substitution; for bare-metal, `python-dotenv` loads it on startup).
+
+**3. Connect the account:** Admin → Google Account → **Connect Google Account**, sign in,
+approve. Tokens are encrypted at rest (`app/security.py`'s `encrypt_token_json`, keyed off
+the same local secret file that signs admin session cookies) in the `auth_tokens` table.
+**Disconnect** in the same panel revokes and clears them.
+
 ## Project structure
 
 ```
@@ -114,7 +163,8 @@ docker-compose.override.yml  Dev-only: --reload + bind-mounted app/ code
 app/
   main.py              FastAPI app entrypoint
   database.py          SQLite schema, WAL mode, seed data (DATA_DIR env var)
-  security.py          PIN hashing, session tokens, lockout backoff
+  security.py          PIN hashing, session tokens, lockout backoff, OAuth token encryption
+  google_oauth.py      Google OAuth + Calendar REST client (httpx, no SDK)
   templating.py         Shared Jinja2 instance
   routers/
     dashboard.py       Home screen assembly + /health endpoint
@@ -123,6 +173,7 @@ app/
     meals.py           Meal plan CRUD
     layout.py          Gridstack position persistence
     admin.py           PIN auth + family/task management
+    calendar.py         Google OAuth connect/disconnect + Calendar/Upcoming Events widgets
   templates/           Jinja2 templates (base, dashboard, widgets/, admin/)
   static/
     css/style.css      Design system (fonts, palette, widget styling)
@@ -162,12 +213,12 @@ Tab A9+ instead:
 
 ## Next steps (in rough priority order)
 
-1. **Google OAuth for Calendar + Tasks** — standard in-browser consent flow
-   (not the QR/device-flow approach — see spec for why), wire up the real
-   Calendar and Upcoming Events widgets, and switch the shopping/task lists
-   over from local-only to actually pushing/pulling Google Tasks using the
-   `sync_queue` table that's already in the schema (rows are being written,
-   nothing consumes them yet — that's the background sync worker to build).
+1. **Google Tasks sync** — Calendar is wired up (read-only, see "Connecting Google
+   Calendar"); the shopping/task lists are still local-only. Switch them over to
+   actually pushing/pulling Google Tasks using the `sync_queue` table that's already
+   in the schema (rows are being written, nothing consumes them yet — that's the
+   background sync worker to build), reusing the OAuth token plumbing in
+   `app/google_oauth.py`.
 2. **End-of-day task reset job** — `archive_completed_one_off_tasks()` and
    `reset_recurring_tasks()` are written in `tasks.py` but nothing calls them
    yet; needs a scheduler (APScheduler, per the spec's system architecture).

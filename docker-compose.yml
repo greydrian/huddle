@@ -3,6 +3,13 @@ services:
     build: .
     ports:
       - "8000:8000"
+    environment:
+      # Read from a .env file at the project root (Compose loads this
+      # automatically for variable substitution — copy .env.example to
+      # .env and fill in real values; it's gitignored). Blank is fine —
+      # the app just shows "not configured" in Admin until these are set.
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
     volumes:
       # Bind mount, per spec 9.7 — plain host folder, browsable/backupable/
       # rsync'able directly. Safe for SQLite's WAL mode here because the

@@ -54,13 +54,91 @@
     </form>
   </div>
 
-  <!-- Google accounts (stub) -->
+  <!-- Google account -->
   <div class="admin-panel">
-    <h2>Google Account Connections</h2>
+    <h2>Google Account</h2>
+    {% if google_account %}
+    <div class="admin-row">
+      <span>Connected as <strong>{{ google_account }}</strong> — Calendar (read-only) + Tasks</span>
+      <form method="post" action="/admin/google/disconnect">
+        <button type="submit" class="btn btn-danger" style="padding:4px 10px;font-size:0.8rem;">Disconnect</button>
+      </form>
+    </div>
+    {% if available_calendars %}
+    <form method="post" action="/admin/google/calendars" style="margin-top:12px;">
+      <p style="color: var(--ink-soft); font-size: 0.85rem; margin-bottom: 6px;">
+        Calendars shown on the dashboard:
+      </p>
+      {% for cal in available_calendars %}
+      <label style="display:flex; align-items:center; gap:8px; padding:5px 0; font-size:0.9rem;">
+        <input type="checkbox" name="calendar_id" value="{{ cal.id }}"
+               {{ 'checked' if cal.id in selected_calendar_ids else '' }}>
+        <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:{{ cal.color }};flex-shrink:0;"></span>
+        {{ cal.summary }}{% if cal.primary %} (primary){% endif %}
+      </label>
+      {% endfor %}
+      <button type="submit" class="btn" style="margin-top:8px;">Save calendars</button>
+    </form>
+    {% endif %}
+    {% elif google_configured %}
     <p style="color: var(--ink-soft); font-size: 0.9rem;">
-      Not wired up yet. Connecting Calendar, Tasks, Photos, and Classroom access
-      is the next build phase — see the project README for the plan (standard
-      in-browser OAuth, no QR/device-flow, per the spec).
+      Connect a Google account to bring your family calendar onto the dashboard.
+    </p>
+    <a href="/admin/google/connect" class="btn" style="text-decoration:none;">Connect Google Account</a>
+    {% else %}
+    <p style="color: var(--ink-soft); font-size: 0.9rem;">
+      Not configured yet — set <code>GOOGLE_CLIENT_ID</code> and <code>GOOGLE_CLIENT_SECRET</code>
+      (see README, "Connecting Google Calendar") before this can be connected.
+    </p>
+    {% endif %}
+    {% if google_account %}
+    <div style="margin-top:16px; padding-top:16px; border-top:1px solid rgba(43,36,32,0.1);">
+      <h3 style="margin:0 0 8px; font-size:1rem;">Task Sync</h3>
+      {% if tasklists_error %}
+      <p style="color: var(--danger); font-size: 0.85rem;">
+        Couldn't load your Google Task lists — this account was likely connected before Task
+        sync was added. Disconnect and reconnect above to grant access.
+      </p>
+      {% elif available_tasklists %}
+      <form method="post" action="/admin/google/shopping-list" style="margin-bottom:16px;">
+        <label style="display:block; font-size:0.85rem; color:var(--ink-soft); margin-bottom:6px;">
+          Shopping list syncs with:
+        </label>
+        <select name="tasklist_id" required>
+          <option value="">— choose a list —</option>
+          {% for tl in available_tasklists %}
+          <option value="{{ tl.id }}" {{ 'selected' if shopping_tasklist and shopping_tasklist.id == tl.id else '' }}>{{ tl.title }}</option>
+          {% endfor %}
+        </select>
+        <button type="submit" class="btn" style="padding:6px 14px;font-size:0.85rem;">Save</button>
+      </form>
+
+      <form method="post" action="/admin/google/task-lists">
+        <label style="display:block; font-size:0.85rem; color:var(--ink-soft); margin-bottom:6px;">
+          Task lists (per family member):
+        </label>
+        {% for p in profiles %}
+        <div style="display:flex; align-items:center; gap:8px; margin-bottom:6px;">
+          <span style="width:70px; font-size:0.9rem;">{{ p.name }}</span>
+          <select name="tasklist_{{ p.id }}">
+            <option value="">Not synced</option>
+            {% for tl in available_tasklists %}
+            <option value="{{ tl.id }}" {{ 'selected' if p.google_tasklist_id == tl.id else '' }}>{{ tl.title }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        {% endfor %}
+        <button type="submit" class="btn" style="margin-top:4px;padding:6px 14px;font-size:0.85rem;">Save task lists</button>
+      </form>
+      {% else %}
+      <p style="color: var(--ink-soft); font-size: 0.85rem;">
+        No Google Tasks lists found on this account. Create one in the Google Tasks app first.
+      </p>
+      {% endif %}
+    </div>
+    {% endif %}
+    <p style="color: var(--ink-soft); font-size: 0.85rem; margin-top: 12px;">
+      Google Photos and Classroom access aren't wired up yet — see the project README for the plan.
     </p>
   </div>
 

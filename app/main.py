@@ -12,11 +12,17 @@ at the G10's LAN address over Wi-Fi (see README's kiosk setup section).
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+from dotenv import load_dotenv
+
+load_dotenv()  # local dev convenience — reads .env if present, before any
+                # GOOGLE_CLIENT_ID/SECRET env reads happen at import time below
+
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from app.database import init_db
-from app.routers import dashboard, tasks, shopping, meals, layout, admin
+from app.routers import dashboard, tasks, shopping, meals, layout, admin, calendar
+from app import scheduler
 
 BASE_DIR = Path(__file__).parent
 
@@ -24,7 +30,9 @@ BASE_DIR = Path(__file__).parent
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
+    scheduler.start()
     yield
+    scheduler.stop()
 
 
 app = FastAPI(title="Family Display", lifespan=lifespan)
@@ -37,3 +45,4 @@ app.include_router(shopping.router)
 app.include_router(meals.router)
 app.include_router(layout.router)
 app.include_router(admin.router)
+app.include_router(calendar.router)

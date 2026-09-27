@@ -60,7 +60,8 @@ async def toggle_shopping_item(request: Request, item_id: int):
 
         new_state = 0 if item["is_checked"] else 1
         await db.execute(
-            "UPDATE shopping_items SET is_checked = ? WHERE id = ?", (new_state, item_id)
+            "UPDATE shopping_items SET is_checked = ?, updated_at = datetime('now') WHERE id = ?",
+            (new_state, item_id),
         )
         await _queue_sync(db, "shopping", {"item_id": item_id, "is_checked": bool(new_state)})
         await db.commit()
@@ -72,8 +73,17 @@ async def toggle_shopping_item(request: Request, item_id: int):
 @router.post("/api/shopping/{item_id}/delete", response_class=HTMLResponse)
 async def delete_shopping_item(request: Request, item_id: int):
     async with get_db() as db:
+        # Capture google_task_id before deleting — the row (and this
+        # column) won't exist anymore by the time the sync worker drains
+        # this queue entry and needs to know what to delete on Google's side.
+        cursor = await db.execute("SELECT google_task_id FROM shopping_items WHERE id = ?", (item_id,))
+        existing = await cursor.fetchone()
+        google_task_id = existing["google_task_id"] if existing else None
+
         await db.execute("DELETE FROM shopping_items WHERE id = ?", (item_id,))
-        await _queue_sync(db, "shopping", {"action": "delete", "item_id": item_id})
+        await _queue_sync(
+            db, "shopping", {"action": "delete", "item_id": item_id, "google_task_id": google_task_id}
+        )
         await db.commit()
         items = await get_shopping_items(db)
 

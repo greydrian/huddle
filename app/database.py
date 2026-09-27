@@ -24,7 +24,8 @@ CREATE TABLE IF NOT EXISTS profiles (
     name TEXT NOT NULL,
     colour_hex TEXT NOT NULL,
     avatar_path TEXT,
-    sort_order INTEGER NOT NULL DEFAULT 0
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    google_tasklist_id TEXT
 );
 
 CREATE TABLE IF NOT EXISTS tasks (
@@ -37,7 +38,8 @@ CREATE TABLE IF NOT EXISTS tasks (
     is_completed INTEGER NOT NULL DEFAULT 0,
     completed_at TEXT,
     archived INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE TABLE IF NOT EXISTS meal_plans (
@@ -50,7 +52,8 @@ CREATE TABLE IF NOT EXISTS shopping_items (
     title TEXT NOT NULL,
     is_checked INTEGER NOT NULL DEFAULT 0,
     google_task_id TEXT,
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE TABLE IF NOT EXISTS layout_state (
@@ -85,16 +88,17 @@ CREATE TABLE IF NOT EXISTS app_settings (
 );
 """
 
+LAYOUT_VERSION = "2"  # bump + branch init_db's migration when DEFAULT_LAYOUT changes shape
+
 DEFAULT_LAYOUT = [
     # widget_id, x, y, w, h
-    ("calendar", 0, 0, 5, 4),
-    ("upcoming_events", 5, 0, 3, 4),
-    ("tasks", 0, 4, 4, 4),
-    ("shopping", 4, 4, 2, 4),
-    ("meals", 6, 4, 2, 4),
-    ("weather", 8, 0, 2, 2),
-    ("photos", 8, 2, 2, 2),
-    ("homework", 8, 4, 2, 2),
+    ("calendar", 0, 0, 12, 7),
+    ("tasks", 0, 7, 4, 4),
+    ("shopping", 4, 7, 2, 4),
+    ("meals", 6, 7, 2, 4),
+    ("weather", 8, 7, 2, 2),
+    ("photos", 8, 9, 2, 2),
+    ("homework", 10, 7, 2, 4),
 ]
 
 DEFAULT_PROFILES = [
@@ -106,14 +110,35 @@ DEFAULT_PROFILES = [
 ]
 
 
+async def _add_column_if_missing(db, table: str, column: str, coltype: str):
+    """CREATE TABLE IF NOT EXISTS never retroactively alters an existing
+    table, so columns added after a table already shipped need an explicit,
+    idempotent ALTER TABLE — PRAGMA table_info first since SQLite errors on
+    adding a column that's already there."""
+    cursor = await db.execute(f"PRAGMA table_info({table})")
+    existing = [row["name"] for row in await cursor.fetchall()]
+    if column not in existing:
+        await db.execute(f"ALTER TABLE {table} ADD COLUMN {column} {coltype}")
+
+
 async def init_db():
     """Create tables (if needed) and seed default data on first run."""
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
         await db.execute("PRAGMA journal_mode=WAL;")
         await db.execute("PRAGMA synchronous=NORMAL;")
         await db.execute("PRAGMA foreign_keys=ON;")
         await db.executescript(SCHEMA)
+        await db.commit()
+
+        # Migration: Google Tasks sync (shopping list + per-person task
+        # lists) added columns to tables that already shipped without them.
+        await _add_column_if_missing(db, "profiles", "google_tasklist_id", "TEXT")
+        await _add_column_if_missing(db, "shopping_items", "updated_at", "TEXT")
+        await _add_column_if_missing(db, "tasks", "updated_at", "TEXT")
+        await db.execute("UPDATE shopping_items SET updated_at = created_at WHERE updated_at IS NULL")
+        await db.execute("UPDATE tasks SET updated_at = created_at WHERE updated_at IS NULL")
         await db.commit()
 
         # Seed profiles only if the table is empty (first run)
@@ -134,6 +159,39 @@ async def init_db():
                    VALUES (?, ?, ?, ?, ?, 1)""",
                 DEFAULT_LAYOUT,
             )
+
+        # Migration: Calendar became the dashboard's hero widget (Google-style
+        # month grid with event bars + a day view) and needs far more room,
+        # so every widget's default position changed shape. One-time, keyed
+        # on a version flag rather than re-running every boot: wipes the
+        # layout and lets the "seed if empty" block above re-insert the new
+        # DEFAULT_LAYOUT. This intentionally resets any custom drag/resize
+        # positions — unavoidable given how much bigger Calendar needs to be.
+        current_layout_version = await get_setting(db, "layout_version")
+        if current_layout_version != LAYOUT_VERSION:
+            await db.execute("DELETE FROM layout_state")
+            await db.executemany(
+                """INSERT INTO layout_state (widget_id, grid_x, grid_y, grid_w, grid_h, is_visible)
+                   VALUES (?, ?, ?, ?, ?, 1)""",
+                DEFAULT_LAYOUT,
+            )
+            await set_setting(db, "layout_version", LAYOUT_VERSION)
+
+        # Migration: the Calendar widget absorbed Upcoming Events (now a
+        # month grid instead of two agenda lists) — widen calendar's slot by
+        # upcoming_events' old width and drop it, preserving wherever the
+        # widget's actually been dragged to rather than resetting positions.
+        # No-op once this has run (upcoming_events row no longer exists).
+        cursor = await db.execute(
+            "SELECT grid_w FROM layout_state WHERE widget_id = 'upcoming_events'"
+        )
+        row = await cursor.fetchone()
+        if row is not None:
+            await db.execute(
+                "UPDATE layout_state SET grid_w = grid_w + ? WHERE widget_id = 'calendar'",
+                (row[0],),
+            )
+            await db.execute("DELETE FROM layout_state WHERE widget_id = 'upcoming_events'")
 
         # Seed a default admin PIN (1234) on first run only — change this in Admin > Settings
         cursor = await db.execute("SELECT COUNT(*) FROM app_settings WHERE key = 'pin_hash'")

@@ -144,7 +144,8 @@ html, body {
 #dashboard-grid {
   padding: 16px;
   height: calc(100vh - 76px);
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 /* --- Widget card: the "paper pinned to the wall" signature --- */
@@ -286,6 +287,174 @@ html, body {
 .shopping-add-form button {
   background: var(--system-accent); color: var(--wall); border: none; border-radius: 8px;
   padding: 0 16px; font-weight: 600; cursor: pointer;
+}
+
+/* --- Calendar: selected-day event list (below the month grid) --- */
+.event-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 7px 4px;
+  border-bottom: 1px solid rgba(43,36,32,0.08);
+}
+.event-time {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  width: 68px;
+  flex-shrink: 0;
+}
+.event-title { flex: 1; font-size: 0.9rem; }
+
+/* --- Calendar: month grid (hero widget — content flows naturally and the
+   dashboard grid scrolls if needed, so nothing here needs to be height-
+   constrained the way the earlier compact version did). --- */
+.cal-nav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 2px 2px 12px;
+}
+.cal-nav-btn {
+  width: 26px; height: 26px;
+  border-radius: 7px;
+  border: none;
+  background: var(--paper-shade);
+  color: var(--ink);
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.cal-month-label {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 1.1rem;
+  color: var(--ink);
+  min-width: 170px;
+  text-align: center;
+}
+.cal-today-btn {
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 0.75rem;
+  color: var(--system-accent-dark);
+  background: transparent;
+  border: 1.5px solid var(--system-accent);
+  border-radius: 999px;
+  padding: 4px 12px;
+  cursor: pointer;
+}
+
+.cal-weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  padding: 0 2px;
+  margin-bottom: 6px;
+}
+.cal-weekdays span {
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--ink-soft);
+  text-transform: uppercase;
+}
+.cal-weekdays span.weekend { color: var(--system-accent-dark); }
+
+.cal-week { margin-bottom: 4px; }
+.cal-week-days {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+.cal-day-num {
+  text-align: center;
+  font-size: 0.85rem;
+  color: var(--ink);
+  padding: 4px 0;
+  border-radius: 5px;
+  cursor: pointer;
+}
+.cal-day-num:hover { background: var(--paper-shade); }
+.cal-day-num.weekend { background: rgba(43,36,32,0.035); }
+.cal-day-num.other-month { color: var(--ink-soft); opacity: 0.4; }
+.cal-day-num.today {
+  background: var(--system-accent);
+  color: var(--paper);
+  font-weight: 700;
+}
+
+.cal-week-bars {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+  margin-top: 2px;
+}
+.cal-bar {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  color: var(--paper);
+  font-size: 0.7rem;
+  line-height: 1.6;
+  overflow: hidden;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.cal-bar-time { font-family: var(--font-mono); font-size: 0.63rem; opacity: 0.9; flex-shrink: 0; }
+.cal-bar-title { overflow: hidden; text-overflow: ellipsis; }
+.cal-bar.all-day { font-weight: 600; }
+
+.cal-week-more {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+  margin-top: 2px;
+}
+.cal-more {
+  display: block;
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 0.63rem;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+.cal-more-empty { cursor: default; }
+
+/* --- Calendar: day view --- */
+.cal-day-heading {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding-bottom: 10px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid rgba(43,36,32,0.1);
+}
+.cal-back-btn {
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 0.8rem;
+  color: var(--system-accent-dark);
+  background: var(--paper-shade);
+  border: none;
+  border-radius: 999px;
+  padding: 6px 14px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.cal-day-title {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 1.05rem;
+  color: var(--ink);
+}
+.event-row.all-day .event-time {
+  font-family: var(--font-body);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  font-size: 0.68rem;
 }
 
 /* --- Meal plan --- */
