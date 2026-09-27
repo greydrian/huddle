@@ -119,38 +119,137 @@ async def test_same_person_edit_is_a_normal_update_push(db, admin_client, connec
     assert await _queue_payloads(db) == []
 
 
-async def _reassign_setup(db, admin_client):
-    p1, p2 = (await _profile_ids(db))[:2]
-    await db.execute("UPDATE profiles SET google_tasklist_id = 'list-a' WHERE id = ?", (p1,))
-    await db.execute("UPDATE profiles SET google_tasklist_id = 'list-b' WHERE id = ?", (p2,))
-    task_id = await _add_task(db, p1, google_task_id="g-old")
-    await admin_client.post(f"/admin/tasks/{task_id}/edit", data={"profile_id": p2, "title": "Feed cat"})
-    return task_id, p2
+class FakeTasks:
+    """Just enough of the Google Tasks API, keeping per-list state, to run
+    whole sync cycles. Deletes on lists in `fail_delete` answer 400."""
+
+    def __init__(self, google, lists):
+        self.lists = {name: {} for name in lists}
+        self.fail_delete = set()
+        self.calls = []
+        self._next = 0
+        base = r"https://tasks\.googleapis\.com/tasks/v1/lists/(?P<tl>[^/]+)/tasks"
+        google.route(method="GET", url__regex=base + r"(\?.*)?$").mock(side_effect=self._list)
+        google.route(method="POST", url__regex=base + "$").mock(side_effect=self._insert)
+        google.route(method="PATCH", url__regex=base + r"/(?P<gid>[^/?]+)$").mock(side_effect=self._patch)
+        google.route(method="DELETE", url__regex=base + r"/(?P<gid>[^/?]+)$").mock(side_effect=self._delete)
+
+    def _list(self, request, tl):
+        items = [{"id": gid, "title": t, "updated": "2020-01-01T00:00:00Z"} for gid, t in self.lists[tl].items()]
+        return httpx.Response(200, json={"items": items})
+
+    def _insert(self, request, tl):
+        self._next += 1
+        gid = f"{tl}-{self._next}"
+        self.lists[tl][gid] = json.loads(request.content)["title"]
+        self.calls.append(("insert", tl, gid))
+        return httpx.Response(200, json={"id": gid})
+
+    def _patch(self, request, tl, gid):
+        self.calls.append(("patch", tl, gid))
+        self.lists[tl][gid] = json.loads(request.content).get("title", self.lists[tl][gid])
+        return httpx.Response(200, json={"id": gid})
+
+    def _delete(self, request, tl, gid):
+        self.calls.append(("delete", tl, gid))
+        if tl in self.fail_delete:
+            return httpx.Response(400)
+        self.lists[tl].pop(gid, None)
+        return httpx.Response(204)
 
 
-async def test_reassigning_person_moves_task_between_google_lists(db, admin_client, connected, google):
-    task_id, p2 = await _reassign_setup(db, admin_client)
-    delete = google.delete(f"{TASKS_API}/list-a/tasks/g-old").respond(204)
-    insert = google.post(f"{TASKS_API}/list-b/tasks").respond(200, json={"id": "g-new"})
+async def _link_lists(db, names):
+    ids = (await _profile_ids(db))[:len(names)]
+    for pid, name in zip(ids, names, strict=True):
+        await db.execute("UPDATE profiles SET google_tasklist_id = ? WHERE id = ?", (name, pid))
+    await db.commit()
+    return ids
 
-    await task_sync.push_pending_changes(db, "tok")
 
-    assert delete.called and insert.called
-    assert json.loads(insert.calls.last.request.content)["title"] == "Feed cat"
-    task = await _task(db, task_id)
-    assert (task["profile_id"], task["google_task_id"]) == (p2, "g-new")
+async def _live_tasks(db):
+    rows = await (await db.execute(
+        "SELECT profile_id, title, google_task_id FROM tasks WHERE archived = 0"
+    )).fetchall()
+    return [tuple(r) for r in rows]
+
+
+async def _move(admin_client, task_id, profile_id):
+    resp = await admin_client.post(f"/admin/tasks/{task_id}/edit", data={"profile_id": profile_id, "title": "Feed cat"})
+    assert resp.status_code == 303
+
+
+async def test_reassign_full_sync_moves_task_between_lists(db, admin_client, connected, google):
+    fake = FakeTasks(google, ["A", "B"])
+    fake.lists["A"]["g-old"] = "Feed cat"
+    pa, pb = await _link_lists(db, ["A", "B"])
+    task_id = await _add_task(db, pa, google_task_id="g-old")
+
+    await _move(admin_client, task_id, pb)
+    await task_sync.run_sync(db)
+    await task_sync.run_sync(db)
+
+    assert fake.calls == [("delete", "A", "g-old"), ("insert", "B", "B-1")]
+    assert fake.lists == {"A": {}, "B": {"B-1": "Feed cat"}}
+    assert await _live_tasks(db) == [(pb, "Feed cat", "B-1")]
     assert await _queue_payloads(db) == []
 
 
+async def test_reassign_old_list_delete_rejected_does_not_resurrect(db, admin_client, connected, google):
+    fake = FakeTasks(google, ["A", "B"])
+    fake.lists["A"]["g-old"] = "Feed cat"
+    fake.fail_delete.add("A")
+    pa, pb = await _link_lists(db, ["A", "B"])
+    task_id = await _add_task(db, pa, google_task_id="g-old")
+
+    await _move(admin_client, task_id, pb)
+    await task_sync.run_sync(db)
+    await task_sync.run_sync(db)
+
+    assert await _live_tasks(db) == [(pb, "Feed cat", "B-1")]
+    assert [c for c in fake.calls if c[0] == "insert"] == [("insert", "B", "B-1")]
+    assert ("delete", "A", "g-old") in fake.calls
+
+
+async def test_reassign_twice_before_one_sync(db, admin_client, connected, google):
+    fake = FakeTasks(google, ["A", "B", "C"])
+    fake.lists["A"]["g-old"] = "Feed cat"
+    pa, pb, pc = await _link_lists(db, ["A", "B", "C"])
+    task_id = await _add_task(db, pa, google_task_id="g-old")
+
+    await _move(admin_client, task_id, pb)
+    await _move(admin_client, task_id, pc)
+    await task_sync.run_sync(db)
+    await task_sync.run_sync(db)
+
+    # Two edits queue two task rows: insert then a (harmless) update.
+    assert fake.calls == [("delete", "A", "g-old"), ("insert", "C", "C-1"), ("patch", "C", "C-1")]
+    assert fake.lists == {"A": {}, "B": {}, "C": {"C-1": "Feed cat"}}
+    assert await _live_tasks(db) == [(pc, "Feed cat", "C-1")]
+
+
+async def test_reassign_never_synced_task(db, admin_client, connected, google):
+    fake = FakeTasks(google, ["A", "B"])
+    pa, pb = await _link_lists(db, ["A", "B"])
+    task_id = await _add_task(db, pa)
+
+    await _move(admin_client, task_id, pb)
+    await task_sync.run_sync(db)
+    await task_sync.run_sync(db)
+
+    assert fake.calls == [("insert", "B", "B-1")]
+    assert await _live_tasks(db) == [(pb, "Feed cat", "B-1")]
+    tombstones = await (await db.execute("SELECT COUNT(*) FROM tasks WHERE archived = 1")).fetchone()
+    assert tombstones[0] == 0
+
+
 async def test_reassign_during_outage_keeps_queue_intact(db, admin_client, connected, google):
-    task_id, _ = await _reassign_setup(db, admin_client)
+    pa, pb = await _link_lists(db, ["A", "B"])
+    task_id = await _add_task(db, pa, google_task_id="g-old")
+    await _move(admin_client, task_id, pb)
     queued = await _queue_payloads(db)
-    assert queued == [
-        {"action": "delete", "tasklist_id": "list-a", "google_task_id": "g-old"},
-        {"task_id": task_id},
-    ]
-    google.delete(f"{TASKS_API}/list-a/tasks/g-old").mock(side_effect=httpx.ConnectError("offline"))
-    insert = google.post(f"{TASKS_API}/list-b/tasks").respond(200, json={"id": "g-new"})
+    assert len(queued) == 2 and queued[1] == {"task_id": task_id}
+    google.delete(f"{TASKS_API}/A/tasks/g-old").mock(side_effect=httpx.ConnectError("offline"))
+    insert = google.post(f"{TASKS_API}/B/tasks").respond(200, json={"id": "g-new"})
 
     for _ in range(3):
         await task_sync.run_sync(db)
@@ -161,15 +260,13 @@ async def test_reassign_during_outage_keeps_queue_intact(db, admin_client, conne
     assert [r["retry_count"] for r in retries] == [0, 0]
 
 
-async def test_reassign_to_unlinked_person_still_removes_old_copy(db, admin_client, connected, google):
-    p1, p2 = (await _profile_ids(db))[:2]
-    await db.execute("UPDATE profiles SET google_tasklist_id = 'list-a' WHERE id = ?", (p1,))
-    task_id = await _add_task(db, p1, google_task_id="g-old")
-    delete = google.delete(f"{TASKS_API}/list-a/tasks/g-old").respond(204)
+async def test_tombstone_is_hidden_from_dashboard_and_admin(db, admin_client, connected):
+    pa, pb = await _link_lists(db, ["A", "B"])
+    task_id = await _add_task(db, pa, title="Feed cat", google_task_id="g-old")
+    await _move(admin_client, task_id, pb)
 
-    await admin_client.post(f"/admin/tasks/{task_id}/edit", data={"profile_id": p2, "title": "Feed cat"})
-    await task_sync.push_pending_changes(db, "tok")
+    admin_html = (await admin_client.get("/admin")).text
+    widget_html = (await admin_client.get("/widgets/tasks")).text
 
-    assert delete.called
-    assert (await _task(db, task_id))["google_task_id"] is None
-    assert await _queue_payloads(db) == []
+    assert admin_html.count("— Feed cat") == 1
+    assert widget_html.count("Feed cat") == 1
