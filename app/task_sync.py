@@ -93,6 +93,25 @@ async def relink_profile(db, profile_id: int):
     await db.commit()
 
 
+async def detach_from_profile_list(db, task_id: int):
+    """A task is moving to another family member: its Google copy lives on
+    the old member's list. Leave an archived tombstone row there holding the
+    old Google id, so the normal archived-task path deletes that copy (and
+    reconcile re-queues rather than resurrects it if the delete fails), then
+    forget the id so the task's next push inserts it into the new member's
+    list. Call before changing profile_id; the caller queues the task and commits."""
+    task = await (await db.execute("SELECT * FROM tasks WHERE id = ?", (task_id,))).fetchone()
+    if task is None or not task["google_task_id"]:
+        return
+    cursor = await db.execute(
+        """INSERT INTO tasks (profile_id, title, google_task_id, archived, updated_at)
+           VALUES (?, ?, ?, 1, datetime('now'))""",
+        (task["profile_id"], task["title"], task["google_task_id"]),
+    )
+    await _queue(db, "tasks", {"task_id": cursor.lastrowid})
+    await db.execute("UPDATE tasks SET google_task_id = NULL WHERE id = ?", (task_id,))
+
+
 # --- Push: local mutation -> Google -------------------------------------
 
 async def _push_shopping_change(db, access_token: str, payload: dict):
