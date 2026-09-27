@@ -111,8 +111,7 @@
   }
 
   // Lift the input above the keyboard by scrolling whichever ancestors can
-  // scroll — including the overflow:hidden body, since Gridstack gives the
-  // grid a fixed inline height and the page itself overflows instead.
+  // scroll: a widget's own list, the dashboard's scroll area, or the page.
   const scrolled = new Map();  // element -> scrollTop before we moved it
   function reveal(el) {
     if (!el.isConnected) return;
