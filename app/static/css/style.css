@@ -271,6 +271,18 @@ html, body {
   100% { transform: scale(1); }
 }
 .task-title { flex: 1; font-size: 0.95rem; }
+.task-all-done { padding: 6px 4px; font-size: 0.85rem; color: var(--ink-soft); }
+/* Finished tasks fold away under a touch-sized "✓ N done" toggle. */
+.task-done summary {
+  list-style: none;
+  cursor: pointer;
+  padding: 8px 4px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--success);
+}
+.task-done summary::-webkit-details-marker { display: none; }
+.task-done .task-row { opacity: 0.75; }
 
 /* --- Shopping list --- */
 .shopping-row { display: flex; align-items: center; gap: 10px; padding: 7px 4px; }
