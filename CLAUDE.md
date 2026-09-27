@@ -31,6 +31,14 @@ python -m pytest tests/test_task_sync.py::test_outage_keeps_queue_and_does_not_b
 
 Tests use a fresh temp SQLite DB per test (`tests/conftest.py`) and `respx` to mock every Google call — an unmocked outbound request fails the test. They go through `httpx.ASGITransport`, which skips the lifespan, so the scheduler never starts. For UI changes, also run the app and drive it with Playwright (installed in `./venv`). Admin PIN defaults to `1234`.
 
+## Working with agents and tooling
+
+- `.claude/agents/feature-implementer.md` — builds one feature end-to-end and opens a PR. Launch several at once with worktree isolation for parallel work; each uses its own port (8011–8019) and temp `DATA_DIR`. Brief it with the feature spec only — the repo conventions are in the agent file.
+- `.claude/agents/code-reviewer.md` — read-only reviewer. Run it on every branch before merge, including agent-written ones.
+- `.claude/skills/run-huddle` — how to launch an isolated or live instance and verify with Playwright.
+- `.claude/settings.json` PostToolUse hook runs ruff on each edited `.py` file and reports problems back.
+- Parallel branches most often conflict in `app/static/css/style.css`, `admin/settings.html` and `dashboard.py`/`dashboard.html`. Merge PRs one at a time and rebase the rest.
+
 ## Architecture
 
 - **Routers** (`app/routers/`) each own one widget or area. Every widget has a server-rendered fragment in `app/templates/widgets/` whose root element has an id (`#widget-tasks`, `#widget-calendar`, …); mutations and navigation use `hx-post`/`hx-get` with `hx-target="#widget-x" hx-swap="outerHTML"` — the widget re-renders itself. Calendar also self-polls (`hx-trigger="every 180s"`).
