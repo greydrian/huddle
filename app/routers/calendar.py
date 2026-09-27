@@ -3,22 +3,24 @@ Google OAuth connect/disconnect, the calendar-selection picker, and the
 live month-grid Calendar widget (Section 4.2, 9.5 of the spec).
 
 The widget falls back to the illustrated "not connected" stub state when
-app.google_oauth.get_valid_access_token() returns None.
+app.google_oauth.get_valid_access_token() returns None. The Calendar reads
+themselves live in app/google_calendar.py.
 """
 
+import logging
 import secrets
-import time as time_module
 from datetime import date as date_cls
 
 import httpx
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from app import google_oauth
+from app import google_calendar, google_oauth, http_client
 from app.auth import require_admin
 from app.database import get_db
 from app.templating import templates
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 STATE_COOKIE = "google_oauth_state"
@@ -58,9 +60,10 @@ async def google_callback(
 
     try:
         tokens = await google_oauth.exchange_code_for_tokens(code, _callback_redirect_uri(request))
-        tokens["expires_at"] = time_module.time() + tokens.get("expires_in", 3600)
+        tokens["expires_at"] = google_oauth.expires_at(tokens)
         userinfo = await google_oauth.fetch_userinfo(tokens["access_token"])
-    except httpx.HTTPError:
+    except httpx.HTTPError as exc:
+        logger.warning("Google OAuth callback failed: %s", http_client.describe(exc))
         return response
 
     async with get_db() as db:
@@ -85,7 +88,8 @@ async def save_selected_calendars(calendar_id: list[str] = Form(default=[])):
             # whatever the submitted form says — the form only tells us
             # which IDs were checked.
             available = await google_oauth.fetch_calendar_list(access_token) if access_token else []
-        except httpx.HTTPError:
+        except httpx.HTTPError as exc:
+            logger.warning("Couldn't load the calendar list to save a selection: %s", http_client.describe(exc))
             available = []
         by_id = {cal["id"]: cal for cal in available}
         selected = [by_id[cid] for cid in calendar_id if cid in by_id]
@@ -101,7 +105,7 @@ async def calendar_widget(
     month: int | None = Query(default=None, ge=1, le=12),
 ):
     async with get_db() as db:
-        calendar_month = await google_oauth.get_month_grid(db, year, month)
+        calendar_month = await google_calendar.get_month_grid(db, year, month)
     return templates.TemplateResponse(
         request, "widgets/calendar.html", {"view": "month", "calendar_month": calendar_month}
     )
@@ -114,7 +118,7 @@ async def calendar_day_widget(request: Request, date: str):
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid date") from None
     async with get_db() as db:
-        day = await google_oauth.get_day_events(db, parsed)
+        day = await google_calendar.get_day_events(db, parsed)
     day_label = parsed.strftime("%A, %d %B").replace(" 0", " ")  # no leading zero, cross-platform
     return templates.TemplateResponse(
         request,

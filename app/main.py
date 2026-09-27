@@ -9,6 +9,7 @@ wall-mounted Samsung Galaxy Tab A9+ running Fully Kiosk Browser, pointed
 at the G10's LAN address over Wi-Fi (see README's kiosk setup section).
 """
 
+import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -16,6 +17,13 @@ from dotenv import load_dotenv
 
 load_dotenv()  # local dev convenience — reads .env if present, before any
                 # GOOGLE_CLIENT_ID/SECRET env reads happen at import time below
+
+# One-time app log setup so module loggers (Google offline, sync skips,
+# token revocation) show in `docker compose logs`. uvicorn configures only
+# its own loggers, so without this our WARNINGs would be the bare lastResort.
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+# httpx logs every request at INFO — once a minute per sync is just noise.
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 from urllib.parse import urlparse
 

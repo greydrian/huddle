@@ -7,11 +7,15 @@ showing the last good reading when Open-Meteo is down or slow.
 
 import asyncio
 import json
+import logging
 from datetime import date, datetime, timedelta, timezone
 
 import httpx
 
+from app import http_client
 from app.database import get_setting, set_setting
+
+logger = logging.getLogger(__name__)
 
 FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
 GEOCODING_URL = "https://geocoding-api.open-meteo.com/v1/search"
@@ -66,7 +70,7 @@ async def geocode(query: str) -> dict | None:
     name, qualifier = name.strip(), qualifier.strip().lower()
     if not name:
         return None
-    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+    async with http_client.client(TIMEOUT) as client:
         resp = await client.get(GEOCODING_URL, params={"name": name, "count": 5})
         resp.raise_for_status()
     results = resp.json().get("results") or []
@@ -109,7 +113,7 @@ async def _fetch_forecast(location: dict) -> dict:
         "forecast_days": 4,
         "timezone": "auto",
     }
-    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+    async with http_client.client(TIMEOUT) as client:
         resp = await client.get(FORECAST_URL, params=params)
         resp.raise_for_status()
     data = resp.json()
@@ -179,7 +183,8 @@ async def get_weather(db) -> dict | None:
     if not (last_failure and now - last_failure < RETRY_BACKOFF):
         try:
             forecast = await asyncio.wait_for(_fetch_forecast(location), FETCH_DEADLINE)
-        except (httpx.HTTPError, asyncio.TimeoutError, KeyError, IndexError, TypeError, ValueError, AttributeError):
+        except (httpx.HTTPError, asyncio.TimeoutError, KeyError, IndexError, TypeError, ValueError, AttributeError) as exc:
+            logger.warning("Weather fetch failed; backing off %s: %s", RETRY_BACKOFF, http_client.describe(exc))
             await set_setting(db, FAILURE_SETTING, now.isoformat())
             await db.commit()
         else:

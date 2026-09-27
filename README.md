@@ -130,7 +130,7 @@ with `respx`.
 ## Connecting Google (Calendar + Tasks)
 
 The app calls Google's OAuth, Calendar and Tasks REST endpoints directly
-with `httpx`, without a Google SDK (`app/google_oauth.py`,
+with `httpx`, without a Google SDK (`app/google_oauth.py`, `app/google_calendar.py`,
 `app/google_tasks.py`). The scopes are `calendar.readonly` and `tasks`.
 Calendar is read-only; the Tasks scope drives the shopping and task sync.
 
@@ -192,7 +192,9 @@ app/
   appearance.py      Day/night palettes and /api/appearance
   templating.py      Shared Jinja2 instance + template context helpers
   recurrence.py      Weekday rules ("Mon,Wed,Fri") for recurring tasks
-  google_oauth.py    Google OAuth, token storage/refresh, Calendar reads (httpx, no SDK)
+  http_client.py     Shared httpx client factory + timeout, log-safe error summaries
+  google_oauth.py    Google OAuth, token storage/refresh, list pager, calendar-picker settings (httpx, no SDK)
+  google_calendar.py Calendar event fetch, month grid bar packing, day view
   google_tasks.py    Google Tasks API client
   task_sync.py       Two-way Tasks sync: push sync_queue, then reconcile each list
   scheduler.py       APScheduler: sync every 60s, daily-reset check every 5 min

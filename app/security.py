@@ -22,6 +22,8 @@ from app.database import DATA_DIR
 SECRET_KEY_PATH = DATA_DIR / ".secret_key"
 SESSION_MAX_AGE_SECONDS = 60 * 60 * 2  # 2 hour admin session
 BASE_LOCKOUT_SECONDS = 5  # doubles per consecutive failure
+# Baked into every stored PIN hash — changing it invalidates existing PINs.
+PBKDF2_ITERATIONS = 200_000
 
 
 def _get_secret_key() -> bytes:
@@ -36,7 +38,7 @@ def _get_secret_key() -> bytes:
 def hash_pin(pin: str, salt: bytes | None = None) -> str:
     """Return 'salt_hex$hash_hex' using PBKDF2-HMAC-SHA256."""
     salt = salt or os.urandom(16)
-    digest = hashlib.pbkdf2_hmac("sha256", pin.encode(), salt, 200_000)
+    digest = hashlib.pbkdf2_hmac("sha256", pin.encode(), salt, PBKDF2_ITERATIONS)
     return f"{salt.hex()}${digest.hex()}"
 
 
@@ -46,7 +48,7 @@ def verify_pin(pin: str, stored: str) -> bool:
     except ValueError:
         return False
     salt = bytes.fromhex(salt_hex)
-    candidate = hashlib.pbkdf2_hmac("sha256", pin.encode(), salt, 200_000)
+    candidate = hashlib.pbkdf2_hmac("sha256", pin.encode(), salt, PBKDF2_ITERATIONS)
     return hmac.compare_digest(candidate.hex(), hash_hex)
 
 

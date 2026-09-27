@@ -1,4 +1,5 @@
 import json
+import logging
 
 import httpx
 
@@ -44,6 +45,24 @@ async def test_outage_keeps_queue_and_does_not_burn_retries(db, connected, googl
     rows = await _queue_rows(db)
     assert len(rows) == 1
     assert rows[0]["retry_count"] == 0
+
+
+async def test_offline_sync_cycle_logs_a_warning(db, connected, google, caplog):
+    await task_sync.set_shopping_tasklist(db, SHOP_LIST)
+    await db.execute(
+        "INSERT INTO sync_queue (service, payload_json) VALUES ('shopping', ?)",
+        (json.dumps({"action": "delete", "google_task_id": "g1"}),),
+    )
+    await db.commit()
+    google.delete(f"{TASKS_API}/shop/tasks/g1").mock(side_effect=httpx.ConnectError("offline"))
+
+    with caplog.at_level(logging.WARNING, logger="app.task_sync"):
+        await task_sync.run_sync(db)
+
+    warnings = [r for r in caplog.records if r.name == "app.task_sync" and r.levelno == logging.WARNING]
+    assert len(warnings) == 1
+    assert "ConnectError" in warnings[0].getMessage()
+    assert "tok" not in warnings[0].getMessage()  # never the access token
 
 
 async def test_permanent_rejection_drops_queue_row(db, connected, google):

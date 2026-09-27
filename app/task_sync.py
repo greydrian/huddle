@@ -17,15 +17,18 @@ them (e.g. resurrect an item deleted offline).
 """
 
 import json
+import logging
 from datetime import datetime, timezone
 
 import httpx
 
-from app import google_oauth, google_tasks
+from app import google_oauth, google_tasks, http_client
 from app.database import get_setting, set_setting
 
 SHOPPING_TASKLIST_SETTING = "google_shopping_tasklist"
 MAX_RETRY = 5
+
+logger = logging.getLogger(__name__)
 
 
 class _StopCycle(Exception):
@@ -207,6 +210,11 @@ async def push_pending_changes(db, access_token: str):
             if status in (400, 404, 410) or new_count >= MAX_RETRY:
                 # Permanently rejected (or gone on Google's side) — reconcile
                 # will re-align the two sides from Google's current state.
+                logger.warning(
+                    "Dropping queued %s sync change %s (%s): %s",
+                    row["service"], row["id"], "rejected" if status in (400, 404, 410) else "out of retries",
+                    http_client.describe(exc),
+                )
                 await db.execute("DELETE FROM sync_queue WHERE id = ?", (row["id"],))
             else:
                 await db.execute(
@@ -321,7 +329,8 @@ async def run_sync(db):
         )).fetchall()
         for profile in profiles:
             await reconcile_profile_tasks(db, access_token, profile)
-    except (_StopCycle, httpx.HTTPError):
+    except (_StopCycle, httpx.HTTPError) as exc:
         # Offline, rate-limited, or the token lacks the `tasks` scope (needs
-        # a reconnect) — skip this cycle quietly; the next one retries.
-        pass
+        # a reconnect) — skip this cycle; the next one retries.
+        cause = exc.__cause__ if isinstance(exc, _StopCycle) and exc.__cause__ else exc
+        logger.warning("Google Tasks sync skipped this cycle: %s", http_client.describe(cause))

@@ -24,7 +24,7 @@ async def isolated_db(tmp_path, monkeypatch):
     await database.init_db()
     async with database.get_db() as db:
         # Avoid a calendar-metadata network call just to learn the timezone.
-        await database.set_setting(db, google_oauth.CALENDAR_TIMEZONE_SETTING, "Europe/London")
+        await database.set_setting(db, database.CALENDAR_TIMEZONE_SETTING, "Europe/London")
         await db.commit()
     yield
 
