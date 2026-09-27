@@ -374,7 +374,9 @@ body:has(> .dashboard-scroll) > .topbar { flex-shrink: 0; }
 
 /* --- Calendar --- */
 .cal-header { flex-wrap: nowrap; }
-.cal-header .widget-title { font-size: 1.5rem; margin-right: auto; }
+/* The calendar's drag handle is just its icon + title (its buttons sit outside). */
+.widget-heading { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; align-self: stretch; }
+.cal-header .widget-title { font-size: 1.5rem; }
 .cal-nav { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 .cal-nav-btn {
   width: 42px; height: 42px; padding: 0;

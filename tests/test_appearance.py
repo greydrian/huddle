@@ -121,3 +121,32 @@ async def test_widget_pills_use_person_ink(db, client):
     await db.commit()
     html = (await client.get("/widgets/tasks")).text
     assert 'class="person-pill ink-dark" style="--person: #F2C94C;"' in html
+
+
+async def test_switch_in_counts_real_seconds_across_autumn_dst(db):
+    # UK clocks go back on 25 Oct 2026: 19:00 -> 07:00 is 13 real hours.
+    now = datetime(2026, 10, 24, 19, 0, tzinfo=LONDON)
+    assert await appearance.current_mode(db, now) == {"mode": "night", "switch_in": 13 * 3600}
+
+
+@pytest.mark.parametrize("tz_setting", ["Not/AZone", None])
+async def test_bad_or_missing_timezone_falls_back_to_utc(db, tz_setting):
+    if tz_setting is None:
+        await db.execute("DELETE FROM app_settings WHERE key = 'calendar_timezone'")
+    else:
+        await database.set_setting(db, "calendar_timezone", tz_setting)
+    await db.commit()
+    # 06:30 UTC is still night in UTC (it's 07:30, day, in London).
+    now = datetime(2026, 6, 15, 6, 30, tzinfo=ZoneInfo("UTC"))
+    assert await appearance.current_mode(db, now) == {"mode": "night", "switch_in": 30 * 60}
+
+
+def test_person_ink_clears_large_text_contrast_with_night_inks():
+    # Night swaps the pill inks for softer ones (no pure white); still >= 3:1.
+    night_light, night_dark = "#F4F1EA", "#14171C"  # --pill-light / --pill-dark
+    for r in range(0, 256, 15):
+        for g in range(0, 256, 15):
+            for b in range(0, 256, 15):
+                c = f"#{r:02X}{g:02X}{b:02X}"
+                ink = night_light if appearance.person_ink(c) == "light" else night_dark
+                assert appearance.contrast(c, ink) >= 3.0, c

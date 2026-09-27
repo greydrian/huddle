@@ -28,19 +28,28 @@
       }
       function refresh() {
         fetch('/api/appearance', { cache: 'no-store' })
-          .then(function (r) { return r.json(); })
-          .then(function (a) { root.dataset.mode = a.mode; schedule(a.switch_in); })
-          .catch(function () { schedule(300); });  // offline: try again in 5 min
+          .then(function (r) { if (!r.ok) throw r; return r.json(); })
+          .then(function (a) {
+            if (a.mode !== 'day' && a.mode !== 'night') throw a;
+            root.dataset.mode = a.mode;
+            schedule(a.switch_in);
+          })
+          .catch(function () { schedule(300); });  // offline/odd reply: try again in 5 min
       }
-      schedule({{ appearance.switch_in | tojson }});
-      var lastCheck = Date.now();
-      setInterval(function () {
+      function check(force) {
         var now = Date.now();
-        if ((due !== null && now >= due) || now - lastCheck >= 600000) {
+        if (force || (due !== null && now >= due) || now - lastCheck >= 600000) {
           lastCheck = now;
           refresh();
         }
-      }, 20000);
+      }
+      schedule({{ appearance.switch_in | tojson }});
+      var lastCheck = Date.now();
+      setInterval(function () { check(false); }, 20000);
+      // A tablet waking from sleep (e.g. after 07:00) re-checks straight away.
+      document.addEventListener('visibilitychange', function () {
+        if (document.visibilityState === 'visible') check(true);
+      });
     })();
   </script>
   {% endif %}

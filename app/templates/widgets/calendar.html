@@ -7,18 +7,25 @@
      hx-get="/widgets/calendar?year={{ calendar_month.year }}&month={{ calendar_month.month }}"
      hx-trigger="every 180s" hx-swap="outerHTML"
      {% endif %}>
-  {#- One title only: the month (or day) being shown, with its navigation. -#}
-  <div class="widget-header cal-header drag-handle">
-    {{ icon("calendar-days", 22, "widget-icon") }}
-    {% if (view == 'day' and day_events is none) or (view != 'day' and calendar_month is none) %}
-    <h2 class="widget-title">Calendar</h2>
-    {% elif view == 'day' %}
-    <h2 class="widget-title">{{ day_label }}</h2>
+  {#- One title only: the month (or day) being shown, with its navigation.
+      Only the icon + title are the drag handle: Gridstack swallows every other
+      touch tap on a button inside a handle. -#}
+  <div class="widget-header cal-header">
+    <div class="widget-heading drag-handle">
+      {{ icon("calendar-days", 22, "widget-icon") }}
+      {% if (view == 'day' and day_events is none) or (view != 'day' and calendar_month is none) %}
+      <h2 class="widget-title">Calendar</h2>
+      {% elif view == 'day' %}
+      <h2 class="widget-title">{{ day_label }}</h2>
+      {% else %}
+      <h2 class="widget-title">{{ calendar_month.label }}</h2>
+      {% endif %}
+    </div>
+    {% if view == 'day' and day_events is not none %}
     <button class="cal-back-btn"
             hx-get="/widgets/calendar?year={{ day_year }}&month={{ day_month }}"
             hx-target="#widget-calendar" hx-swap="outerHTML">{{ icon("arrow-left", 18) }}Back to month</button>
-    {% else %}
-    <h2 class="widget-title">{{ calendar_month.label }}</h2>
+    {% elif view != 'day' and calendar_month is not none %}
     <div class="cal-nav">
       {% if not calendar_month.is_current_month %}
       <button class="cal-today-btn" hx-get="/widgets/calendar" hx-target="#widget-calendar" hx-swap="outerHTML">Today</button>

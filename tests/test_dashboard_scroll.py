@@ -7,6 +7,7 @@ the PR); this pins the markup it depends on.
 """
 
 import re
+from html.parser import HTMLParser
 from pathlib import Path
 
 TEMPLATES = Path(__file__).parent.parent / "app" / "templates"
@@ -45,3 +46,56 @@ async def test_dashboard_renders_one_drag_handle_per_visible_widget(db, client):
     html = (await client.get("/")).text
     assert html.count('class="grid-stack-item"') == visible
     assert len(DRAG_HANDLE.findall(html)) == visible
+
+
+# Gridstack's touchstart on a handle preventDefault()s and sets a global
+# "touch handled" flag; when the target is a button it bails out before
+# attaching the touchend that clears it, so every other tap on a control
+# inside a handle is swallowed. Handles hold only an icon and a title.
+
+INTERACTIVE_TAGS = {"button", "a", "input", "select", "textarea"}
+VOID_TAGS = {"img", "input", "br", "hr", "meta", "link", "use", "source"}
+
+
+class _HandleContents(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.stack = []  # (tag, inside a drag handle?)
+        self.offenders = []
+
+    def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        inside = bool(self.stack and self.stack[-1][1])
+        if inside and (tag in INTERACTIVE_TAGS or any(k.startswith("hx-") for k in attrs)):
+            self.offenders.append(tag)
+        is_handle = "drag-handle" in (attrs.get("class") or "").split()
+        if tag not in VOID_TAGS:
+            self.stack.append((tag, inside or is_handle))
+
+    def handle_endtag(self, tag):
+        while self.stack:
+            if self.stack.pop()[0] == tag:
+                break
+
+
+def _controls_in_handles(html):
+    parser = _HandleContents()
+    parser.feed(html)
+    return parser.offenders
+
+
+def test_handle_checker_catches_controls():
+    assert _controls_in_handles('<div class="x drag-handle"><h2>T</h2><button>Next</button></div>') == ["button"]
+    assert _controls_in_handles('<div class="drag-handle"><span hx-get="/x">T</span></div>') == ["span"]
+    assert _controls_in_handles('<div class="drag-handle"><h2>T</h2></div><button>Next</button>') == []
+
+
+def test_no_controls_inside_drag_handles_in_templates():
+    for path in (TEMPLATES / "widgets").glob("*.html"):
+        assert _controls_in_handles(path.read_text(encoding="utf-8")) == [], path.name
+
+
+async def test_no_controls_inside_drag_handles_on_dashboard(db, client):
+    html = (await client.get("/")).text
+    assert DRAG_HANDLE.search(html)
+    assert _controls_in_handles(html) == []
