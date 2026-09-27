@@ -40,7 +40,7 @@ async def _queue_payloads(db):
     return [json.loads(r["payload_json"]) for r in rows]
 
 
-async def test_schedule_days_persist_and_queue_sync(db, admin_client):
+async def test_schedule_days_persist_locally_without_a_push(db, admin_client):
     p1 = (await _profile_ids(db))[0]
     task_id = await _add_task(db, p1)
 
@@ -50,8 +50,9 @@ async def test_schedule_days_persist_and_queue_sync(db, admin_client):
     task = await _task(db, task_id)
     assert task["title"] == "Feed cat"
     assert task["is_recurring"] == 1 and task["recurrence_rule"] == "Mon,Fri"
-    assert task["updated_at"] > "2020-01-01 00:00:00"
-    assert await _queue_payloads(db) == [{"task_id": task_id}]
+    # The schedule never goes to Google, so nothing to push and no LWW bump.
+    assert task["updated_at"] == "2020-01-01 00:00:00"
+    assert await _queue_payloads(db) == []
 
 
 async def test_schedule_can_make_a_task_one_off_or_every_day(db, admin_client):
@@ -174,7 +175,7 @@ async def test_edit_requires_admin(db, client):
     assert await _queue_payloads(db) == []
 
 
-async def test_same_person_edit_is_a_normal_update_push(db, admin_client, connected, google):
+async def test_same_person_edit_pushes_nothing(db, admin_client, connected, google):
     p1 = (await _profile_ids(db))[0]
     await db.execute("UPDATE profiles SET google_tasklist_id = 'list-a' WHERE id = ?", (p1,))
     task_id = await _add_task(db, p1, google_task_id="g-1")
@@ -183,9 +184,61 @@ async def test_same_person_edit_is_a_normal_update_push(db, admin_client, connec
     await admin_client.post(f"/admin/tasks/{task_id}/edit", data={"profile_id": p1, "days": ["Mon"]})
     await task_sync.push_pending_changes(db, "tok")
 
-    assert json.loads(patch.calls.last.request.content)["title"] == "Feed cat"
-    assert (await _task(db, task_id))["google_task_id"] == "g-1"
+    assert not patch.called
+    task = await _task(db, task_id)
+    assert (task["google_task_id"], task["updated_at"]) == ("g-1", "2020-01-01 00:00:00")
     assert await _queue_payloads(db) == []
+
+
+async def test_google_rename_survives_a_schedule_save(db, admin_client, connected, google):
+    """Admin page loaded, then the task renamed in Google, then its days saved
+    here before the next sync: the rename must win."""
+    p1 = (await _profile_ids(db))[0]
+    await db.execute("UPDATE profiles SET google_tasklist_id = 'list-a' WHERE id = ?", (p1,))
+    task_id = await _add_task(db, p1, google_task_id="g-1")
+    await db.execute("UPDATE tasks SET updated_at = '2026-09-27 10:00:00' WHERE id = ?", (task_id,))
+    await db.commit()
+    google.get(url__regex=rf"{TASKS_API}/list-a/tasks(\?.*)?$").respond(200, json={"items": [
+        {"id": "g-1", "title": "Feed the cat", "status": "needsAction", "updated": "2026-09-27T10:00:30Z"},
+    ]})
+    patch = google.patch(f"{TASKS_API}/list-a/tasks/g-1").respond(200, json={"id": "g-1"})
+
+    await admin_client.post(f"/admin/tasks/{task_id}/edit", data={"profile_id": p1, "days": ["Sat"]})
+    await task_sync.run_sync(db)
+
+    assert not patch.called
+    task = await _task(db, task_id)
+    assert (task["title"], task["recurrence_rule"]) == ("Feed the cat", "Sat")
+
+
+async def test_reassign_to_person_without_google_list_is_rejected(db, admin_client):
+    pa, pb = await _link_lists(db, ["A"]) + [(await _profile_ids(db))[1]]
+    task_id = await _add_task(db, pa, google_task_id="g-old")
+
+    resp = await admin_client.post(f"/admin/tasks/{task_id}/edit", data={"profile_id": pb, "days": ["Mon"]})
+
+    assert resp.status_code == 400
+    task = await _task(db, task_id)
+    assert (task["profile_id"], task["google_task_id"], task["recurrence_rule"]) == (pa, "g-old", None)
+    assert await _live_tasks(db) == [(pa, "Feed cat", "g-old")]
+    tombstones = await (await db.execute("SELECT COUNT(*) FROM tasks WHERE archived = 1")).fetchone()
+    assert tombstones[0] == 0
+    assert await _queue_payloads(db) == []
+
+
+async def test_person_select_disables_unlinked_people(db, admin_client):
+    pa, pb = await _link_lists(db, ["A", "B"])
+    others = (await _profile_ids(db))[2:]
+    await _add_task(db, pa)
+    await _add_task(db, others[0], title="Legacy chore")
+
+    panel = (await admin_client.get("/admin")).text.split('id="tasks"')[1].split("<!-- Homework")[0]
+
+    assert f'<option value="{pb}">' in panel
+    assert f'<option value="{others[-1]}" disabled>' in panel
+    # A task already under an unlinked person keeps that person selectable.
+    assert f'<option value="{others[0]}" selected>' in panel
+    assert "These stay on this display only until a Google list is linked below" in panel
 
 
 class FakeTasks:

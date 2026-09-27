@@ -40,7 +40,7 @@
     {% for p in profiles %}
     {% set person_tasks = tasks | selectattr("profile_id", "equalto", p.id) | list %}
     <div class="schedule-person">
-      <h3>{{ p.name }}{% if not p.google_tasklist_id %} <span class="admin-meta">· Link a Google list under Google Account → Task Sync below to give them tasks</span>{% endif %}</h3>
+      <h3>{{ p.name }}{% if not p.google_tasklist_id %} <span class="admin-meta">· {% if person_tasks %}These stay on this display only until a Google list is linked below (Google Account → Task Sync){% else %}Link a Google list under Google Account → Task Sync below to give them tasks{% endif %}</span>{% endif %}</h3>
       {% for t in person_tasks %}
       <div class="admin-row task-row">
         <span class="task-row-label">{{ t.title }} <span class="admin-meta">· {{ 'repeats ' ~ t.schedule if t.schedule else 'one-off' }}</span></span>
@@ -58,7 +58,10 @@
             </div>
             <label style="display:flex;align-items:center;gap:6px;font-size:0.85rem;">Person
               <select name="profile_id" required aria-label="Person">
-                {% for op in profiles %}<option value="{{ op.id }}" {{ 'selected' if op.id == t.profile_id else '' }}>{{ op.name }}</option>{% endfor %}
+                {#- Moving a task to someone with no Google list would delete its Google copy. -#}
+                {% for op in profiles %}{% if op.id == t.profile_id %}<option value="{{ op.id }}" selected>{{ op.name }}</option>
+                {%- elif op.google_tasklist_id %}<option value="{{ op.id }}">{{ op.name }}</option>
+                {%- else %}<option value="{{ op.id }}" disabled>{{ op.name }} (no Google list)</option>{% endif %}{% endfor %}
               </select>
             </label>
             <button type="submit" class="btn">Save</button>
