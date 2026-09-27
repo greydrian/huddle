@@ -10,7 +10,6 @@
     <span class="signature">Today</span>
     <span id="today-date" data-iso="{{ today }}"></span>
   </div>
-  <div id="notification-banner" class="notification-banner"></div>
   <a href="/admin" class="btn-ghost">{{ icon("settings", 20) }}Admin</a>
 </div>
 
@@ -85,23 +84,13 @@
 
   grid.on('change', persistLayout);
 
-  // A widget re-rendering itself (outerHTML swap) replaces its header/tab,
-  // and Gridstack binds drag listeners to the handle elements themselves —
+  // A widget re-rendering itself (outerHTML swap) replaces its header and the
+  // .drag-handle inside it, and Gridstack binds drag listeners to the handle
+  // elements themselves —
   // re-bind them. The item wrapper and resize handles are untouched.
   document.body.addEventListener('htmx:afterSwap', (evt) => {
     const item = evt.target.closest && evt.target.closest('.grid-stack-item');
     if (item) grid.refreshDragHandles(item);
-  });
-
-  // Alpine only scans the DOM once on load — any widget swapped in by HTMX
-  // afterwards (the Calendar month grid's nav/polling) needs its x-data
-  // re-initialized explicitly, or its click/x-show bindings go dead after
-  // the first refresh. evt.target is the newly-inserted element itself
-  // (outerHTML swaps replace the node, so evt.detail.target can be stale).
-  document.body.addEventListener('htmx:afterSettle', (evt) => {
-    if (window.Alpine) {
-      window.Alpine.initTree(evt.target);
-    }
   });
 </script>
 {% endblock %}

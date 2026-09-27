@@ -41,8 +41,9 @@ Tests use a fresh temp SQLite DB per test (`tests/conftest.py`) and `respx` to m
 
 ## Architecture
 
-- **Routers** (`app/routers/`) each own one widget or area. Every widget has a server-rendered fragment in `app/templates/widgets/` whose root element has an id (`#widget-tasks`, `#widget-calendar`, …); mutations and navigation use `hx-post`/`hx-get` with `hx-target="#widget-x" hx-swap="outerHTML"` — the widget re-renders itself. Calendar also self-polls (`hx-trigger="every 180s"`).
+- **Routers** (`app/routers/`) each own one widget or area. Every widget has a server-rendered fragment in `app/templates/widgets/` whose root element has an id (`#widget-tasks`, `#widget-calendar`, …); mutations and navigation use `hx-post`/`hx-get` with `hx-target="#widget-x" hx-swap="outerHTML"` — the widget re-renders itself. Calendar and Weather also self-poll (`hx-trigger="every 180s"` / `"every 900s"`).
 - **Dashboard assembly**: `routers/dashboard.py` fetches data for every widget up front and `dashboard.html` `{% include %}`s each widget template (includes inherit the full context). A widget's template must work both from that include and from its own `/widgets/...` route, so keep context variable names identical in both places.
+- **Admin tasks are schedule-only**: tasks are added, renamed and deleted in Google Tasks (they sync in within a minute); Admin only sets which days a task repeats (`recurrence_rule`, see `recurrence.py`).
 - **Layout**: Gridstack positions persist in `layout_state` via `POST /api/layout` on every drag/resize (unauthenticated by design — anyone can rearrange).
 - **Migrations** live in `database.init_db()` and must be idempotent: `CREATE TABLE IF NOT EXISTS` for new tables, `_add_column_if_missing()` for columns on shipped tables, and the `LAYOUT_VERSION` setting for one-time layout resets. `init_db()` uses `aiosqlite.Row`, so `get_setting`/`set_setting` work there.
 - **Google integration** (no Google SDK — plain `httpx`):
@@ -54,8 +55,9 @@ Tests use a fresh temp SQLite DB per test (`tests/conftest.py`) and `respx` to m
 ## Gotchas learned the hard way
 
 - The container runs in **UTC**. Never use naive `date.today()`/`datetime.now()` for "today" — use `database.family_today(db)` (the calendar's timezone, else UTC), and keep Google's own offsets on event times (don't `.astimezone()` them). The daily task reset (`scheduler.py` → `tasks.run_daily_reset_if_due`) depends on this too.
-- The pin/tab above each `.widget-card` pokes outside the card: `.widget-card` must not get `overflow: hidden`, and `.grid-stack-item-content` is forced `overflow: visible`. Flex children that should shrink need `min-height: 0`.
-- `#dashboard-grid` scrolls internally, so Playwright `full_page` screenshots don't capture below the fold — scroll the element instead.
+- `#dashboard-scroll` (under the top bar) is the dashboard's scroller; html/body are locked and Gridstack gives `#dashboard-grid` an inline height, so the grid itself never scrolls. Playwright `full_page` screenshots don't capture below the fold — scroll `#dashboard-scroll` instead.
+- Gridstack drags only by `.drag-handle` (the widget's one header). Every widget template needs exactly one — with none, Gridstack falls back to the whole card and swallows every scroll swipe (`tests/test_dashboard_scroll.py` checks this). Put no buttons or other controls inside a handle: Gridstack eats touch taps on them (see the calendar header, where only icon + title are the handle).
+- `.grid-stack-item-content` is forced `overflow: visible` so card shadows aren't clipped; each `.widget-body` scrolls itself. Flex children that should shrink need `min-height: 0`.
 - In Playwright, use native `page.click()` + `wait_for_selector(...)` on the expected result; `element.click()` via `evaluate` and `networkidle` waits give false negatives with HTMX. Automated clicks can also trigger Gridstack drags, which **persist** to `layout_state` — check it after UI automation.
 - OAuth redirect URIs are exact-string matched (`localhost` ≠ `127.0.0.1`). Google rejects raw LAN IPs and non-localhost `http://`, and "Testing" consent screens expire refresh tokens after 7 days.
 - `docker compose config` prints the resolved `.env` secrets — don't run it where output is logged.

@@ -1,9 +1,27 @@
+# The image only needs requirements.txt and app/ (see Dockerfile).
+
+# Secrets and local data
+.env
+data/
+*.db
+*.db-wal
+*.db-shm
+
+# Virtualenvs and caches
 venv/
+.venv/
 __pycache__/
 *.pyc
-data/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Repo tooling, tests and docs
 .git/
+.github/
+.claude/
+tests/
 .gitignore
-README.md
 *.md
 .DS_Store
