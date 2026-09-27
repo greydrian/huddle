@@ -13,7 +13,7 @@
     <div class="meal-row {{ 'today' if day.is_today else '' }}">
       <span class="meal-weekday">{{ day.weekday[:3] }}</span>
       <input class="meal-desc-input" type="text" name="description"
-             value="{{ day.description }}" placeholder="Not planned yet" autocomplete="off"{% if onscreen_keyboard %} inputmode="none"{% endif %}
+             value="{{ day.description }}" placeholder="Not planned yet" autocomplete="off"{% if onscreen_keyboard %} data-osk="text"{% endif %}
              hx-post="/api/meals/{{ day.date }}" hx-trigger="change"
              hx-target="#widget-meals" hx-swap="outerHTML">
     </div>

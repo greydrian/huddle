@@ -6,12 +6,11 @@
   <h1>Admin</h1>
   <p style="color: var(--chalk-dim);">Enter the PIN to manage family members and tasks.</p>
   <form class="pin-pad-form" method="post" action="/admin/login">
-    <input type="password" name="pin" {% if onscreen_keyboard %}inputmode="none" data-osk-layout="numeric"{% else %}inputmode="numeric"{% endif %} pattern="[0-9]*" maxlength="8" autofocus autocomplete="off">
+    <input type="password" name="pin" inputmode="numeric" pattern="[0-9]*" maxlength="8" autofocus autocomplete="off"{% if onscreen_keyboard %} data-osk="numeric"{% endif %}>
     {% if error %}<div class="pin-error">{{ error }}</div>{% endif %}
     <button type="submit" class="btn">Unlock</button>
   </form>
   <p style="margin-top: 40px;"><a href="/" style="color: var(--chalk-dim);">← Back to dashboard</a></p>
 </div>
 {% endblock %}
-
 {% block scripts %}{% with part = "scripts" %}{% include "_keyboard_assets.html" %}{% endwith %}{% endblock %}

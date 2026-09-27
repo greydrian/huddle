@@ -24,7 +24,7 @@
     {% endfor %}
     <form class="shopping-add-form"
           hx-post="/api/shopping" hx-target="#widget-shopping" hx-swap="outerHTML">
-      <input type="text" name="title" placeholder="Add an item…" required autocomplete="off"{% if onscreen_keyboard %} inputmode="none"{% endif %}>
+      <input type="text" name="title" placeholder="Add an item…" required autocomplete="off"{% if onscreen_keyboard %} data-osk="text"{% endif %}>
       <button type="submit">Add</button>
     </form>
   </div>

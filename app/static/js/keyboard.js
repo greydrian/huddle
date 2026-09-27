@@ -1,9 +1,11 @@
 /* On-screen keyboard for the kiosk (admin toggle "On-screen keyboard").
  *
- * Opt-in per input: the server renders inputmode="none" on inputs that should
- * use this keyboard (which also stops Android's own keyboard popping up), and
- * data-osk-layout="numeric" for the PIN pad. All listeners are delegated on
- * document because HTMX widgets replace their own DOM (hx-swap="outerHTML").
+ * Opt-in per input: the server marks inputs with data-osk="text" or
+ * data-osk="numeric" (PIN pad). Only once the keyboard has actually started do
+ * we set inputmode="none" on them to suppress Android's own keyboard, so if
+ * this script fails the native keyboard still works (including on the PIN
+ * screen, which is how the setting gets turned back off). All listeners are
+ * delegated on document because HTMX widgets replace their own DOM.
  */
 (function () {
   'use strict';
@@ -43,26 +45,37 @@
   panel.innerHTML = '<div class="osk-keys simple-keyboard"></div>';
   document.body.appendChild(panel);
 
-  const keyboard = new Keyboard(panel.querySelector('.osk-keys'), {
-    layout: LAYOUT,
-    display: DISPLAY,
-    theme: 'hg-theme-default osk-theme',
-    mergeDisplay: false,
-    preventMouseDownDefault: true,
-    onKeyPress: handleKey,
-  });
+  let keyboard;
+  try {
+    keyboard = new Keyboard(panel.querySelector('.osk-keys'), {
+      layout: LAYOUT,
+      display: DISPLAY,
+      theme: 'hg-theme-default osk-theme',
+      mergeDisplay: false,
+      preventMouseDownDefault: true,
+      onKeyPress: handleKey,
+    });
+  } catch (err) {
+    panel.remove();
+    console.error('On-screen keyboard failed to start; using the native keyboard', err);
+    return;
+  }
+
+  function suppressNativeKeyboard(root) {
+    root.querySelectorAll('input[data-osk]').forEach((el) => el.setAttribute('inputmode', 'none'));
+  }
 
   let target = null;       // the input currently being typed into
   let valueAtOpen = '';    // to know whether closing should fire `change`
 
   function isEligible(el) {
     return el instanceof HTMLInputElement
-      && el.getAttribute('inputmode') === 'none'
+      && el.dataset.osk !== undefined
       && !el.disabled && !el.readOnly;
   }
 
   function isNumeric(el) {
-    return el.dataset.oskLayout === 'numeric';
+    return el.dataset.osk === 'numeric';
   }
 
   // How to find this input again after HTMX re-renders its widget.
@@ -85,6 +98,7 @@
     if (target && target !== el) commitChange();
     target = el;
     valueAtOpen = el.value;
+    keyboard.clearInput();
     const numeric = isNumeric(el);
     panel.classList.toggle('osk--numeric', numeric);
     keyboard.setOptions({ layoutName: numeric ? 'numeric' : 'default' });
@@ -119,6 +133,7 @@
     commitChange();
     const el = target;
     target = null;
+    keyboard.clearInput();
     panel.classList.remove('osk--open');
     panel.setAttribute('aria-hidden', 'true');
     document.documentElement.classList.remove('osk-open');
@@ -184,14 +199,21 @@
     if (isEligible(evt.target)) open(evt.target);
   });
 
-  // Tapping anywhere else closes; tapping the keyboard itself must not steal
-  // focus from the input (touch taps would otherwise blur it).
-  document.addEventListener('pointerdown', (evt) => {
-    if (!target) return;
-    if (panel.contains(evt.target)) { evt.preventDefault(); return; }
+  // Tapping the keyboard itself must not steal focus from the input (touch
+  // taps would otherwise blur it).
+  panel.addEventListener('pointerdown', (evt) => evt.preventDefault());
+
+  // Tapping elsewhere closes, but on click, once the tap has landed: closing
+  // un-scrolls the page, which on pointerdown would move the tapped element
+  // out from under the finger. Taps inside the input's own widget (its Add
+  // button, check/delete) keep the keyboard open.
+  document.addEventListener('click', (evt) => {
+    if (!target || panel.contains(evt.target)) return;
     if (evt.target === target || isEligible(evt.target)) return;
+    const home = target.closest('.widget-card') || target.form;
+    if (home && home.contains(evt.target)) return;
     close();
-  }, true);
+  });
 
   // A widget re-rendered while typing (e.g. the shopping list after Enter)
   // replaces the input: carry on in its replacement so several items can be
@@ -209,8 +231,17 @@
     }
   });
 
-  // Autofocused inputs (the PIN field) are focused before this script runs.
+  document.addEventListener('htmx:load', (evt) => suppressNativeKeyboard(evt.target));
+  suppressNativeKeyboard(document);
+
+  // Autofocused inputs (the PIN field) may be focused before this script
+  // runs, with the native keyboard already up: refocus so the new
+  // inputmode="none" takes effect, which also opens ours via focusin.
   window.addEventListener('load', () => {
-    if (!target && isEligible(document.activeElement)) open(document.activeElement);
+    const el = document.activeElement;
+    if (target || !isEligible(el)) return;
+    el.blur();
+    el.focus();
+    if (!target) open(el);
   });
 })();

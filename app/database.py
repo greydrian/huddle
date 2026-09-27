@@ -208,6 +208,26 @@ async def init_db():
             )
 
         await db.commit()
+        await load_onscreen_keyboard(db)
+
+
+# Cached in-process so templates can read it without a DB round-trip on
+# every render (single uvicorn process, see scheduler.py). Loaded by
+# init_db() at startup; changed only through set_onscreen_keyboard().
+ONSCREEN_KEYBOARD_SETTING = "onscreen_keyboard"
+onscreen_keyboard_enabled = False
+
+
+async def load_onscreen_keyboard(db):
+    global onscreen_keyboard_enabled
+    onscreen_keyboard_enabled = await get_setting(db, ONSCREEN_KEYBOARD_SETTING) == "1"
+
+
+async def set_onscreen_keyboard(db, enabled: bool):
+    global onscreen_keyboard_enabled
+    await set_setting(db, ONSCREEN_KEYBOARD_SETTING, "1" if enabled else "0")
+    await db.commit()
+    onscreen_keyboard_enabled = enabled
 
 
 async def family_timezone(db) -> ZoneInfo:
