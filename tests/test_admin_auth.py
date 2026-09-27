@@ -133,7 +133,7 @@ async def test_change_pin_swaps_old_for_new(client, db):
 
 # The login form only takes up to 8 digits (inputmode=numeric, maxlength=8),
 # so a PIN like these would lock the family out of Admin.
-@pytest.mark.parametrize("bad_pin", [" ", "12ab", "123456789", "123", " 1234", "１２３４"])
+@pytest.mark.parametrize("bad_pin", [" ", "12ab", "123456789", "123", " 1234", "１２３４", "١٢٣٤"])
 async def test_change_pin_rejects_a_pin_the_login_form_cannot_type(client, db, bad_pin):
     client.cookies.set(admin.SESSION_COOKIE, create_session_token())
     resp = await client.post("/admin/change-pin", data={"new_pin": bad_pin})
