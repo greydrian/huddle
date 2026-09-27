@@ -8,9 +8,12 @@ SQLite in WAL mode, per the spec's embedded-reliability decisions:
 """
 
 import os
-import aiosqlite
-from pathlib import Path
 from contextlib import asynccontextmanager
+from datetime import date, datetime
+from pathlib import Path
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+import aiosqlite
 
 # DATA_DIR defaults to a local ./data folder for bare-metal/dev use, but is
 # overridden to /data in the Docker image, pointed at a mounted volume so
@@ -207,6 +210,21 @@ async def init_db():
         await db.commit()
 
 
+async def family_timezone(db) -> ZoneInfo:
+    """The household's timezone — the connected Google Calendar's own
+    (cached by google_oauth), else UTC. The container itself always runs in
+    UTC, so naive date.today()/datetime.now() are wrong for "today" here."""
+    name = await get_setting(db, "calendar_timezone")
+    try:
+        return ZoneInfo(name or "UTC")
+    except (ZoneInfoNotFoundError, ValueError):
+        return ZoneInfo("UTC")
+
+
+async def family_today(db) -> date:
+    return datetime.now(await family_timezone(db)).date()
+
+
 async def get_setting(db, key: str, default=None):
     cursor = await db.execute("SELECT value FROM app_settings WHERE key = ?", (key,))
     row = await cursor.fetchone()
@@ -226,6 +244,9 @@ async def get_db():
     """Async context manager yielding a connection with row access by column name."""
     db = await aiosqlite.connect(DB_PATH)
     db.row_factory = aiosqlite.Row
+    # SQLite's foreign_keys pragma is per-connection, not per-database —
+    # without this, ON DELETE CASCADE (profiles -> tasks) silently does nothing.
+    await db.execute("PRAGMA foreign_keys=ON;")
     try:
         yield db
     finally:

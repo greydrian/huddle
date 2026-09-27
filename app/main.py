@@ -17,12 +17,15 @@ from dotenv import load_dotenv
 load_dotenv()  # local dev convenience — reads .env if present, before any
                 # GOOGLE_CLIENT_ID/SECRET env reads happen at import time below
 
-from fastapi import FastAPI
+from urllib.parse import urlparse
+
+from fastapi import FastAPI, Request
+from fastapi.responses import PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.database import init_db
-from app.routers import dashboard, tasks, shopping, meals, layout, admin, calendar
 from app import scheduler
+from app.database import init_db
+from app.routers import admin, calendar, dashboard, layout, meals, shopping, tasks
 
 BASE_DIR = Path(__file__).parent
 
@@ -36,6 +39,21 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Family Display", lifespan=lifespan)
+
+
+@app.middleware("http")
+async def reject_cross_site_writes(request: Request, call_next):
+    """The kiosk routes (shopping, tasks, meals, layout) are deliberately
+    PIN-free, so any web page open on a LAN device could otherwise POST to
+    them. Browsers always send Origin on cross-site POSTs; refuse any write
+    whose Origin isn't this app. Requests with no Origin (curl, tests) pass."""
+    if request.method not in ("GET", "HEAD", "OPTIONS"):
+        origin = request.headers.get("origin")
+        # "null" (sandboxed iframe / opaque origin) has no netloc, so it's refused too.
+        if origin and urlparse(origin).netloc != request.headers.get("host"):
+            return PlainTextResponse("Cross-site request refused", status_code=403)
+    return await call_next(request)
+
 
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 

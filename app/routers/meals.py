@@ -8,7 +8,7 @@ from datetime import date, timedelta
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse
 
-from app.database import get_db
+from app.database import family_today, get_db
 from app.templating import templates
 
 router = APIRouter()
@@ -16,7 +16,8 @@ router = APIRouter()
 
 async def get_week_meal_plan(db, start: date | None = None):
     """Return the next 7 days as a list of {date, weekday, description}."""
-    start = start or date.today()
+    today = await family_today(db)
+    start = start or today
     days = [start + timedelta(days=i) for i in range(7)]
     rows = await (await db.execute(
         "SELECT * FROM meal_plans WHERE date IN ({})".format(
@@ -30,7 +31,7 @@ async def get_week_meal_plan(db, start: date | None = None):
         {
             "date": d.isoformat(),
             "weekday": d.strftime("%A"),
-            "is_today": d == date.today(),
+            "is_today": d == today,
             "description": plan_by_date.get(d.isoformat(), ""),
         }
         for d in days

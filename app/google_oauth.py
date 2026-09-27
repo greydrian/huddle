@@ -20,14 +20,15 @@ need to disconnect and reconnect once to grant it.
 import json
 import os
 import time
-from datetime import date, datetime, timedelta, time as dtime
+from datetime import date, datetime, timedelta
+from datetime import time as dtime
 from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
 import httpx
 
 from app.database import get_setting, set_setting
-from app.security import encrypt_token_json, decrypt_token_json
+from app.security import decrypt_token_json, encrypt_token_json
 
 GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET")
@@ -98,12 +99,27 @@ async def fetch_userinfo(access_token: str) -> dict:
         return resp.json()
 
 
+async def get_all_pages(url: str, access_token: str, params: dict | None = None) -> list[dict]:
+    """GET every page of a Google list endpoint (items + nextPageToken).
+    Stopping at the first page silently truncates results — and the Tasks
+    reconcile treats "missing from Google" as "deleted on Google"."""
+    params = dict(params or {})
+    items: list[dict] = []
+    async with httpx.AsyncClient() as client:
+        while True:
+            resp = await client.get(url, headers={"Authorization": f"Bearer {access_token}"}, params=params)
+            resp.raise_for_status()
+            body = resp.json()
+            items.extend(body.get("items", []))
+            token = body.get("nextPageToken")
+            if not token:
+                return items
+            params["pageToken"] = token
+
+
 async def fetch_calendar_list(access_token: str) -> list[dict]:
     """Every calendar the connected account can see, for the Admin picker."""
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(CALENDAR_LIST_ENDPOINT, headers={"Authorization": f"Bearer {access_token}"})
-        resp.raise_for_status()
-        items = resp.json().get("items", [])
+    items = await get_all_pages(CALENDAR_LIST_ENDPOINT, access_token)
     return [
         {
             "id": item["id"],
@@ -151,9 +167,9 @@ async def cache_calendar_timezone(db, access_token: str):
         pass
 
 
-async def _get_calendar_timezone(db, access_token: str) -> ZoneInfo:
+async def _get_calendar_timezone(db, access_token: str | None) -> ZoneInfo:
     tz_name = await get_setting(db, CALENDAR_TIMEZONE_SETTING)
-    if not tz_name:
+    if not tz_name and access_token:
         # Self-heals accounts connected before this cache existed, and
         # covers the very first widget render right after a fresh connect.
         await cache_calendar_timezone(db, access_token)
@@ -196,10 +212,22 @@ async def get_connected_account(db) -> str | None:
     return row["account_email"] if row else None
 
 
+def _is_revoked_grant(exc: httpx.HTTPStatusError) -> bool:
+    if exc.response.status_code != 400:
+        return False
+    try:
+        return exc.response.json().get("error") == "invalid_grant"
+    except ValueError:
+        return False
+
+
 async def get_valid_access_token(db) -> str | None:
     """A usable access token, refreshing if needed. None means 'not
-    connected' — callers should render the disconnected/stub state, not
-    treat this as an error."""
+    connected' — callers should render the disconnected/stub state.
+
+    Raises httpx.HTTPError when Google is temporarily unreachable or
+    erroring: that's "offline", not "disconnected", so callers must not
+    treat it as a reason to throw away the stored tokens."""
     tokens = await _load_stored_tokens(db)
     if tokens is None:
         return None
@@ -213,10 +241,11 @@ async def get_valid_access_token(db) -> str | None:
 
     try:
         refreshed = await refresh_access_token(refresh_token)
-    except httpx.HTTPStatusError:
-        # Refresh token revoked/expired server-side — treat as disconnected
-        # rather than surfacing a broken widget; Admin will show "Connect"
-        # again and they can re-auth.
+    except httpx.HTTPStatusError as exc:
+        if not _is_revoked_grant(exc):
+            raise
+        # Genuinely revoked/expired (e.g. the 7-day "Testing" consent-screen
+        # expiry) — treat as disconnected; Admin shows "Connect" again.
         await db.execute("DELETE FROM auth_tokens WHERE service_name = 'google'")
         await db.commit()
         return None
@@ -268,23 +297,51 @@ def _format_event(raw: dict) -> dict:
 
 async def fetch_events(access_token: str, calendar_id: str, time_min: datetime, time_max: datetime) -> list[dict]:
     url = CALENDAR_EVENTS_ENDPOINT_TEMPLATE.format(calendar_id=quote(calendar_id, safe=""))
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(
-            url,
-            headers={"Authorization": f"Bearer {access_token}"},
-            params={
-                "timeMin": time_min.isoformat(),
-                "timeMax": time_max.isoformat(),
-                "singleEvents": "true",
-                "orderBy": "startTime",
-                "maxResults": 100,
-            },
-        )
-        resp.raise_for_status()
-        items = resp.json().get("items", [])
+    items = await get_all_pages(url, access_token, {
+        "timeMin": time_min.isoformat(),
+        "timeMax": time_max.isoformat(),
+        "singleEvents": "true",
+        "orderBy": "startTime",
+        "maxResults": 250,
+    })
     events = [_format_event(item) for item in items]
     events.sort(key=lambda e: e["sort_key"])
     return events
+
+
+async def _connect(db) -> tuple[str | None, bool]:
+    """(access_token, offline). (None, False) = never connected;
+    (None, True) = connected but Google is unreachable right now."""
+    if await _load_stored_tokens(db) is None:
+        return None, False
+    try:
+        token = await get_valid_access_token(db)
+    except httpx.HTTPError:
+        return None, True
+    return token, False
+
+
+async def _fetch_selected_events(db, access_token, tz, start: date, end: date) -> tuple[list[dict], bool]:
+    """Events from every Admin-selected calendar, colour-tagged. One
+    calendar failing (unshared, network blip) doesn't blank the others —
+    it just flags the result as partial/offline."""
+    events: list[dict] = []
+    offline = False
+    for cal in await get_selected_calendars(db):
+        try:
+            cal_events = await fetch_events(
+                access_token,
+                cal["id"],
+                datetime.combine(start, dtime.min, tzinfo=tz),
+                datetime.combine(end, dtime.min, tzinfo=tz),
+            )
+        except httpx.HTTPError:
+            offline = True
+            continue
+        for event in cal_events:
+            event["color"] = cal.get("color") or "#D6A02C"
+        events.extend(cal_events)
+    return events, offline
 
 
 async def get_month_grid(db, year: int | None = None, month: int | None = None) -> dict | None:
@@ -295,9 +352,13 @@ async def get_month_grid(db, year: int | None = None, month: int | None = None) 
     touching that week, clipped to the week and packed into up to
     MAX_BAR_SLOTS rows so overlapping events don't collide. Events beyond
     that cap don't get a bar; the day(s) they're on get hidden_count
-    incremented instead (surfaced as "+N more" in the template)."""
-    access_token = await get_valid_access_token(db)
-    if not access_token:
+    incremented instead (surfaced as "+N more" in the template).
+
+    If Google is unreachable the grid still renders (with "offline": True
+    and whatever events could be fetched) — a network blip must never take
+    down the whole dashboard."""
+    access_token, offline = await _connect(db)
+    if not access_token and not offline:
         return None
 
     tz = await _get_calendar_timezone(db, access_token)
@@ -306,23 +367,14 @@ async def get_month_grid(db, year: int | None = None, month: int | None = None) 
     month = month or now.month
     today = now.date()
 
-    selected = await get_selected_calendars(db)
-
     first_of_month = date(year, month, 1)
     grid_start = first_of_month - timedelta(days=first_of_month.weekday())  # Monday on/before the 1st
     grid_end = grid_start + timedelta(days=42)
 
-    all_events = []
-    for cal in selected:
-        cal_events = await fetch_events(
-            access_token,
-            cal["id"],
-            datetime.combine(grid_start, dtime.min, tzinfo=tz),
-            datetime.combine(grid_end, dtime.min, tzinfo=tz),
-        )
-        for event in cal_events:
-            event["color"] = cal.get("color") or "#D6A02C"
-        all_events.extend(cal_events)
+    all_events: list[dict] = []
+    if access_token:
+        all_events, fetch_offline = await _fetch_selected_events(db, access_token, tz, grid_start, grid_end)
+        offline = offline or fetch_offline
 
     weeks = []
     cursor = grid_start
@@ -386,31 +438,25 @@ async def get_month_grid(db, year: int | None = None, month: int | None = None) 
         "is_current_month": (year, month) == (now.year, now.month),
         "prev": {"year": prev_year, "month": prev_month},
         "next": {"year": next_year, "month": next_month},
+        "offline": offline,
     }
 
 
-async def get_day_events(db, date_iso: str) -> list[dict] | None:
-    """None means not connected. Otherwise every event on the given day
-    across all selected calendars, all-day events first then by time."""
-    access_token = await get_valid_access_token(db)
-    if not access_token:
+async def get_day_events(db, target: date) -> dict | None:
+    """None means not connected. Otherwise {"events": [...], "offline": bool}
+    — every event on the given day across all selected calendars, all-day
+    events first then by time."""
+    access_token, offline = await _connect(db)
+    if not access_token and not offline:
         return None
 
-    tz = await _get_calendar_timezone(db, access_token)
-    target = date.fromisoformat(date_iso)
-    selected = await get_selected_calendars(db)
-
-    day_start = datetime.combine(target, dtime.min, tzinfo=tz)
-    day_end = datetime.combine(target + timedelta(days=1), dtime.min, tzinfo=tz)
-
-    events = []
-    for cal in selected:
-        cal_events = await fetch_events(access_token, cal["id"], day_start, day_end)
-        for event in cal_events:
-            event["color"] = cal.get("color") or "#D6A02C"
-        events.extend(cal_events)
+    events: list[dict] = []
+    if access_token:
+        tz = await _get_calendar_timezone(db, access_token)
+        events, fetch_offline = await _fetch_selected_events(db, access_token, tz, target, target + timedelta(days=1))
+        offline = offline or fetch_offline
     events.sort(key=lambda e: (0 if e["all_day"] else 1, e["sort_key"]))
-    return events
+    return {"events": events, "offline": offline}
 
 
 async def revoke_and_clear(db):

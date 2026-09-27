@@ -1,14 +1,20 @@
 """
-Background scheduler — currently just the Google Tasks sync cycle (spec
-9.4: polling, not push). Started/stopped from app/main.py's lifespan.
+Background jobs, started/stopped from app/main.py's lifespan:
+- Google Tasks sync every 60s (spec 9.4: polling, not push)
+- the end-of-day task reset, checked every 5 minutes (it only acts once per
+  family-local day — see tasks.run_daily_reset_if_due)
 """
+
+from datetime import datetime, timezone
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-from app.database import get_db
 from app import task_sync
+from app.database import get_db
+from app.routers import tasks
 
 SYNC_INTERVAL_SECONDS = 60
+DAILY_RESET_CHECK_SECONDS = 300
 
 scheduler = AsyncIOScheduler()
 
@@ -18,8 +24,23 @@ async def _run_sync_job():
         await task_sync.run_sync(db)
 
 
+async def _daily_reset_job():
+    async with get_db() as db:
+        await tasks.run_daily_reset_if_due(db)
+
+
 def start():
-    scheduler.add_job(_run_sync_job, "interval", seconds=SYNC_INTERVAL_SECONDS, id="google_tasks_sync")
+    # Single-process only: every uvicorn worker would start its own scheduler
+    # and push the same sync_queue rows (duplicate Google tasks).
+    scheduler.add_job(
+        _run_sync_job, "interval", seconds=SYNC_INTERVAL_SECONDS,
+        id="google_tasks_sync", replace_existing=True, max_instances=1,
+    )
+    scheduler.add_job(
+        _daily_reset_job, "interval", seconds=DAILY_RESET_CHECK_SECONDS,
+        id="daily_task_reset", replace_existing=True, max_instances=1,
+        next_run_time=datetime.now(timezone.utc),  # catch up straight away after downtime
+    )
     scheduler.start()
 
 

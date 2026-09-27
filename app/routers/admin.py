@@ -5,15 +5,16 @@ profiles, tasks, and (eventually) Google account connections.
 """
 
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Request, Form, Depends, HTTPException
+import httpx
+from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from app.database import get_db, get_setting, set_setting
-from app.security import verify_pin, hash_pin, lockout_seconds_for, create_session_token, verify_session_token
-from app.templating import templates
 from app import google_oauth, google_tasks, task_sync
+from app.database import get_db, get_setting, set_setting
+from app.security import create_session_token, hash_pin, lockout_seconds_for, verify_pin, verify_session_token
+from app.templating import templates
 
 router = APIRouter(prefix="/admin")
 
@@ -25,6 +26,12 @@ def _queue_sync(db, service: str, payload: dict):
         "INSERT INTO sync_queue (service, payload_json) VALUES (?, ?)",
         (service, json.dumps(payload)),
     )
+
+
+def _parse_utc(value: str) -> datetime:
+    dt = datetime.fromisoformat(value)
+    # Lockouts stored before timestamps became tz-aware are naive UTC.
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
 
 
 async def require_admin(request: Request):
@@ -45,8 +52,9 @@ async def login_submit(request: Request, pin: str = Form(...)):
         lockout = json.loads(lockout_raw)
         locked_until = lockout.get("locked_until")
 
-        if locked_until and datetime.utcnow() < datetime.fromisoformat(locked_until):
-            wait_seconds = int((datetime.fromisoformat(locked_until) - datetime.utcnow()).total_seconds())
+        now = datetime.now(timezone.utc)
+        if locked_until and now < _parse_utc(locked_until):
+            wait_seconds = int((_parse_utc(locked_until) - now).total_seconds())
             return templates.TemplateResponse(
                 request,
                 "admin/login.html",
@@ -67,7 +75,7 @@ async def login_submit(request: Request, pin: str = Form(...)):
         # Failed attempt: bump the counter and set an exponential-backoff lockout
         failed_attempts = lockout.get("failed_attempts", 0) + 1
         wait = lockout_seconds_for(failed_attempts)
-        locked_until_new = (datetime.utcnow() + timedelta(seconds=wait)).isoformat()
+        locked_until_new = (datetime.now(timezone.utc) + timedelta(seconds=wait)).isoformat()
         await set_setting(
             db,
             "pin_lockout",
@@ -107,17 +115,29 @@ async def admin_home(request: Request):
         selected_calendar_ids = []
         available_tasklists = []
         tasklists_error = False
+        google_offline = False
         shopping_tasklist = None
         if google_account:
-            access_token = await google_oauth.get_valid_access_token(db)
+            try:
+                access_token = await google_oauth.get_valid_access_token(db)
+            except httpx.HTTPError:
+                access_token, google_offline = None, True
             if access_token:
-                available_calendars = await google_oauth.fetch_calendar_list(access_token)
+                try:
+                    available_calendars = await google_oauth.fetch_calendar_list(access_token)
+                except httpx.HTTPError:
+                    google_offline = True
                 try:
                     available_tasklists = await google_tasks.fetch_tasklists(access_token)
-                except Exception:
-                    # Most likely: this account connected before the `tasks`
-                    # scope existed — settings.html shows a reconnect prompt.
-                    tasklists_error = True
+                except httpx.HTTPStatusError as exc:
+                    # 403 = this account connected before the `tasks` scope
+                    # existed — settings.html shows a reconnect prompt.
+                    if exc.response.status_code == 403:
+                        tasklists_error = True
+                    else:
+                        google_offline = True
+                except httpx.HTTPError:
+                    google_offline = True
             selected_calendar_ids = [c["id"] for c in await google_oauth.get_selected_calendars(db)]
             shopping_tasklist = await task_sync.get_shopping_tasklist(db)
 
@@ -133,6 +153,7 @@ async def admin_home(request: Request):
             "selected_calendar_ids": selected_calendar_ids,
             "available_tasklists": available_tasklists,
             "tasklists_error": tasklists_error,
+            "google_offline": google_offline,
             "shopping_tasklist": shopping_tasklist,
         },
     )
@@ -197,13 +218,17 @@ async def delete_task(task_id: int):
 @router.post("/google/shopping-list", dependencies=[Depends(require_admin)])
 async def save_shopping_tasklist(tasklist_id: str = Form(...)):
     async with get_db() as db:
-        access_token = await google_oauth.get_valid_access_token(db)
-        if access_token:
+        try:
+            access_token = await google_oauth.get_valid_access_token(db)
             # Re-derive the title from Google rather than trusting the form.
-            available = await google_tasks.fetch_tasklists(access_token)
-            match = next((t for t in available if t["id"] == tasklist_id), None)
-            if match:
-                await task_sync.set_shopping_tasklist(db, match)
+            available = await google_tasks.fetch_tasklists(access_token) if access_token else []
+        except httpx.HTTPError:
+            available = []
+        match = next((t for t in available if t["id"] == tasklist_id), None)
+        current = await task_sync.get_shopping_tasklist(db)
+        if match and (current is None or current["id"] != match["id"]):
+            await task_sync.set_shopping_tasklist(db, match)
+            await task_sync.relink_shopping(db)
     return RedirectResponse(url="/admin", status_code=303)
 
 
@@ -211,13 +236,15 @@ async def save_shopping_tasklist(tasklist_id: str = Form(...)):
 async def save_profile_tasklists(request: Request):
     form = await request.form()
     async with get_db() as db:
-        profiles = await (await db.execute("SELECT id FROM profiles")).fetchall()
+        profiles = await (await db.execute("SELECT id, google_tasklist_id FROM profiles")).fetchall()
         for profile in profiles:
-            field = f"tasklist_{profile['id']}"
-            tasklist_id = form.get(field) or None
+            tasklist_id = form.get(f"tasklist_{profile['id']}") or None
+            if tasklist_id == profile["google_tasklist_id"]:
+                continue
             await db.execute(
                 "UPDATE profiles SET google_tasklist_id = ? WHERE id = ?", (tasklist_id, profile["id"])
             )
+            await task_sync.relink_profile(db, profile["id"])
         await db.commit()
     return RedirectResponse(url="/admin", status_code=303)
 
