@@ -19,7 +19,12 @@ async def _run_sync_job():
 
 
 def start():
-    scheduler.add_job(_run_sync_job, "interval", seconds=SYNC_INTERVAL_SECONDS, id="google_tasks_sync")
+    # Single-process only: every uvicorn worker would start its own scheduler
+    # and push the same sync_queue rows (duplicate Google tasks).
+    scheduler.add_job(
+        _run_sync_job, "interval", seconds=SYNC_INTERVAL_SECONDS,
+        id="google_tasks_sync", replace_existing=True, max_instances=1,
+    )
     scheduler.start()
 
 

@@ -3,14 +3,13 @@ Family member task lists: recurring + one-off tasks, ticked via touch,
 with a checkmark animation. Purely functional — no points/rewards
 (Section 4.3 of the spec).
 
-Google Tasks sync isn't wired up yet — toggling a task writes to SQLite
-immediately (the "optimistic, offline-first" part) and drops a row in
-sync_queue for a background worker to push later. The background worker
-itself is a follow-up step once Google OAuth is wired in.
+Toggling a task writes to SQLite immediately (optimistic, offline-first)
+and drops a row in sync_queue; app/task_sync.py pushes it to the family
+member's linked Google Tasks list on its next scheduled cycle.
 """
 
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
@@ -63,7 +62,7 @@ async def toggle_task(request: Request, task_id: int):
             return HTMLResponse(status_code=404, content="Task not found")
 
         now_completed = not bool(task["is_completed"])
-        completed_at = datetime.utcnow().isoformat() if now_completed else None
+        completed_at = datetime.now(timezone.utc).isoformat() if now_completed else None
 
         await db.execute(
             "UPDATE tasks SET is_completed = ?, completed_at = ?, updated_at = datetime('now') WHERE id = ?",

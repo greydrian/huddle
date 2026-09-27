@@ -46,6 +46,7 @@
               hx-target="#widget-calendar" hx-swap="outerHTML">← Back to month</button>
       <span class="cal-day-title">{{ day_label }}</span>
     </div>
+    {% if day_offline %}<p class="cal-offline">Couldn't reach Google — some events may be missing.</p>{% endif %}
     {% if day_events %}
       {% for event in day_events %}
       <div class="event-row{{ ' all-day' if event.all_day else '' }}">
@@ -70,6 +71,7 @@
               hx-get="/widgets/calendar?year={{ calendar_month.next.year }}&month={{ calendar_month.next.month }}"
               hx-target="#widget-calendar" hx-swap="outerHTML" aria-label="Next month">›</button>
     </div>
+    {% if calendar_month.offline %}<p class="cal-offline">Couldn't reach Google — showing what's available, retrying shortly.</p>{% endif %}
     <div class="cal-weekdays">
       <span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span class="weekend">Sa</span><span class="weekend">Su</span>
     </div>

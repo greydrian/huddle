@@ -10,7 +10,8 @@ import secrets
 import time as time_module
 from datetime import date as date_cls
 
-from fastapi import APIRouter, Request, Depends, Form
+import httpx
+from fastapi import APIRouter, Request, Depends, Form, HTTPException, Query
 from fastapi.responses import RedirectResponse, HTMLResponse
 
 from app.database import get_db
@@ -55,9 +56,12 @@ async def google_callback(
     if error or not code or not state or not expected_state or state != expected_state:
         return response
 
-    tokens = await google_oauth.exchange_code_for_tokens(code, _callback_redirect_uri(request))
-    tokens["expires_at"] = time_module.time() + tokens.get("expires_in", 3600)
-    userinfo = await google_oauth.fetch_userinfo(tokens["access_token"])
+    try:
+        tokens = await google_oauth.exchange_code_for_tokens(code, _callback_redirect_uri(request))
+        tokens["expires_at"] = time_module.time() + tokens.get("expires_in", 3600)
+        userinfo = await google_oauth.fetch_userinfo(tokens["access_token"])
+    except httpx.HTTPError:
+        return response
 
     async with get_db() as db:
         await google_oauth.store_tokens(db, tokens, userinfo.get("email"))
@@ -75,21 +79,27 @@ async def google_disconnect():
 @router.post("/admin/google/calendars", dependencies=[Depends(require_admin)])
 async def save_selected_calendars(calendar_id: list[str] = Form(default=[])):
     async with get_db() as db:
-        access_token = await google_oauth.get_valid_access_token(db)
-        if access_token:
+        try:
+            access_token = await google_oauth.get_valid_access_token(db)
             # Re-derive summary/colour from Google rather than trusting
             # whatever the submitted form says — the form only tells us
             # which IDs were checked.
-            available = await google_oauth.fetch_calendar_list(access_token)
-            by_id = {cal["id"]: cal for cal in available}
-            selected = [by_id[cid] for cid in calendar_id if cid in by_id]
-            if selected:
-                await google_oauth.set_selected_calendars(db, selected)
+            available = await google_oauth.fetch_calendar_list(access_token) if access_token else []
+        except httpx.HTTPError:
+            available = []
+        by_id = {cal["id"]: cal for cal in available}
+        selected = [by_id[cid] for cid in calendar_id if cid in by_id]
+        if selected:
+            await google_oauth.set_selected_calendars(db, selected)
     return RedirectResponse(url="/admin", status_code=303)
 
 
 @router.get("/widgets/calendar", response_class=HTMLResponse)
-async def calendar_widget(request: Request, year: int | None = None, month: int | None = None):
+async def calendar_widget(
+    request: Request,
+    year: int | None = Query(default=None, ge=1970, le=2100),
+    month: int | None = Query(default=None, ge=1, le=12),
+):
     async with get_db() as db:
         calendar_month = await google_oauth.get_month_grid(db, year, month)
     return templates.TemplateResponse(
@@ -99,19 +109,23 @@ async def calendar_widget(request: Request, year: int | None = None, month: int 
 
 @router.get("/widgets/calendar/day/{date}", response_class=HTMLResponse)
 async def calendar_day_widget(request: Request, date: str):
+    try:
+        parsed = date_cls.fromisoformat(date)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date")
     async with get_db() as db:
-        day_events = await google_oauth.get_day_events(db, date)
-    parsed = date_cls.fromisoformat(date)
+        day = await google_oauth.get_day_events(db, parsed)
     day_label = parsed.strftime("%A, %d %B").replace(" 0", " ")  # no leading zero, cross-platform
     return templates.TemplateResponse(
         request,
         "widgets/calendar.html",
         {
             "view": "day",
-            "day_date": date,
+            "day_date": parsed.isoformat(),
             "day_year": parsed.year,
             "day_month": parsed.month,
             "day_label": day_label,
-            "day_events": day_events,
+            "day_events": day["events"] if day else None,
+            "day_offline": bool(day and day["offline"]),
         },
     )

@@ -422,6 +422,16 @@ html, body {
 }
 .cal-more-empty { cursor: default; }
 
+.cal-offline {
+  margin: 0 0 8px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: var(--paper-shade);
+  color: var(--danger);
+  font-size: 0.78rem;
+  text-align: center;
+}
+
 /* --- Calendar: day view --- */
 .cal-day-heading {
   display: flex;

@@ -10,6 +10,8 @@ from urllib.parse import quote
 
 import httpx
 
+from app.google_oauth import get_all_pages
+
 TASKLISTS_ENDPOINT = "https://tasks.googleapis.com/tasks/v1/users/@me/lists"
 TASKS_ENDPOINT_TEMPLATE = "https://tasks.googleapis.com/tasks/v1/lists/{tasklist_id}/tasks"
 TASK_ENDPOINT_TEMPLATE = "https://tasks.googleapis.com/tasks/v1/lists/{tasklist_id}/tasks/{task_id}"
@@ -17,26 +19,18 @@ TASK_ENDPOINT_TEMPLATE = "https://tasks.googleapis.com/tasks/v1/lists/{tasklist_
 
 async def fetch_tasklists(access_token: str) -> list[dict]:
     """Every Google Tasks list on the account, for the Admin pickers."""
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(TASKLISTS_ENDPOINT, headers={"Authorization": f"Bearer {access_token}"})
-        resp.raise_for_status()
-        items = resp.json().get("items", [])
+    items = await get_all_pages(TASKLISTS_ENDPOINT, access_token, {"maxResults": 100})
     return [{"id": item["id"], "title": item["title"]} for item in items]
 
 
 async def fetch_tasks(access_token: str, tasklist_id: str) -> list[dict]:
-    """Every task on a list, including completed/hidden ones — a status
-    change made from the phone (ticking something off) still needs to show
-    up here so the reconcile pass can see it."""
+    """Every task on a list (all pages), including completed/hidden ones —
+    a status change made from the phone still needs to show up here, and a
+    task missing from this result is treated as deleted on Google's side."""
     url = TASKS_ENDPOINT_TEMPLATE.format(tasklist_id=quote(tasklist_id, safe=""))
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(
-            url,
-            headers={"Authorization": f"Bearer {access_token}"},
-            params={"showCompleted": "true", "showHidden": "true", "maxResults": 100},
-        )
-        resp.raise_for_status()
-        return resp.json().get("items", [])
+    return await get_all_pages(
+        url, access_token, {"showCompleted": "true", "showHidden": "true", "maxResults": 100}
+    )
 
 
 async def insert_task(access_token: str, tasklist_id: str, title: str, completed: bool = False) -> dict:

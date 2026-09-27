@@ -226,6 +226,9 @@ async def get_db():
     """Async context manager yielding a connection with row access by column name."""
     db = await aiosqlite.connect(DB_PATH)
     db.row_factory = aiosqlite.Row
+    # SQLite's foreign_keys pragma is per-connection, not per-database —
+    # without this, ON DELETE CASCADE (profiles -> tasks) silently does nothing.
+    await db.execute("PRAGMA foreign_keys=ON;")
     try:
         yield db
     finally:

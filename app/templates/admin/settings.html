@@ -94,6 +94,11 @@
     {% if google_account %}
     <div style="margin-top:16px; padding-top:16px; border-top:1px solid rgba(43,36,32,0.1);">
       <h3 style="margin:0 0 8px; font-size:1rem;">Task Sync</h3>
+      {% if google_offline %}
+      <p style="color: var(--danger); font-size: 0.85rem;">
+        Couldn't reach Google just now — lists below may be incomplete. Try again in a minute.
+      </p>
+      {% endif %}
       {% if tasklists_error %}
       <p style="color: var(--danger); font-size: 0.85rem;">
         Couldn't load your Google Task lists — this account was likely connected before Task

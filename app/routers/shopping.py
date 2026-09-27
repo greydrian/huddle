@@ -44,7 +44,7 @@ async def add_shopping_item(request: Request, title: str = Form(...)):
             cursor = await db.execute(
                 "INSERT INTO shopping_items (title) VALUES (?)", (title,)
             )
-            await _queue_sync(db, "shopping", {"action": "add", "title": title})
+            await _queue_sync(db, "shopping", {"item_id": cursor.lastrowid})
             await db.commit()
         items = await get_shopping_items(db)
     return templates.TemplateResponse(request, "widgets/shopping.html", {"items": items})
