@@ -15,6 +15,7 @@ def today(monkeypatch):
         return TODAY
 
     monkeypatch.setattr(homework, "family_today", fake_today)
+    monkeypatch.setattr(admin, "family_today", fake_today)
     return TODAY
 
 
@@ -355,6 +356,7 @@ async def test_admin_edit_validation_and_missing_rows(db, admin_client):
 @pytest.mark.parametrize("path", [
     "/admin/homework",
     "/admin/homework/1/edit",
+    "/admin/homework/1/archive",
     "/admin/homework/1/delete",
     "/admin/practice-words",
     "/admin/practice-words/1/edit",
@@ -370,7 +372,7 @@ async def test_admin_mutations_require_auth(db, client, path):
     resp = await client.post(path, data={"profile_id": riley, "title": "Hacked", "words": "x", "style": "joined"})
 
     assert resp.status_code == 303 and resp.headers["location"] == "/admin/login"
-    assert await _rows(db, "SELECT title FROM homework") == [("Keep me",)]
+    assert await _rows(db, "SELECT title, archived FROM homework") == [("Keep me", 0)]
     assert await _rows(db, "SELECT title, archived FROM practice_word_lists") == [("Keep me too", 0)]
     assert await database.get_setting(db, homework.HANDWRITING_SETTING) is None
 
@@ -420,3 +422,117 @@ def test_fonts_are_vendored():
     for name in ("playwrite-gb-s-400-normal.woff2", "playwrite-gb-j-400-normal.woff2"):
         assert (fonts / name).read_bytes()[:4] == b"wOF2", name
     assert "SIL Open Font License" in (fonts / "OFL-Playwrite.txt").read_text(encoding="utf-8")
+
+
+# --- Review follow-ups ---
+
+async def test_hidden_widget_is_not_re_added(db, client):
+    await db.execute("UPDATE layout_state SET is_visible = 0 WHERE widget_id IN ('practice_words', 'homework')")
+    await db.commit()
+    before = await _rows(db, "SELECT * FROM layout_state ORDER BY widget_id")
+
+    await database.init_db()
+
+    assert await _rows(db, "SELECT * FROM layout_state ORDER BY widget_id") == before
+    hidden = await _rows(db, "SELECT widget_id, is_visible FROM layout_state WHERE is_visible = 0 ORDER BY widget_id")
+    assert hidden == [("homework", 0), ("practice_words", 0)]
+    html = (await client.get("/")).text
+    assert 'gs-id="practice_words"' not in html and 'gs-id="homework"' not in html
+
+
+async def test_toggles_404_for_items_not_on_the_widget(db, client, today):
+    riley = (await _profiles(db))[2]
+    dropped = await _add_homework(db, riley, "Dropped", "2026-03-10", 1, "2026-03-10T09:00:00+00:00")
+    archived_hw = await _add_homework(db, riley, "Archived", "2026-03-12")
+    await db.execute("UPDATE homework SET archived = 1 WHERE id = ?", (archived_hw,))
+    await db.commit()
+    archived = await _add_list(db, riley, "archived", archived=1)
+    expired = await _add_list(db, riley, "expired", ends_on="2026-03-10")
+    future = await _add_list(db, riley, "future", starts_on="2026-03-12")
+
+    for hw_id in (dropped, archived_hw):
+        assert (await client.post(f"/api/homework/{hw_id}/toggle")).status_code == 404
+    for list_id in (archived, expired, future):
+        assert (await client.post(f"/api/practice-words/{list_id}/practised")).status_code == 404
+
+    assert await _rows(db, "SELECT done FROM homework ORDER BY id") == [(1,), (0,)]
+    assert await _count(db, "practice_log") == 0
+
+
+async def test_deleting_a_profile_cascades(db, admin_client, today):
+    riley, jamie = (await _profiles(db))[2:4]
+    await _add_homework(db, riley, "Riley's")
+    await _add_homework(db, jamie, "Jamie's")
+    list_id = await _add_list(db, riley)
+    await db.execute("INSERT INTO practice_log (list_id, practised_on) VALUES (?, '2026-03-11')", (list_id,))
+    await db.commit()
+
+    resp = await admin_client.post(f"/admin/profiles/{riley}/delete")
+
+    assert resp.status_code == 303
+    assert await _rows(db, "SELECT title FROM homework") == [("Jamie's",)]
+    assert await _count(db, "practice_word_lists") == 0
+    assert await _count(db, "practice_log") == 0
+    for path in ("/", "/admin", "/widgets/homework", "/widgets/practice-words"):
+        assert (await admin_client.get(path)).status_code == 200, path
+
+
+async def test_admin_archives_and_tucks_away_finished_homework(db, admin_client, today):
+    riley = (await _profiles(db))[2]
+    await _add_homework(db, riley, "Current")
+    await _add_homework(db, riley, "Still showing", "2026-03-11", 1, "2026-03-11T08:00:00+00:00")
+    await _add_homework(db, riley, "Long done", "2026-03-02", 1, "2026-03-02T08:00:00+00:00")
+    to_archive = await _add_homework(db, riley, "Archive me", "2026-03-20")
+
+    resp = await admin_client.post(f"/admin/homework/{to_archive}/archive")
+    assert resp.status_code == 303
+    assert "Archive me" not in (await admin_client.get("/widgets/homework")).text
+
+    html = (await admin_client.get("/admin")).text
+    current, finished = html.split('<details class="finished-homework">')
+    finished = finished.split('action="/admin/homework">')[0]
+    assert "Show finished (2)" in finished
+    assert "Long done" in finished and "Archive me" in finished
+    assert "Current" in current and "Still showing" in current
+    assert "Long done" not in current and "Archive me" not in current
+
+    await admin_client.post(f"/admin/homework/{to_archive}/archive")  # restore
+    assert "Archive me" in (await admin_client.get("/widgets/homework")).text
+
+
+async def test_validation_error_keeps_what_was_typed(db, admin_client):
+    riley, jamie = (await _profiles(db))[2:4]
+    words = "\n".join(f"word{i}" for i in range(40))
+    resp = await admin_client.post("/admin/practice-words", data={
+        "profile_id": jamie, "title": "Week 5", "words": words, "starts_on": "2026-03-10", "ends_on": "2026-03-01",
+    })
+    assert resp.status_code == 400
+    assert f'required placeholder="Words — one per line, or separated by commas" aria-label="Words" autocapitalize="off" spellcheck="false">{words}</textarea>' in resp.text
+    assert 'value="Week 5"' in resp.text and 'value="2026-03-10"' in resp.text and 'value="2026-03-01"' in resp.text
+    add_form = resp.text.split('action="/admin/practice-words">')[1].split("</form>")[0]
+    assert f'<option value="{jamie}" selected>' in add_form
+
+    resp = await admin_client.post("/admin/homework", data={
+        "profile_id": riley, "subject": "Maths", "title": "", "details": "p12 <b>", "due_date": "2026-03-12",
+    })
+    assert resp.status_code == 400
+    add_form = resp.text.split('action="/admin/homework">')[1].split("</form>")[0]
+    assert 'value="Maths"' in add_form and 'value="p12 &lt;b&gt;"' in add_form and 'value="2026-03-12"' in add_form
+
+    # A failed edit reopens that row's form with the submitted values.
+    hw_id = await _add_homework(db, riley, "Original")
+    resp = await admin_client.post(f"/admin/homework/{hw_id}/edit", data={
+        "profile_id": riley, "title": "Renamed", "due_date": "not a date",
+    })
+    assert resp.status_code == 400
+    edit = resp.text.split(f'action="/admin/homework/{hw_id}/edit"')[0].rsplit("<details", 1)[1]
+    assert edit.startswith(' class="task-edit" open>')
+    assert 'value="Renamed"' in resp.text.split(f'action="/admin/homework/{hw_id}/edit"')[1].split("</form>")[0]
+
+
+async def test_handwriting_label_and_stored_value(db, admin_client):
+    assert homework.HANDWRITING_STYLES["semijoined"] == "Semi-joined (Playwrite GB S)"
+    await database.set_setting(db, homework.HANDWRITING_SETTING, "semijoined")
+    await db.commit()
+    html = (await admin_client.get("/admin")).text
+    assert 'value="semijoined" checked' in html and "Semi-joined (Playwrite GB S)" in html

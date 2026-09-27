@@ -23,7 +23,7 @@ HANDWRITING_SETTING = "handwriting_style"
 # value -> Admin label. Playwrite GB S is "Playwrite England SemiJoined" and
 # GB J "Playwrite England Joined"; Google has no fully unjoined GB variant.
 HANDWRITING_STYLES = {
-    "semijoined": "Unjoined letters (Playwrite GB S, semi-joined)",
+    "semijoined": "Semi-joined (Playwrite GB S)",
     "joined": "Joined-up (Playwrite GB J)",
     "plain": "Plain (standard font)",
 }
@@ -106,12 +106,17 @@ def due_label(due: date | None, today: date) -> str | None:
 
 
 def is_visible(item: dict, today: date) -> bool:
-    """Done homework stays (struck through) until the end of its due day, or
-    of the day it was ticked if that's later — so ticking an overdue item
-    doesn't make it vanish under the child's finger."""
+    """Whether a homework row belongs on the widget. Done homework stays
+    (struck through) until the end of its due day, or of the day it was
+    ticked if that's later — so ticking an overdue item doesn't make it
+    vanish under the child's finger."""
+    if item["archived"]:
+        return False
     if not item["done"]:
         return True
-    last_day = max(d for d in (item["due_date"], item["done_on"]) if d)
+    # done_at is stamped in the family's timezone, so its date part is the local day.
+    done_on = item["done_at"][:10] if item["done_at"] else today.isoformat()
+    last_day = max(d for d in (item["due_date"], done_on) if d)
     return today.isoformat() <= last_day
 
 
@@ -127,10 +132,6 @@ async def get_homework_groups(db) -> list[dict]:
     items = []
     for row in rows:
         item = dict(row)
-        # done_at is stamped in the family's timezone, so its date part is the local day.
-        item["done_on"] = item["done_at"][:10] if item["done"] and item["done_at"] else None
-        if item["done"] and not item["done_on"]:
-            item["done_on"] = today.isoformat()
         if not is_visible(item, today):
             continue
         due = date.fromisoformat(item["due_date"]) if item["due_date"] else None
@@ -156,10 +157,9 @@ async def homework_widget(request: Request):
 @router.post("/api/homework/{homework_id}/toggle", response_class=HTMLResponse)
 async def toggle_homework(request: Request, homework_id: int):
     async with get_db() as db:
-        row = await (await db.execute(
-            "SELECT done FROM homework WHERE id = ? AND archived = 0", (homework_id,)
-        )).fetchone()
-        if row is None:
+        row = await (await db.execute("SELECT * FROM homework WHERE id = ?", (homework_id,))).fetchone()
+        # Only what the widget shows can be tapped: a stale page can't revive dropped-off homework.
+        if row is None or not is_visible(dict(row), await family_today(db)):
             return HTMLResponse(status_code=404, content="Homework not found")
         done = not row["done"]
         done_at = datetime.now(await family_timezone(db)).isoformat() if done else None
@@ -175,30 +175,31 @@ async def toggle_homework(request: Request, homework_id: int):
 # --- Practice words widget ---
 
 def is_active(word_list: dict, today: date) -> bool:
+    """Whether a word list belongs on the widget: not archived, and today
+    within its (optionally open-ended) date range."""
     day = today.isoformat()
-    return (not word_list["starts_on"] or word_list["starts_on"] <= day) and (
+    return not word_list["archived"] and (not word_list["starts_on"] or word_list["starts_on"] <= day) and (
         not word_list["ends_on"] or day <= word_list["ends_on"]
     )
 
 
 async def get_practice_lists(db) -> list[dict]:
-    today = (await family_today(db)).isoformat()
+    today = await family_today(db)
     rows = await (await db.execute(
         """SELECT l.*, p.name AS profile_name, p.colour_hex,
                   EXISTS (SELECT 1 FROM practice_log g WHERE g.list_id = l.id AND g.practised_on = ?)
                       AS practised_today
            FROM practice_word_lists l JOIN profiles p ON p.id = l.profile_id
            WHERE l.archived = 0
-             AND (l.starts_on IS NULL OR l.starts_on <= ?)
-             AND (l.ends_on IS NULL OR l.ends_on >= ?)
            ORDER BY p.sort_order, l.created_at, l.id""",
-        (today, today, today),
+        (today.isoformat(),),
     )).fetchall()
     lists = []
     for row in rows:
         word_list = dict(row)
-        word_list["word_items"] = [w for w in word_list["words"].split("\n") if w]
-        lists.append(word_list)
+        if is_active(word_list, today):
+            word_list["word_items"] = [w for w in word_list["words"].split("\n") if w]
+            lists.append(word_list)
     return lists
 
 
@@ -219,11 +220,11 @@ async def practice_words_widget(request: Request):
 @router.post("/api/practice-words/{list_id}/practised", response_class=HTMLResponse)
 async def toggle_practised(request: Request, list_id: int):
     async with get_db() as db:
-        if not await (await db.execute(
-            "SELECT 1 FROM practice_word_lists WHERE id = ? AND archived = 0", (list_id,)
-        )).fetchone():
+        row = await (await db.execute("SELECT * FROM practice_word_lists WHERE id = ?", (list_id,))).fetchone()
+        today = await family_today(db)
+        if row is None or not is_active(dict(row), today):
             return HTMLResponse(status_code=404, content="Word list not found")
-        today = (await family_today(db)).isoformat()
+        today = today.isoformat()
         deleted = await db.execute(
             "DELETE FROM practice_log WHERE list_id = ? AND practised_on = ?", (list_id, today)
         )

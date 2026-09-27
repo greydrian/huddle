@@ -116,5 +116,8 @@
 .admin-form .hw-field { display: flex; flex-direction: column; gap: 3px; font-size: 0.8rem; color: var(--ink-soft); }
 .admin-error { color: var(--danger); font-size: 0.85rem; }
 .admin-meta { color: var(--ink-soft); font-size: 0.85rem; }
+.finished-homework { margin-top: 8px; }
+.finished-homework > summary { min-height: 36px; padding: 8px 0; font-size: 0.85rem; color: var(--ink-soft); cursor: pointer; }
+.finished-homework .task-row-label { color: var(--ink-soft); }
 .hand-option { display: flex; align-items: center; gap: 10px; padding: 6px 0; font-size: 0.9rem; }
 .hand-option .hand-sample { font-size: 1.3rem; color: var(--ink); }

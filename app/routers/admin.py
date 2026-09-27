@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app import google_oauth, google_tasks, recurrence, task_sync
-from app.database import get_db, get_setting, set_onscreen_keyboard, set_setting
+from app.database import family_today, get_db, get_setting, set_onscreen_keyboard, set_setting
 from app.routers import homework, weather
 from app.security import create_session_token, hash_pin, lockout_seconds_for, verify_pin, verify_session_token
 from app.templating import templates
@@ -109,8 +109,13 @@ async def _render_admin(
     weather_error: str | None = None,
     homework_error: str | None = None,
     words_error: str | None = None,
+    homework_form: dict | None = None,
+    words_form: dict | None = None,
     status_code: int = 200,
 ):
+    """Renders Admin. After a validation error, *_form carries what was
+    submitted (with "id" None for the add form, else the row being edited)
+    so nothing typed is lost."""
     async with get_db() as db:
         profiles = [dict(r) for r in await (await db.execute(
             "SELECT * FROM profiles ORDER BY sort_order"
@@ -125,11 +130,16 @@ async def _render_admin(
             # Day chips to pre-tick in the edit form; empty = every day (or one-off).
             days = recurrence.parse_rule(task["recurrence_rule"]) if task["is_recurring"] else None
             task["days"] = [recurrence.WEEKDAYS[i] for i in sorted(days)] if days else []
-        homework_items = [dict(r) for r in await (await db.execute(
+        today = await family_today(db)
+        homework_items, finished_homework = [], []
+        for row in await (await db.execute(
             "SELECT homework.*, profiles.name AS profile_name FROM homework "
-            "JOIN profiles ON profiles.id = homework.profile_id WHERE archived = 0 "
+            "JOIN profiles ON profiles.id = homework.profile_id "
             "ORDER BY homework.done, homework.due_date IS NULL, homework.due_date, homework.id"
-        )).fetchall()]
+        )).fetchall():
+            item = dict(row)
+            # Archived, or done and already off the widget: tucked away so the panel doesn't grow all term.
+            (homework_items if homework.is_visible(item, today) else finished_homework).append(item)
         word_lists = [dict(r) for r in await (await db.execute(
             "SELECT practice_word_lists.*, profiles.name AS profile_name FROM practice_word_lists "
             "JOIN profiles ON profiles.id = practice_word_lists.profile_id "
@@ -186,6 +196,9 @@ async def _render_admin(
             "weather_location": weather_location,
             "weather_error": weather_error,
             "homework_items": homework_items,
+            "finished_homework": finished_homework,
+            "homework_form": homework_form,
+            "words_form": words_form,
             "word_lists": word_lists,
             "homework_error": homework_error,
             "words_error": words_error,
@@ -308,11 +321,15 @@ async def add_homework(
     details: str = Form(""),
     due_date: str = Form(""),
 ):
+    homework_id = None
     async with get_db() as db:
         try:
             fields = await _homework_fields(db, profile_id, subject, title, details, due_date)
         except homework.ValidationError as exc:
-            return await _render_admin(request, homework_error=str(exc), status_code=400)
+            return await _render_admin(request, homework_error=str(exc), status_code=400, homework_form={
+                "id": homework_id, "profile_id": profile_id, "subject": subject, "title": title,
+                "details": details, "due_date": due_date,
+            })
         await db.execute(
             "INSERT INTO homework (profile_id, subject, title, details, due_date) VALUES (?, ?, ?, ?, ?)", fields
         )
@@ -336,11 +353,25 @@ async def edit_homework(
         try:
             fields = await _homework_fields(db, profile_id, subject, title, details, due_date)
         except homework.ValidationError as exc:
-            return await _render_admin(request, homework_error=str(exc), status_code=400)
+            return await _render_admin(request, homework_error=str(exc), status_code=400, homework_form={
+                "id": homework_id, "profile_id": profile_id, "subject": subject, "title": title,
+                "details": details, "due_date": due_date,
+            })
         await db.execute(
             """UPDATE homework SET profile_id = ?, subject = ?, title = ?, details = ?, due_date = ?,
                    updated_at = datetime('now') WHERE id = ?""",
             (*fields, homework_id),
+        )
+        await db.commit()
+    return RedirectResponse(url="/admin#homework", status_code=303)
+
+
+@router.post("/homework/{homework_id}/archive", dependencies=[Depends(require_admin)])
+async def archive_homework(homework_id: int):
+    """Toggles: archived homework leaves the dashboard; restoring brings it back."""
+    async with get_db() as db:
+        await db.execute(
+            "UPDATE homework SET archived = 1 - archived, updated_at = datetime('now') WHERE id = ?", (homework_id,)
         )
         await db.commit()
     return RedirectResponse(url="/admin#homework", status_code=303)
@@ -376,11 +407,15 @@ async def add_word_list(
     starts_on: str = Form(""),
     ends_on: str = Form(""),
 ):
+    list_id = None
     async with get_db() as db:
         try:
             fields = await _word_list_fields(db, profile_id, title, words, starts_on, ends_on)
         except homework.ValidationError as exc:
-            return await _render_admin(request, words_error=str(exc), status_code=400)
+            return await _render_admin(request, words_error=str(exc), status_code=400, words_form={
+                "id": list_id, "profile_id": profile_id, "title": title, "words": words,
+                "starts_on": starts_on, "ends_on": ends_on,
+            })
         await db.execute(
             "INSERT INTO practice_word_lists (profile_id, title, words, starts_on, ends_on) VALUES (?, ?, ?, ?, ?)",
             fields,
@@ -405,7 +440,10 @@ async def edit_word_list(
         try:
             fields = await _word_list_fields(db, profile_id, title, words, starts_on, ends_on)
         except homework.ValidationError as exc:
-            return await _render_admin(request, words_error=str(exc), status_code=400)
+            return await _render_admin(request, words_error=str(exc), status_code=400, words_form={
+                "id": list_id, "profile_id": profile_id, "title": title, "words": words,
+                "starts_on": starts_on, "ends_on": ends_on,
+            })
         await db.execute(
             """UPDATE practice_word_lists SET profile_id = ?, title = ?, words = ?, starts_on = ?, ends_on = ?,
                    updated_at = datetime('now') WHERE id = ?""",

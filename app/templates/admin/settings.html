@@ -81,41 +81,58 @@
   </div>
 
   <!-- Homework -->
+  {#- After a validation error, homework_form / words_form hold what was submitted
+      ("id" none = the add form) so the form comes back as typed. -#}
+  {% macro homework_row(h) %}
+  {% set editing = homework_form and homework_form.id == h.id %}
+  {% set f = homework_form if editing else h %}
+  <div class="admin-row task-row">
+    <span class="task-row-label">{{ h.profile_name }} — {% if h.subject %}{{ h.subject }}: {% endif %}{{ h.title }}
+      <span class="admin-meta">{% if h.due_date %}· due {{ h.due_date }}{% else %}· no due date{% endif %}{% if h.done %} · done{% endif %}{% if h.archived %} · archived{% endif %}</span></span>
+    <details class="task-edit"{{ ' open' if editing else '' }}>
+      <summary class="btn"><span class="task-edit-open">Edit</span><span class="task-edit-close">Cancel</span></summary>
+      <form class="admin-form" method="post" action="/admin/homework/{{ h.id }}/edit">
+        <select name="profile_id" required aria-label="Child">
+          {% for p in profiles %}<option value="{{ p.id }}" {{ 'selected' if p.id|string == f.profile_id|string else '' }}>{{ p.name }}</option>{% endfor %}
+        </select>
+        <input type="text" name="subject" value="{{ f.subject or '' }}" maxlength="60" placeholder="Subject" aria-label="Subject" autocomplete="off"{% if onscreen_keyboard %} data-osk="text"{% endif %}>
+        <input type="text" name="title" value="{{ f.title }}" maxlength="120" required aria-label="Homework" autocomplete="off"{% if onscreen_keyboard %} data-osk="text"{% endif %}>
+        <input type="text" name="details" value="{{ f.details or '' }}" maxlength="1000" placeholder="Details (optional)" aria-label="Details" autocomplete="off"{% if onscreen_keyboard %} data-osk="text"{% endif %}>
+        <label class="hw-field">Due <input type="date" name="due_date" value="{{ f.due_date or '' }}"></label>
+        <button type="submit" class="btn">Save changes</button>
+      </form>
+    </details>
+    <form method="post" action="/admin/homework/{{ h.id }}/archive">
+      <button type="submit" class="btn" style="padding:4px 10px;font-size:0.8rem;">{{ 'Restore' if h.archived else 'Archive' }}</button>
+    </form>
+    <form method="post" action="/admin/homework/{{ h.id }}/delete">
+      <button type="submit" class="btn btn-danger" style="padding:4px 10px;font-size:0.8rem;">Delete</button>
+    </form>
+  </div>
+  {% endmacro %}
+  {% set hf = homework_form if homework_form and homework_form.id is none else {} %}
+  {% set wf = words_form if words_form and words_form.id is none else {} %}
   <div class="admin-panel" id="homework">
     <h2>Homework</h2>
     {% if homework_error %}<p class="admin-error" role="alert">{{ homework_error }}</p>{% endif %}
-    {% for h in homework_items %}
-    <div class="admin-row task-row">
-      <span class="task-row-label">{{ h.profile_name }} — {% if h.subject %}{{ h.subject }}: {% endif %}{{ h.title }}
-        <span class="admin-meta">{% if h.due_date %}· due {{ h.due_date }}{% else %}· no due date{% endif %}{% if h.done %} · done{% endif %}</span></span>
-      <details class="task-edit">
-        <summary class="btn"><span class="task-edit-open">Edit</span><span class="task-edit-close">Cancel</span></summary>
-        <form class="admin-form" method="post" action="/admin/homework/{{ h.id }}/edit">
-          <select name="profile_id" required aria-label="Child">
-            {% for p in profiles %}<option value="{{ p.id }}" {{ 'selected' if p.id == h.profile_id else '' }}>{{ p.name }}</option>{% endfor %}
-          </select>
-          <input type="text" name="subject" value="{{ h.subject }}" maxlength="60" placeholder="Subject" aria-label="Subject" autocomplete="off"{% if onscreen_keyboard %} data-osk="text"{% endif %}>
-          <input type="text" name="title" value="{{ h.title }}" maxlength="120" required aria-label="Homework" autocomplete="off"{% if onscreen_keyboard %} data-osk="text"{% endif %}>
-          <input type="text" name="details" value="{{ h.details or '' }}" maxlength="1000" placeholder="Details (optional)" aria-label="Details" autocomplete="off"{% if onscreen_keyboard %} data-osk="text"{% endif %}>
-          <label class="hw-field">Due <input type="date" name="due_date" value="{{ h.due_date or '' }}"></label>
-          <button type="submit" class="btn">Save changes</button>
-        </form>
-      </details>
-      <form method="post" action="/admin/homework/{{ h.id }}/delete">
-        <button type="submit" class="btn btn-danger" style="padding:4px 10px;font-size:0.8rem;">Delete</button>
-      </form>
-    </div>
-    {% else %}
-    <p class="admin-meta">No homework yet.</p>
+    {% for h in homework_items %}{{ homework_row(h) }}{% else %}
+    <p class="admin-meta">No homework on the board.</p>
     {% endfor %}
+    {% if finished_homework %}
+    {% set editing_finished = homework_form and homework_form.id in finished_homework|map(attribute='id')|list %}
+    <details class="finished-homework"{{ ' open' if editing_finished else '' }}>
+      <summary>Show finished ({{ finished_homework|length }})</summary>
+      {% for h in finished_homework %}{{ homework_row(h) }}{% endfor %}
+    </details>
+    {% endif %}
     <form class="admin-form" method="post" action="/admin/homework">
       <select name="profile_id" required aria-label="Child">
-        {% for p in profiles %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}
+        {% for p in profiles %}<option value="{{ p.id }}" {{ 'selected' if hf and p.id|string == hf.profile_id|string else '' }}>{{ p.name }}</option>{% endfor %}
       </select>
-      <input type="text" name="subject" maxlength="60" placeholder="Subject (e.g. Maths)" aria-label="Subject" autocomplete="off"{% if onscreen_keyboard %} data-osk="text"{% endif %}>
-      <input type="text" name="title" maxlength="120" placeholder="What's the homework?" required aria-label="Homework" autocomplete="off"{% if onscreen_keyboard %} data-osk="text"{% endif %}>
-      <input type="text" name="details" maxlength="1000" placeholder="Details (optional)" aria-label="Details" autocomplete="off"{% if onscreen_keyboard %} data-osk="text"{% endif %}>
-      <label class="hw-field">Due (optional) <input type="date" name="due_date"></label>
+      <input type="text" name="subject" value="{{ hf.subject or '' }}" maxlength="60" placeholder="Subject (e.g. Maths)" aria-label="Subject" autocomplete="off"{% if onscreen_keyboard %} data-osk="text"{% endif %}>
+      <input type="text" name="title" value="{{ hf.title or '' }}" maxlength="120" placeholder="What's the homework?" required aria-label="Homework" autocomplete="off"{% if onscreen_keyboard %} data-osk="text"{% endif %}>
+      <input type="text" name="details" value="{{ hf.details or '' }}" maxlength="1000" placeholder="Details (optional)" aria-label="Details" autocomplete="off"{% if onscreen_keyboard %} data-osk="text"{% endif %}>
+      <label class="hw-field">Due (optional) <input type="date" name="due_date" value="{{ hf.due_date or '' }}"></label>
       <button type="submit" class="btn">Add homework</button>
     </form>
   </div>
@@ -125,19 +142,21 @@
     <h2>Practice Words</h2>
     {% if words_error %}<p class="admin-error" role="alert">{{ words_error }}</p>{% endif %}
     {% for wl in word_lists %}
+    {% set editing = words_form and words_form.id == wl.id %}
+    {% set f = words_form if editing else wl %}
     <div class="admin-row task-row">
       <span class="task-row-label">{{ wl.profile_name }} — {{ wl.title }}
         <span class="admin-meta">· {{ wl.words.split('\n') | length }} words{% if wl.starts_on or wl.ends_on %} · {{ wl.starts_on or '…' }} to {{ wl.ends_on or '…' }}{% endif %}{% if wl.archived %} · archived{% endif %}</span></span>
-      <details class="task-edit">
+      <details class="task-edit"{{ ' open' if editing else '' }}>
         <summary class="btn"><span class="task-edit-open">Edit</span><span class="task-edit-close">Cancel</span></summary>
         <form class="admin-form" method="post" action="/admin/practice-words/{{ wl.id }}/edit">
           <select name="profile_id" required aria-label="Child">
-            {% for p in profiles %}<option value="{{ p.id }}" {{ 'selected' if p.id == wl.profile_id else '' }}>{{ p.name }}</option>{% endfor %}
+            {% for p in profiles %}<option value="{{ p.id }}" {{ 'selected' if p.id|string == f.profile_id|string else '' }}>{{ p.name }}</option>{% endfor %}
           </select>
-          <input type="text" name="title" value="{{ wl.title }}" maxlength="120" required aria-label="List title" autocomplete="off"{% if onscreen_keyboard %} data-osk="text"{% endif %}>
-          <textarea name="words" required aria-label="Words, one per line or separated by commas" autocapitalize="off" spellcheck="false"{% if onscreen_keyboard %} data-osk="text"{% endif %}>{{ wl.words }}</textarea>
-          <label class="hw-field">From <input type="date" name="starts_on" value="{{ wl.starts_on or '' }}"></label>
-          <label class="hw-field">Until <input type="date" name="ends_on" value="{{ wl.ends_on or '' }}"></label>
+          <input type="text" name="title" value="{{ f.title }}" maxlength="120" required aria-label="List title" autocomplete="off"{% if onscreen_keyboard %} data-osk="text"{% endif %}>
+          <textarea name="words" required aria-label="Words, one per line or separated by commas" autocapitalize="off" spellcheck="false"{% if onscreen_keyboard %} data-osk="text"{% endif %}>{{ f.words }}</textarea>
+          <label class="hw-field">From <input type="date" name="starts_on" value="{{ f.starts_on or '' }}"></label>
+          <label class="hw-field">Until <input type="date" name="ends_on" value="{{ f.ends_on or '' }}"></label>
           <button type="submit" class="btn">Save changes</button>
         </form>
       </details>
@@ -153,12 +172,12 @@
     {% endfor %}
     <form class="admin-form" method="post" action="/admin/practice-words">
       <select name="profile_id" required aria-label="Child">
-        {% for p in profiles %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}
+        {% for p in profiles %}<option value="{{ p.id }}" {{ 'selected' if wf and p.id|string == wf.profile_id|string else '' }}>{{ p.name }}</option>{% endfor %}
       </select>
-      <input type="text" name="title" maxlength="120" placeholder="Title (e.g. Week 3 handwriting)" required aria-label="List title" autocomplete="off"{% if onscreen_keyboard %} data-osk="text"{% endif %}>
-      <textarea name="words" required placeholder="Words — one per line, or separated by commas" aria-label="Words" autocapitalize="off" spellcheck="false"{% if onscreen_keyboard %} data-osk="text"{% endif %}></textarea>
-      <label class="hw-field">From (optional) <input type="date" name="starts_on"></label>
-      <label class="hw-field">Until (optional) <input type="date" name="ends_on"></label>
+      <input type="text" name="title" value="{{ wf.title or '' }}" maxlength="120" placeholder="Title (e.g. Week 3 handwriting)" required aria-label="List title" autocomplete="off"{% if onscreen_keyboard %} data-osk="text"{% endif %}>
+      <textarea name="words" required placeholder="Words — one per line, or separated by commas" aria-label="Words" autocapitalize="off" spellcheck="false"{% if onscreen_keyboard %} data-osk="text"{% endif %}>{{ wf.words or '' }}</textarea>
+      <label class="hw-field">From (optional) <input type="date" name="starts_on" value="{{ wf.starts_on or '' }}"></label>
+      <label class="hw-field">Until (optional) <input type="date" name="ends_on" value="{{ wf.ends_on or '' }}"></label>
       <button type="submit" class="btn">Add word list</button>
     </form>
 
