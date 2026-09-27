@@ -4,6 +4,9 @@
   <link rel="stylesheet" href="/static/css/homework.css">{% with part = "head" %}{% include "_keyboard_assets.html" %}{% endwith %}{% endblock %}
 {% block content %}
 {% from "_icons.html" import icon, person_avatar %}
+{#- A form that could not be saved comes back here with ?error=<code>; admin.ADMIN_ERRORS
+    maps it to its section and message. -#}
+{% macro section_error(section) %}{% if form_error and form_error.section == section %}<p class="admin-error" role="alert">{{ form_error.message }}</p>{% endif %}{% endmacro %}
 <div class="admin-shell">
   <div class="admin-topbar">
     <h1>Admin</h1>
@@ -37,14 +40,15 @@
   {#- Tasks themselves live in Google Tasks; only who and which days are set here. -#}
   <div class="admin-panel" id="tasks">
     <h2>Task Schedules</h2>
+    {{ section_error("tasks") }}
     <p class="admin-meta">Add, rename or delete tasks in Google Tasks — they sync here within a minute. Set which days each one repeats below.</p>
     {% for p in profiles %}
     {% set person_tasks = tasks | selectattr("profile_id", "equalto", p.id) | list %}
     <div class="schedule-person">
       <h3>{{ person_avatar(p.name, p.colour_hex) }}{{ p.name }}{% if not p.google_tasklist_id %} <span class="admin-meta">· {% if person_tasks %}These stay on this display only until a Google list is linked below (Google Account → Task Sync){% else %}Link a Google list under Google Account → Task Sync below to give them tasks{% endif %}</span>{% endif %}</h3>
       {% for t in person_tasks %}
-      <div class="admin-row task-row">
-        <span class="task-row-label">{{ t.title }} <span class="admin-meta">· {{ 'repeats ' ~ t.schedule if t.schedule else 'one-off' }}</span></span>
+      <div class="admin-row admin-item">
+        <span class="admin-item-label">{{ t.title }} <span class="admin-meta">· {{ 'repeats ' ~ t.schedule if t.schedule else 'one-off' }}</span></span>
         <details class="task-edit">
           <summary class="btn"><span class="task-edit-open">Schedule</span><span class="task-edit-close">Cancel</span></summary>
           <form class="admin-form" method="post" action="/admin/tasks/{{ t.id }}/edit">
@@ -53,7 +57,7 @@
                 <input type="checkbox" name="is_recurring" value="true" {{ 'checked' if t.is_recurring and not t.days else '' }}> Every day
               </label>
               <span class="admin-meta">or only:</span>
-              {% for d in ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] %}
+              {% for d in weekdays %}
               <label class="day-chip"><input type="checkbox" name="days" value="{{ d }}" {{ 'checked' if d in t.days else '' }}><span>{{ d }}</span></label>
               {% endfor %}
             </div>
@@ -66,7 +70,7 @@
               </select>
             </label>
             <button type="submit" class="btn">Save</button>
-            <span class="admin-meta" style="align-self:center;">Nothing ticked = a one-off task.</span>
+            <span class="admin-meta admin-form-note">Nothing ticked = a one-off task.</span>
           </form>
         </details>
       </div>
@@ -83,8 +87,8 @@
   {% macro homework_row(h) %}
   {% set editing = homework_form and homework_form.id == h.id %}
   {% set f = homework_form if editing else h %}
-  <div class="admin-row task-row">
-    <span class="task-row-label">{{ h.profile_name }} — {% if h.subject %}{{ h.subject }}: {% endif %}{{ h.title }}
+  <div class="admin-row admin-item">
+    <span class="admin-item-label">{{ h.profile_name }} — {% if h.subject %}{{ h.subject }}: {% endif %}{{ h.title }}
       <span class="admin-meta">{% if h.due_date %}· due {{ h.due_date }}{% else %}· no due date{% endif %}{% if h.done %} · done{% endif %}{% if h.archived %} · archived{% endif %}</span></span>
     <details class="task-edit"{{ ' open' if editing else '' }}>
       <summary class="btn"><span class="task-edit-open">Edit</span><span class="task-edit-close">Cancel</span></summary>
@@ -111,6 +115,7 @@
   {% set wf = words_form if words_form and words_form.id is none else {} %}
   <div class="admin-panel" id="homework">
     <h2>Homework</h2>
+    {{ section_error("homework") }}
     {% if homework_error %}<p class="admin-error" role="alert">{{ homework_error }}</p>{% endif %}
     {% for h in homework_items %}{{ homework_row(h) }}{% else %}
     <p class="admin-meta">No homework on the board.</p>
@@ -137,12 +142,13 @@
   <!-- Handwriting practice words -->
   <div class="admin-panel" id="practice-words">
     <h2>Practice Words</h2>
+    {{ section_error("practice-words") }}
     {% if words_error %}<p class="admin-error" role="alert">{{ words_error }}</p>{% endif %}
     {% for wl in word_lists %}
     {% set editing = words_form and words_form.id == wl.id %}
     {% set f = words_form if editing else wl %}
-    <div class="admin-row task-row">
-      <span class="task-row-label">{{ wl.profile_name }} — {{ wl.title }}
+    <div class="admin-row admin-item">
+      <span class="admin-item-label">{{ wl.profile_name }} — {{ wl.title }}
         <span class="admin-meta">· {{ wl.words.split('\n') | length }} words{% if wl.starts_on or wl.ends_on %} · {{ wl.starts_on or '…' }} to {{ wl.ends_on or '…' }}{% endif %}{% if wl.archived %} · archived{% endif %}</span></span>
       <details class="task-edit"{{ ' open' if editing else '' }}>
         <summary class="btn"><span class="task-edit-open">Edit</span><span class="task-edit-close">Cancel</span></summary>
@@ -187,7 +193,7 @@
         <span class="hand-sample hand-{{ value }}">little</span>
       </label>
       {% endfor %}
-      <button type="submit" class="btn btn-small" style="margin-top:4px;">Save</button>
+      <button type="submit" class="btn btn-small admin-submit">Save</button>
     </form>
   </div>
 
@@ -202,17 +208,17 @@
       </form>
     </div>
     {% if available_calendars %}
-    <form method="post" action="/admin/google/calendars" style="margin-top:12px;">
+    <form class="calendar-picker" method="post" action="/admin/google/calendars">
       <p class="admin-hint">Calendars shown on the dashboard:</p>
       {% for cal in available_calendars %}
       <label class="admin-check">
         <input type="checkbox" name="calendar_id" value="{{ cal.id }}"
                {{ 'checked' if cal.id in selected_calendar_ids else '' }}>
-        <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:{{ cal.color }};flex-shrink:0;"></span>
+        <span class="calendar-swatch" style="--cal: {{ cal.color }};"></span>
         {{ cal.summary }}{% if cal.primary %} (primary){% endif %}
       </label>
       {% endfor %}
-      <button type="submit" class="btn" style="margin-top:8px;">Save calendars</button>
+      <button type="submit" class="btn">Save calendars</button>
     </form>
     {% endif %}
     {% elif google_configured %}
@@ -223,7 +229,7 @@
     {% else %}
     <p class="admin-hint">
       Not configured yet — set <code>GOOGLE_CLIENT_ID</code> and <code>GOOGLE_CLIENT_SECRET</code>
-      (see README, "Connecting Google Calendar") before this can be connected.
+      (see README, "Connecting Google (Calendar + Tasks)") before this can be connected.
     </p>
     {% endif %}
     {% if google_account %}
@@ -240,8 +246,8 @@
         sync was added. Disconnect and reconnect above to grant access.
       </p>
       {% elif available_tasklists %}
-      <form method="post" action="/admin/google/shopping-list" style="margin-bottom:16px;">
-        <label class="admin-hint" style="display:block;">
+      <form class="shopping-list-picker" method="post" action="/admin/google/shopping-list">
+        <label class="admin-hint admin-label">
           Shopping list syncs with:
         </label>
         <select name="tasklist_id" required>
@@ -254,12 +260,12 @@
       </form>
 
       <form method="post" action="/admin/google/task-lists">
-        <label class="admin-hint" style="display:block;">
+        <label class="admin-hint admin-label">
           Task lists (per family member):
         </label>
         {% for p in profiles %}
-        <div style="display:flex; align-items:center; gap:10px; margin-bottom:8px;">
-          <span class="admin-person" style="min-width:130px;">{{ person_avatar(p.name, p.colour_hex) }}{{ p.name }}</span>
+        <div class="tasklist-row">
+          <span class="admin-person tasklist-person">{{ person_avatar(p.name, p.colour_hex) }}{{ p.name }}</span>
           <select name="tasklist_{{ p.id }}">
             <option value="">Not synced</option>
             {% for tl in available_tasklists %}
@@ -268,7 +274,7 @@
           </select>
         </div>
         {% endfor %}
-        <button type="submit" class="btn btn-small" style="margin-top:4px;">Save task lists</button>
+        <button type="submit" class="btn btn-small admin-submit">Save task lists</button>
       </form>
       {% else %}
       <p class="admin-hint">
@@ -277,7 +283,7 @@
       {% endif %}
     </div>
     {% endif %}
-    <p class="admin-hint" style="margin-top: 14px;">
+    <p class="admin-hint admin-footnote">
       Google Photos and Classroom access aren't wired up yet — see the project README for the plan.
     </p>
   </div>
@@ -308,6 +314,7 @@
   <!-- Appearance -->
   <div class="admin-panel" id="display">
     <h2>Appearance</h2>
+    {{ section_error("display") }}
     <form method="post" action="/admin/appearance">
       {% for value, label in appearances.items() %}
       <label class="admin-check">
@@ -345,10 +352,11 @@
   </div>
 
   <!-- Change PIN -->
-  <div class="admin-panel">
+  <div class="admin-panel" id="pin">
     <h2>Change Admin PIN</h2>
+    {{ section_error("pin") }}
     <form class="admin-form" method="post" action="/admin/change-pin">
-      <input type="password" name="new_pin" inputmode="numeric" pattern="[0-9]*" maxlength="8" placeholder="New PIN" required>
+      <input type="password" name="new_pin" inputmode="numeric" pattern="[0-9]{4,8}" minlength="4" maxlength="8" placeholder="New PIN (4–8 digits)" required>
       <button type="submit" class="btn">Update PIN</button>
     </form>
   </div>

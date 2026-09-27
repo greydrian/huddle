@@ -12,8 +12,8 @@ from collections.abc import Awaitable, Callable
 from typing import NamedTuple
 
 from app import google_calendar
-from app.routers.meals import get_week_meal_plan  # TODO: move to app/services/meals.py
 from app.services import homework, shopping, tasks, weather
+from app.services.meals import get_week_meal_plan
 
 
 class Widget(NamedTuple):

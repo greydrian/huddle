@@ -243,7 +243,8 @@ async def test_handwriting_style_setting(db, admin_client):
     assert "pw-words hand-joined" in (await admin_client.get("/widgets/practice-words")).text
     assert "pw-words hand-joined" in (await admin_client.get("/")).text
 
-    assert (await admin_client.post("/admin/handwriting-style", data={"style": "comic"})).status_code == 400
+    bad = await admin_client.post("/admin/handwriting-style", data={"style": "comic"})
+    assert bad.headers["location"] == "/admin?error=handwriting-style#practice-words"
     assert await database.get_setting(db, homework.HANDWRITING_SETTING) == "joined"
 
 
@@ -346,10 +347,14 @@ async def test_admin_edit_validation_and_missing_rows(db, admin_client):
     assert (await admin_client.post(f"/admin/practice-words/{list_id}/edit", data={
         "profile_id": riley, "title": "X", "words": "",
     })).status_code == 400
-    assert (await admin_client.post("/admin/homework/9999/edit", data={"profile_id": riley, "title": "X"})).status_code == 404
-    assert (await admin_client.post("/admin/practice-words/9999/edit", data={
+    # A row deleted meanwhile (e.g. in another tab) sends the parent back with a message.
+    gone = await admin_client.post("/admin/homework/9999/edit", data={"profile_id": riley, "title": "X"})
+    assert (gone.status_code, gone.headers["location"]) == (303, "/admin?error=homework-missing#homework")
+    assert "That homework no longer exists." in (await admin_client.get(gone.headers["location"])).text
+    gone = await admin_client.post("/admin/practice-words/9999/edit", data={
         "profile_id": riley, "title": "X", "words": "a",
-    })).status_code == 404
+    })
+    assert gone.headers["location"] == "/admin?error=words-missing#practice-words"
     assert (await (await db.execute("SELECT title FROM homework")).fetchone())[0] == "Keep me"
     assert (await (await db.execute("SELECT title FROM practice_word_lists")).fetchone())[0] == "Keep me too"
 

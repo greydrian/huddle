@@ -1,37 +1,26 @@
 {% from "_icons.html" import icon, person_pill %}
+{% from "widgets/_widget.html" import widget_header, stub_empty, tick_button %}
 <div class="widget-card" id="widget-homework">
-  <div class="widget-header drag-handle">
-    {{ icon("book-open", 22, "widget-icon") }}
-    <h2 class="widget-title">Homework</h2>
-  </div>
+  {{ widget_header("book-open", "Homework") }}
   <div class="widget-body hw-body">
     {% for child in homework_groups %}
     <div class="hw-group">
       {{ person_pill(child.name, child.colour_hex) }}
       {% for hw in child.homework %}
-      <button type="button"
-              class="hw-item{{ ' done' if hw.done else '' }}{{ ' overdue' if hw.overdue else '' }}{{ ' due-soon' if hw.due_soon else '' }}"
-              aria-pressed="{{ 'true' if hw.done else 'false' }}"
-              hx-post="/api/homework/{{ hw.id }}/toggle"
-              hx-target="#widget-homework"
-              {% if hw.done %}hx-swap="outerHTML"
-              {% else %}hx-swap="outerHTML swap:450ms"
-              hx-on:click="this.classList.add('done', 'just-ticked')"{% endif %}>
+      {% call tick_button("/api/homework/" ~ hw.id ~ "/toggle", "#widget-homework", hw.done,
+                          "hw-item" ~ (" done" if hw.done else "") ~ (" overdue" if hw.overdue else "") ~ (" due-soon" if hw.due_soon else ""),
+                          "done", pressed=true) %}
         <span class="hw-check" aria-hidden="true">{{ icon("check", 18) }}</span>
         <span class="hw-text">
           <span class="hw-title">{% if hw.subject %}<span class="hw-subject">{{ hw.subject }}</span> {% endif %}{{ hw.title }}</span>
           {% if hw.details %}<span class="hw-details">{{ hw.details }}</span>{% endif %}
           {% if hw.label %}<span class="hw-due">{{ hw.label }}</span>{% endif %}
         </span>
-      </button>
+      {% endcall %}
       {% endfor %}
     </div>
     {% else %}
-    <div class="stub-empty compact">
-      <div class="stub-badge">{{ icon("book-open", 30) }}</div>
-      <p class="stub-title">No homework right now</p>
-      <p class="stub-caption">Add homework in Admin and it'll show up here.</p>
-    </div>
+    {{ stub_empty("book-open", "No homework right now", "Add homework in Admin and it'll show up here.") }}
     {% endfor %}
   </div>
 </div>

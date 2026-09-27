@@ -143,9 +143,13 @@ async def test_edit_validation(db, admin_client):
     p1 = (await _profile_ids(db))[0]
     task_id = await _add_task(db, p1, title="Keep me")
 
-    assert (await admin_client.post("/admin/tasks/9999/edit", data={"profile_id": p1})).status_code == 404
+    # A form the parent submitted comes back to Admin with a readable message, not JSON.
+    missing = await admin_client.post("/admin/tasks/9999/edit", data={"profile_id": p1})
+    assert (missing.status_code, missing.headers["location"]) == (303, "/admin?error=task-missing#tasks")
     bad_profile = await admin_client.post(f"/admin/tasks/{task_id}/edit", data={"profile_id": 9999, "days": ["Mon"]})
-    assert bad_profile.status_code == 400
+    assert bad_profile.headers["location"] == "/admin?error=task-unknown-person#tasks"
+    page = (await admin_client.get(missing.headers["location"])).text
+    assert 'role="alert">That task no longer exists.' in page
     missing_profile = await admin_client.post(f"/admin/tasks/{task_id}/edit", data={"days": ["Mon"]})
     assert missing_profile.status_code == 422
 
@@ -154,7 +158,7 @@ async def test_edit_validation(db, admin_client):
     assert await _queue_payloads(db) == []
 
 
-async def test_edit_of_archived_task_is_404(db, admin_client):
+async def test_edit_of_archived_task_is_treated_as_missing(db, admin_client):
     p1 = (await _profile_ids(db))[0]
     task_id = await _add_task(db, p1)
     await db.execute("UPDATE tasks SET archived = 1 WHERE id = ?", (task_id,))
@@ -162,7 +166,8 @@ async def test_edit_of_archived_task_is_404(db, admin_client):
 
     resp = await admin_client.post(f"/admin/tasks/{task_id}/edit", data={"profile_id": p1, "days": ["Mon"]})
 
-    assert resp.status_code == 404
+    assert resp.headers["location"] == "/admin?error=task-missing#tasks"
+    assert (await _task(db, task_id))["recurrence_rule"] is None
     assert await _queue_payloads(db) == []
 
 
@@ -217,7 +222,7 @@ async def test_reassign_to_person_without_google_list_is_rejected(db, admin_clie
 
     resp = await admin_client.post(f"/admin/tasks/{task_id}/edit", data={"profile_id": pb, "days": ["Mon"]})
 
-    assert resp.status_code == 400
+    assert resp.headers["location"] == "/admin?error=task-no-list#tasks"
     task = await _task(db, task_id)
     assert (task["profile_id"], task["google_task_id"], task["recurrence_rule"]) == (pa, "g-old", None)
     assert await _live_tasks(db) == [(pa, "Feed cat", "g-old")]
@@ -392,7 +397,7 @@ async def test_tombstone_is_hidden_from_dashboard_and_admin(db, admin_client, co
     admin_html = (await admin_client.get("/admin")).text
     widget_html = (await admin_client.get("/widgets/tasks")).text
 
-    assert admin_html.count('class="task-row-label">Feed cat ') == 1
+    assert admin_html.count('class="admin-item-label">Feed cat ') == 1
     assert widget_html.count("Feed cat") == 1
     tombstone = await (await db.execute(
         "SELECT profile_id, google_task_id FROM tasks WHERE archived = 1"

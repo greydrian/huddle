@@ -1,4 +1,4 @@
-{% from "_icons.html" import icon %}
+{% from "widgets/_widget.html" import widget_header, stub_empty %}
 {#- Meteocons (MIT, static/icons/meteocons): one illustration per weather
     category from routers/weather.py (clear, partly, cloudy, fog, rain, snow, thunder). -#}
 {% macro weather_icon(category, size) -%}
@@ -6,11 +6,9 @@
 {%- endmacro %}
 <div class="widget-card" id="widget-weather"
      hx-get="/widgets/weather" hx-trigger="every 900s" hx-swap="outerHTML">
-  <div class="widget-header drag-handle">
-    {{ icon("cloud-sun", 22, "widget-icon") }}
-    <h2 class="widget-title">Weather</h2>
+  {% call widget_header("cloud-sun", "Weather") %}
     {% if weather %}<span class="wx-place" title="{{ weather.location }}">{{ weather.location }}</span>{% endif %}
-  </div>
+  {% endcall %}
   <div class="widget-body">
     {% if weather and not weather.unavailable %}
     <div class="wx">
@@ -36,14 +34,11 @@
       {% if weather.stale %}<p class="wx-stale">Last updated {{ weather.updated_label }}</p>{% endif %}
     </div>
     {% else %}
-    <div class="stub-empty compact">
-      <div class="stub-badge">{{ weather_icon('partly', 44) }}</div>
-      {% if weather %}
-      <p class="stub-caption">Couldn't reach the forecast — trying again soon.</p>
-      {% else %}
-      <a href="/admin" class="stub-cta">Set your location in Admin →</a>
-      {% endif %}
-    </div>
+    {% if weather %}
+    {% call stub_empty(caption="Couldn't reach the forecast — trying again soon.") %}{{ weather_icon('partly', 44) }}{% endcall %}
+    {% else %}
+    {% call stub_empty(cta_href="/admin", cta_label="Set your location in Admin →") %}{{ weather_icon('partly', 44) }}{% endcall %}
+    {% endif %}
     {% endif %}
   </div>
 </div>

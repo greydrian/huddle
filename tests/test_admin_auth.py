@@ -131,17 +131,33 @@ async def test_change_pin_swaps_old_for_new(client, db):
     assert (await _login(client, "5678")).status_code == 303
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="change-pin accepts any string server-side; the login form only takes up to 8 digits "
-    "(pattern=[0-9]*, maxlength=8), so a PIN like these would lock the family out of Admin",
-)
-@pytest.mark.parametrize("bad_pin", [" ", "12ab", "123456789"])
+# The login form only takes up to 8 digits (inputmode=numeric, maxlength=8),
+# so a PIN like these would lock the family out of Admin.
+@pytest.mark.parametrize("bad_pin", [" ", "12ab", "123456789", "123", " 1234", "１２３４", "١٢٣٤"])
 async def test_change_pin_rejects_a_pin_the_login_form_cannot_type(client, db, bad_pin):
     client.cookies.set(admin.SESSION_COOKIE, create_session_token())
-    await client.post("/admin/change-pin", data={"new_pin": bad_pin})
+    resp = await client.post("/admin/change-pin", data={"new_pin": bad_pin})
 
+    assert (resp.status_code, resp.headers["location"]) == (303, "/admin?error=pin-invalid#pin")
     assert security.verify_pin(DEFAULT_PIN, await database.get_setting(db, "pin_hash"))
+    page = (await client.get(resp.headers["location"])).text
+    assert "A PIN must be 4 to 8 digits" in page
+
+
+@pytest.mark.parametrize("good_pin", ["0000", "12345678"])
+async def test_change_pin_accepts_four_to_eight_digits(client, db, good_pin):
+    client.cookies.set(admin.SESSION_COOKIE, create_session_token())
+    resp = await client.post("/admin/change-pin", data={"new_pin": good_pin})
+
+    assert resp.headers["location"] == "/admin"
+    assert security.verify_pin(good_pin, await database.get_setting(db, "pin_hash"))
+
+
+async def test_unknown_error_code_shows_nothing(client):
+    client.cookies.set(admin.SESSION_COOKIE, create_session_token())
+    page = (await client.get("/admin?error=<b>nope</b>")).text
+    assert "nope" not in page
+    assert 'class="admin-error" role="alert"' not in page
 
 
 async def test_logout_clears_the_session_cookie(client):

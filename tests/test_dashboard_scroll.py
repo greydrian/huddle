@@ -27,11 +27,41 @@ async def test_grid_sits_inside_its_own_scroll_container(db, client):
 # falls back to the whole card as the handle when none matches — which would
 # swallow every scroll swipe on that card. So each widget needs exactly one.
 
+WIDGET_HEADER_CALL = re.compile(r"(?:\{\{|\{%\s*call)\s*widget_header\(")
+
+
 def test_every_widget_template_has_exactly_one_drag_handle():
+    # The handle normally comes from the widget_header macro (widgets/_widget.html);
+    # a hand-written one counts too, but a template must have exactly one of either.
     templates = [p for p in (TEMPLATES / "widgets").glob("*.html") if not p.name.startswith("_")]
     assert templates
     for path in templates:
-        assert len(DRAG_HANDLE.findall(path.read_text(encoding="utf-8"))) == 1, path.name
+        source = path.read_text(encoding="utf-8")
+        handles = len(DRAG_HANDLE.findall(source)) + len(WIDGET_HEADER_CALL.findall(source))
+        assert handles == 1, path.name
+
+
+def test_widget_header_macro_renders_exactly_one_drag_handle():
+    from app.templating import templates
+
+    macros = templates.env.get_template("widgets/_widget.html").module
+    for html in (
+        macros.widget_header("image", "Photos"),
+        macros.widget_header("calendar-days", "March 2026", split=True, cls="cal-header"),
+    ):
+        assert len(DRAG_HANDLE.findall(str(html))) == 1
+        assert _controls_in_handles(str(html)) == []
+
+
+async def test_every_widget_route_renders_exactly_one_drag_handle(db, client):
+    # Each widget re-renders itself from its own route (HTMX swaps), not just
+    # inside the dashboard, so check those too.
+    routes = ["/widgets/tasks", "/widgets/shopping", "/widgets/meals", "/widgets/calendar",
+              "/widgets/weather", "/widgets/homework", "/widgets/practice-words"]
+    for path in routes:
+        html = (await client.get(path)).text
+        assert len(DRAG_HANDLE.findall(html)) == 1, path
+        assert _controls_in_handles(html) == [], path
 
 
 def test_dashboard_configures_the_drag_handle():

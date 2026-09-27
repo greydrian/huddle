@@ -1,37 +1,25 @@
 {% from "_icons.html" import icon, person_pill %}
+{% from "widgets/_widget.html" import widget_header, stub_empty, tick_button %}
 <div class="widget-card" id="widget-practice_words">
-  <div class="widget-header drag-handle">
-    {{ icon("pencil-line", 22, "widget-icon") }}
-    <h2 class="widget-title">Practice Words</h2>
-  </div>
+  {{ widget_header("pencil-line", "Practice Words") }}
   <div class="widget-body pw-body">
     {% for wl in practice_lists %}
     <section class="pw-list ink-{{ wl.colour_hex | person_ink }}" style="--person: {{ wl.colour_hex }};">
       <div class="pw-list-head">
         {{ person_pill(wl.profile_name, wl.colour_hex) }}
         <span class="pw-list-title">{{ wl.title }}</span>
-        <button type="button"
-                class="pw-practised{{ ' on' if wl.practised_today else '' }}"
-                aria-pressed="{{ 'true' if wl.practised_today else 'false' }}"
-                hx-post="/api/practice-words/{{ wl.id }}/practised"
-                hx-target="#widget-practice_words"
-                {% if wl.practised_today %}hx-swap="outerHTML"
-                {% else %}hx-swap="outerHTML swap:450ms"
-                hx-on:click="this.classList.add('on', 'just-ticked')"{% endif %}>
+        {% call tick_button("/api/practice-words/" ~ wl.id ~ "/practised", "#widget-practice_words", wl.practised_today,
+                            "pw-practised" ~ (" on" if wl.practised_today else ""), "on", pressed=true) %}
           <span class="pw-tick" aria-hidden="true">{{ icon("check", 18) }}</span>
           {{ 'Practised today' if wl.practised_today else 'Practised today?' }}
-        </button>
+        {% endcall %}
       </div>
       <ul class="pw-words hand-{{ handwriting_style }}">
         {% for word in wl.word_items %}<li>{{ word }}</li>{% endfor %}
       </ul>
     </section>
     {% else %}
-    <div class="stub-empty compact">
-      <div class="stub-badge">{{ icon("pencil-line", 30) }}</div>
-      <p class="stub-title">No practice words this week</p>
-      <p class="stub-caption">Add a word list in Admin and the words will show up here.</p>
-    </div>
+    {{ stub_empty("pencil-line", "No practice words this week", "Add a word list in Admin and the words will show up here.") }}
     {% endfor %}
   </div>
 </div>

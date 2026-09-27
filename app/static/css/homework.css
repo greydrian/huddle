@@ -121,6 +121,6 @@
 .admin-meta { color: var(--ink-soft); font-size: 0.9rem; }
 .finished-homework { margin-top: 8px; }
 .finished-homework > summary { min-height: 38px; padding: 8px 0; font-size: 0.95rem; color: var(--accent); font-weight: 600; cursor: pointer; }
-.finished-homework .task-row-label { color: var(--ink-soft); }
+.finished-homework .admin-item-label { color: var(--ink-soft); }
 .hand-option { display: flex; align-items: center; gap: 10px; padding: 6px 0; font-size: 1rem; }
 .hand-option .hand-sample { font-size: 1.4rem; color: var(--ink); }
