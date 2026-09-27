@@ -26,10 +26,27 @@ async def test_layout_save_round_trip(client, db):
     ]
     resp = await client.post("/api/layout", json={"items": items})
     assert resp.status_code == 200
+    assert resp.json() == {"status": "ok", "saved": 2, "skipped": 0}
 
     rows = {r["widget_id"]: r for r in await (await db.execute("SELECT * FROM layout_state")).fetchall()}
     assert (rows["tasks"]["grid_x"], rows["tasks"]["grid_y"], rows["tasks"]["grid_w"], rows["tasks"]["grid_h"]) == (1, 9, 5, 3)
     assert (rows["meals"]["grid_x"], rows["meals"]["grid_w"]) == (10, 2)
+
+
+async def test_layout_accepts_real_seeded_rows(client, db):
+    """Regression: whatever the dashboard renders must round-trip, or every
+    drag would silently fail to save."""
+    rows = await (await db.execute("SELECT * FROM layout_state WHERE is_visible = 1")).fetchall()
+    items = [
+        {"id": r["widget_id"], "x": r["grid_x"], "y": r["grid_y"], "w": r["grid_w"], "h": r["grid_h"],
+         "extra": "ignored"}
+        for r in rows
+    ]
+    before = await _layout(db)
+    resp = await client.post("/api/layout", json={"items": items})
+    assert resp.status_code == 200
+    assert resp.json() == {"status": "ok", "saved": len(items), "skipped": 0}
+    assert await _layout(db) == before
 
 
 GOOD = {"id": "tasks", "x": 0, "y": 0, "w": 4, "h": 4}
@@ -41,27 +58,60 @@ GOOD = {"id": "tasks", "x": 0, "y": 0, "w": 4, "h": 4}
         pytest.param(b"{not json", id="bad-json"),
         pytest.param([GOOD], id="list-body"),
         pytest.param({}, id="missing-items"),
-        pytest.param({"items": [{"id": "tasks", "x": 0, "y": 0, "w": 4}]}, id="missing-key"),
-        pytest.param({"items": [{**GOOD, "x": "a"}]}, id="string-x"),
-        pytest.param({"items": [{**GOOD, "x": "3"}]}, id="numeric-string-x"),
-        pytest.param({"items": [{**GOOD, "x": 1.5}]}, id="float-x"),
-        pytest.param({"items": [{**GOOD, "id": "nope"}]}, id="unknown-widget"),
-        pytest.param({"items": [{**GOOD, "x": -1}]}, id="negative-x"),
-        pytest.param({"items": [{**GOOD, "w": 0}]}, id="zero-w"),
-        pytest.param({"items": [{**GOOD, "x": 10, "w": 4}]}, id="overflows-columns"),
-        pytest.param({"items": [{**GOOD, "h": 100000}]}, id="huge-h"),
-        # One bad item must not let the good one through either.
-        pytest.param({"items": [{**GOOD, "x": 5}, {**GOOD, "id": "meals", "y": "a"}]}, id="partial"),
+        pytest.param({"items": GOOD}, id="items-not-a-list"),
+        pytest.param({"items": ["tasks", 3]}, id="items-not-objects"),
     ],
 )
-async def test_layout_rejects_malformed(client, db, body):
+async def test_layout_rejects_wrong_shape(client, db, body):
     before = await _layout(db)
     if isinstance(body, bytes):
         resp = await client.post("/api/layout", content=body, headers={"Content-Type": "application/json"})
     else:
         resp = await client.post("/api/layout", json=body)
-    assert 400 <= resp.status_code < 500
+    assert resp.status_code == 422
     assert await _layout(db) == before
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        pytest.param({"id": "meals", "x": 0, "y": 0, "w": 4}, id="missing-key"),
+        pytest.param({**GOOD, "id": "meals", "x": "a"}, id="string-x"),
+        pytest.param({**GOOD, "id": "meals", "x": "3"}, id="numeric-string-x"),
+        pytest.param({**GOOD, "id": "meals", "x": 1.5}, id="float-x"),
+        pytest.param({**GOOD, "id": "meals", "x": True}, id="bool-x"),
+        pytest.param({**GOOD, "id": "nope"}, id="unknown-widget"),
+    ],
+)
+async def test_bad_item_is_skipped_and_good_ones_saved(client, db, bad):
+    before = {row[0]: row for row in await _layout(db)}
+    resp = await client.post("/api/layout", json={"items": [{**GOOD, "x": 5, "y": 20}, bad]})
+    assert resp.status_code == 200
+    assert resp.json() == {"status": "ok", "saved": 1, "skipped": 1}
+
+    after = {row[0]: row for row in await _layout(db)}
+    assert after["tasks"][1:5] == (5, 20, 4, 4)
+    assert after["meals"] == before["meals"]
+    assert "nope" not in after
+
+
+@pytest.mark.parametrize(
+    "item, expected",
+    [
+        pytest.param({**GOOD, "x": -1}, (0, 0, 4, 4), id="negative-x"),
+        pytest.param({**GOOD, "w": 0}, (0, 0, 1, 4), id="zero-w"),
+        pytest.param({**GOOD, "x": 10, "w": 4}, (8, 0, 4, 4), id="overflows-columns"),
+        pytest.param({**GOOD, "w": 40}, (0, 0, 12, 4), id="too-wide"),
+        pytest.param({**GOOD, "h": 100000}, (0, 0, 4, 500), id="huge-h"),
+        pytest.param({**GOOD, "y": 499, "h": 4}, (0, 496, 4, 4), id="y-plus-h-past-max"),
+    ],
+)
+async def test_out_of_range_values_are_clamped(client, db, item, expected):
+    resp = await client.post("/api/layout", json={"items": [item]})
+    assert resp.status_code == 200
+    assert resp.json()["skipped"] == 0
+    after = {row[0]: row for row in await _layout(db)}
+    assert after["tasks"][1:5] == expected
 
 
 async def test_visibility_endpoint_is_gone(client, db):

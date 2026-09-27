@@ -80,7 +80,15 @@
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ items })
-    });
+    }).then(resp => {
+      if (!resp.ok) {
+        console.warn('Layout not saved: HTTP ' + resp.status);
+        return;
+      }
+      return resp.json().then(data => {
+        if (data.skipped) console.warn('Layout saved, but ' + data.skipped + ' item(s) were skipped as invalid');
+      });
+    }).catch(err => console.warn('Layout not saved:', err));
   }
 
   grid.on('change', persistLayout);
