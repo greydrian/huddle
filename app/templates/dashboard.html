@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Family Display{% endblock %}
-{% block head %}{% with part = "head" %}{% include "_keyboard_assets.html" %}{% endwith %}{% endblock %}
+{% block head %}
+  <link rel="stylesheet" href="/static/css/homework.css">{% with part = "head" %}{% include "_keyboard_assets.html" %}{% endwith %}{% endblock %}
 
 {% block content %}
 <div class="topbar">
@@ -32,7 +33,9 @@
       {% elif widget.widget_id == 'photos' %}
         {% include "widgets/photos_stub.html" %}
       {% elif widget.widget_id == 'homework' %}
-        {% include "widgets/homework_stub.html" %}
+        {% include "widgets/homework.html" %}
+      {% elif widget.widget_id == 'practice_words' %}
+        {% include "widgets/practice_words.html" %}
       {% endif %}
     </div>
   </div>

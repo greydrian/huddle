@@ -84,6 +84,42 @@ CREATE TABLE IF NOT EXISTS auth_tokens (
     sync_token TEXT
 );
 
+-- Homework and handwriting practice words (Admin-entered for now; `source`
+-- leaves room for school-email / Classroom imports). Never synced to Google.
+CREATE TABLE IF NOT EXISTS homework (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    profile_id INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+    subject TEXT NOT NULL DEFAULT '',
+    title TEXT NOT NULL,
+    details TEXT,
+    due_date TEXT,
+    done INTEGER NOT NULL DEFAULT 0,
+    done_at TEXT,
+    source TEXT NOT NULL DEFAULT 'manual',
+    archived INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS practice_word_lists (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    profile_id INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+    title TEXT NOT NULL,
+    words TEXT NOT NULL DEFAULT '',
+    starts_on TEXT,
+    ends_on TEXT,
+    source TEXT NOT NULL DEFAULT 'manual',
+    archived INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS practice_log (
+    list_id INTEGER NOT NULL REFERENCES practice_word_lists(id) ON DELETE CASCADE,
+    practised_on TEXT NOT NULL,
+    PRIMARY KEY (list_id, practised_on)
+);
+
 -- Generic key/value store: admin PIN hash, lockout state, brightness schedule, etc.
 CREATE TABLE IF NOT EXISTS app_settings (
     key TEXT PRIMARY KEY,
@@ -102,6 +138,7 @@ DEFAULT_LAYOUT = [
     ("weather", 8, 7, 2, 2),
     ("photos", 8, 9, 2, 2),
     ("homework", 10, 7, 2, 4),
+    ("practice_words", 0, 11, 6, 4),
 ]
 
 DEFAULT_PROFILES = [
@@ -122,6 +159,20 @@ async def _add_column_if_missing(db, table: str, column: str, coltype: str):
     existing = [row["name"] for row in await cursor.fetchall()]
     if column not in existing:
         await db.execute(f"ALTER TABLE {table} ADD COLUMN {column} {coltype}")
+
+
+async def _add_missing_widgets(db):
+    rows = await (await db.execute("SELECT widget_id, grid_y + grid_h AS bottom FROM layout_state")).fetchall()
+    present = {row["widget_id"] for row in rows}
+    bottom = max((row["bottom"] for row in rows), default=0)
+    for widget_id, x, _y, w, h in DEFAULT_LAYOUT:
+        if widget_id not in present:
+            await db.execute(
+                """INSERT OR IGNORE INTO layout_state (widget_id, grid_x, grid_y, grid_w, grid_h, is_visible)
+                   VALUES (?, ?, ?, ?, ?, 1)""",
+                (widget_id, x, bottom, w, h),
+            )
+            bottom += h
 
 
 async def init_db():
@@ -195,6 +246,11 @@ async def init_db():
                 (row[0],),
             )
             await db.execute("DELETE FROM layout_state WHERE widget_id = 'upcoming_events'")
+
+        # Migration: widgets added after a layout shipped get a row of their
+        # own below everything else, leaving every existing position alone
+        # (bumping LAYOUT_VERSION would wipe the family's arrangement).
+        await _add_missing_widgets(db)
 
         # Seed a default admin PIN (1234) on first run only — change this in Admin > Settings
         cursor = await db.execute("SELECT COUNT(*) FROM app_settings WHERE key = 'pin_hash'")

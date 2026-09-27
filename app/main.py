@@ -25,7 +25,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app import scheduler
 from app.database import init_db
-from app.routers import admin, calendar, dashboard, layout, meals, shopping, tasks, weather
+from app.routers import admin, calendar, dashboard, homework, layout, meals, shopping, tasks, weather
 
 BASE_DIR = Path(__file__).parent
 
@@ -65,3 +65,4 @@ app.include_router(layout.router)
 app.include_router(admin.router)
 app.include_router(calendar.router)
 app.include_router(weather.router)
+app.include_router(homework.router)

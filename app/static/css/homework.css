@@ -1,0 +1,123 @@
+/* Homework + handwriting practice words widgets, and the Admin handwriting
+   style picker. Playwrite GB S / GB J are vendored (OFL, see
+   fonts/OFL-Playwrite.txt) so the kiosk never fetches fonts at runtime. */
+
+@font-face {
+  font-family: "Playwrite GB S";
+  src: url("/static/fonts/playwrite-gb-s-400-normal.woff2") format("woff2");
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Playwrite GB J";
+  src: url("/static/fonts/playwrite-gb-j-400-normal.woff2") format("woff2");
+  font-weight: 400;
+  font-display: swap;
+}
+
+.hand-semijoined { font-family: "Playwrite GB S", "Comic Sans MS", cursive; }
+.hand-joined { font-family: "Playwrite GB J", "Comic Sans MS", cursive; }
+.hand-plain { font-family: var(--font-body); }
+
+/* --- Homework --- */
+.hw-body { padding: 2px 12px 14px; }
+.hw-group { margin-bottom: 12px; }
+.hw-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 6px;
+  border: none;
+  border-bottom: 1px solid rgba(43,36,32,0.08);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink);
+  font-family: var(--font-body);
+  text-align: left;
+  cursor: pointer;
+}
+.hw-item.overdue { background: rgba(180,69,58,0.1); box-shadow: inset 3px 0 0 var(--danger); }
+.hw-check {
+  width: 26px; height: 26px;
+  flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 7px;
+  border: 2px solid var(--ink-soft);
+  color: transparent;
+  font-size: 1rem;
+}
+.hw-item.done .hw-check { background: var(--success); border-color: var(--success); color: var(--paper); animation: check-pop 0.28s ease; }
+.hw-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.hw-title { font-size: 0.9rem; line-height: 1.3; overflow-wrap: break-word; }
+.hw-subject { font-weight: 700; }
+.hw-details { font-size: 0.75rem; color: var(--ink-soft); overflow-wrap: break-word; }
+.hw-item.done .hw-title, .hw-item.done .hw-details { text-decoration: line-through; color: var(--ink-soft); }
+.hw-due {
+  font-size: 0.68rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--ink-soft);
+}
+.hw-item.due-soon .hw-due { color: var(--system-accent-dark); }
+.hw-item.overdue .hw-due { color: var(--danger); }
+
+/* --- Practice words: words are the point, so they get the space --- */
+.pw-body { padding: 2px 14px 14px; }
+.pw-list { padding: 6px 0 12px; border-bottom: 1px dashed rgba(43,36,32,0.15); margin-bottom: 8px; }
+.pw-list:last-child { border-bottom: none; margin-bottom: 0; }
+.pw-list-head { display: flex; align-items: center; gap: 6px 12px; flex-wrap: wrap; }
+.pw-list-head .task-group-name { margin-bottom: 0; }
+.pw-list-title { flex: 1; font-size: 0.75rem; color: var(--ink-soft); min-width: 0; overflow-wrap: break-word; }
+.pw-words {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 28px;
+  font-size: 2rem;
+  line-height: 1.9;
+  color: var(--ink);
+}
+.pw-words li { min-width: 0; max-width: 100%; overflow-wrap: break-word; }
+.pw-words.hand-plain { font-size: 2.1rem; line-height: 1.5; }
+.pw-practised {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 48px;
+  padding: 8px 20px 8px 10px;
+  border-radius: 999px;
+  border: 2px solid var(--pw-colour, var(--ink-soft));
+  background: transparent;
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 1rem;
+  cursor: pointer;
+}
+.pw-tick {
+  width: 30px; height: 30px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 50%;
+  border: 2px solid var(--pw-colour, var(--ink-soft));
+  color: transparent;
+}
+.pw-practised.on { background: var(--pw-colour, var(--success)); color: var(--paper); }
+.pw-practised.on .pw-tick { background: var(--paper); border-color: var(--paper); color: var(--pw-colour, var(--success)); animation: check-pop 0.28s ease; }
+
+/* --- Admin --- */
+.admin-form textarea {
+  width: 100%; min-height: 110px; padding: 9px 10px; border-radius: 8px; border: 1px solid rgba(43,36,32,0.2);
+  background: var(--paper-shade); font-family: var(--font-body); font-size: 0.9rem; resize: vertical;
+}
+.admin-form .hw-field { display: flex; flex-direction: column; gap: 3px; font-size: 0.8rem; color: var(--ink-soft); }
+.admin-error { color: var(--danger); font-size: 0.85rem; }
+.admin-meta { color: var(--ink-soft); font-size: 0.85rem; }
+.finished-homework { margin-top: 8px; }
+.finished-homework > summary { min-height: 36px; padding: 8px 0; font-size: 0.85rem; color: var(--ink-soft); cursor: pointer; }
+.finished-homework .task-row-label { color: var(--ink-soft); }
+.hand-option { display: flex; align-items: center; gap: 10px; padding: 6px 0; font-size: 0.9rem; }
+.hand-option .hand-sample { font-size: 1.3rem; color: var(--ink); }
