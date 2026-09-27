@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 
+from app import recurrence
 from app.database import family_today, get_db, get_setting, set_setting
 from app.templating import templates
 
@@ -21,14 +22,20 @@ router = APIRouter()
 
 
 async def get_profiles_with_tasks(db):
-    """Return profiles, each with their non-archived tasks attached."""
+    """Return profiles, each with today's non-archived tasks attached — a
+    recurring task set to specific days only shows on those days (in the
+    household's timezone, not the container's)."""
     profiles = [dict(row) for row in await (await db.execute(
         "SELECT * FROM profiles ORDER BY sort_order"
     )).fetchall()]
 
-    tasks = [dict(row) for row in await (await db.execute(
-        "SELECT * FROM tasks WHERE archived = 0 ORDER BY is_completed, created_at"
-    )).fetchall()]
+    weekday = (await family_today(db)).weekday()
+    tasks = [
+        dict(row) for row in await (await db.execute(
+            "SELECT * FROM tasks WHERE archived = 0 ORDER BY is_completed, created_at"
+        )).fetchall()
+        if not row["is_recurring"] or recurrence.is_due(row["recurrence_rule"], weekday)
+    ]
 
     for profile in profiles:
         profile["tasks"] = [t for t in tasks if t["profile_id"] == profile["id"]]
