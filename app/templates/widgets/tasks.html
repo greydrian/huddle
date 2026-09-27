@@ -31,7 +31,7 @@
       </div>
       {% for task in open_tasks %}{{ task_row(task) }}{% endfor %}
       {% if not profile.tasks %}
-      <div class="stub-widget" style="padding: 4px 0; font-size: 0.8rem;">No tasks yet — add some in Admin.</div>
+      <div class="stub-widget" style="padding: 4px 0; font-size: 0.8rem;">No tasks yet — add some in Google Tasks.</div>
       {% elif not open_tasks %}
       <div class="task-all-done">All done for today</div>
       {% endif %}

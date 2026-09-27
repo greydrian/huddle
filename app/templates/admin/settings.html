@@ -33,51 +33,44 @@
   </div>
 
   <!-- Tasks -->
-  <div class="admin-panel">
-    <h2>Tasks</h2>
-    {% for t in tasks %}
-    <div class="admin-row task-row">
-      <span class="task-row-label">{{ t.profile_name }} — {{ t.title }}{% if t.schedule %} <span style="color:var(--ink-soft);font-size:0.85rem;">· repeats {{ t.schedule }}</span>{% endif %}</span>
-      <details class="task-edit">
-        <summary class="btn"><span class="task-edit-open">Edit</span><span class="task-edit-close">Cancel</span></summary>
-        <form class="admin-form" method="post" action="/admin/tasks/{{ t.id }}/edit">
-          <select name="profile_id" required aria-label="Family member">
-            {% for p in profiles %}<option value="{{ p.id }}" {{ 'selected' if p.id == t.profile_id else '' }}>{{ p.name }}</option>{% endfor %}
-          </select>
-          <input type="text" name="title" value="{{ t.title }}" required aria-label="Task title">
-          <label style="display:flex;align-items:center;gap:4px;font-size:0.85rem;">
-            <input type="checkbox" name="is_recurring" value="true" {{ 'checked' if t.is_recurring and not t.days else '' }}> Repeats every day
-          </label>
-          <div class="day-picker" role="group" aria-label="Or only on these days">
-            <span style="font-size:0.85rem;color:var(--ink-soft);">or only on:</span>
-            {% for d in ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] %}
-            <label class="day-chip"><input type="checkbox" name="days" value="{{ d }}" {{ 'checked' if d in t.days else '' }}><span>{{ d }}</span></label>
-            {% endfor %}
-          </div>
-          <button type="submit" class="btn">Save changes</button>
-        </form>
-      </details>
-      <form method="post" action="/admin/tasks/{{ t.id }}/delete">
-        <button type="submit" class="btn btn-danger" style="padding:4px 10px;font-size:0.8rem;">Remove</button>
-      </form>
+  {#- Tasks themselves live in Google Tasks; only who and which days are set here. -#}
+  <div class="admin-panel" id="tasks">
+    <h2>Task Schedules</h2>
+    <p class="admin-meta">Add, rename or delete tasks in Google Tasks — they sync here within a minute. Set which days each one repeats below.</p>
+    {% for p in profiles %}
+    {% set person_tasks = tasks | selectattr("profile_id", "equalto", p.id) | list %}
+    <div class="schedule-person">
+      <h3>{{ p.name }}{% if not p.google_tasklist_id %} <span class="admin-meta">· Link a Google list under Google Account → Task Sync below to give them tasks</span>{% endif %}</h3>
+      {% for t in person_tasks %}
+      <div class="admin-row task-row">
+        <span class="task-row-label">{{ t.title }} <span class="admin-meta">· {{ 'repeats ' ~ t.schedule if t.schedule else 'one-off' }}</span></span>
+        <details class="task-edit">
+          <summary class="btn"><span class="task-edit-open">Schedule</span><span class="task-edit-close">Cancel</span></summary>
+          <form class="admin-form" method="post" action="/admin/tasks/{{ t.id }}/edit">
+            <div class="day-picker" role="group" aria-label="Repeats on">
+              <label style="display:flex;align-items:center;gap:4px;font-size:0.85rem;">
+                <input type="checkbox" name="is_recurring" value="true" {{ 'checked' if t.is_recurring and not t.days else '' }}> Every day
+              </label>
+              <span style="font-size:0.85rem;color:var(--ink-soft);">or only:</span>
+              {% for d in ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] %}
+              <label class="day-chip"><input type="checkbox" name="days" value="{{ d }}" {{ 'checked' if d in t.days else '' }}><span>{{ d }}</span></label>
+              {% endfor %}
+            </div>
+            <label style="display:flex;align-items:center;gap:6px;font-size:0.85rem;">Person
+              <select name="profile_id" required aria-label="Person">
+                {% for op in profiles %}<option value="{{ op.id }}" {{ 'selected' if op.id == t.profile_id else '' }}>{{ op.name }}</option>{% endfor %}
+              </select>
+            </label>
+            <button type="submit" class="btn">Save</button>
+            <span class="admin-meta" style="align-self:center;">Nothing ticked = a one-off task.</span>
+          </form>
+        </details>
+      </div>
+      {% else %}
+      {% if p.google_tasklist_id %}<p class="admin-meta schedule-empty">No tasks.</p>{% endif %}
+      {% endfor %}
     </div>
     {% endfor %}
-    <form class="admin-form" method="post" action="/admin/tasks">
-      <select name="profile_id" required>
-        {% for p in profiles %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}
-      </select>
-      <input type="text" name="title" placeholder="Task title" required>
-      <label style="display:flex;align-items:center;gap:4px;font-size:0.85rem;">
-        <input type="checkbox" name="is_recurring" value="true"> Repeats every day
-      </label>
-      <div class="day-picker" role="group" aria-label="Or only on these days">
-        <span style="font-size:0.85rem;color:var(--ink-soft);">or only on:</span>
-        {% for d in ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] %}
-        <label class="day-chip"><input type="checkbox" name="days" value="{{ d }}"><span>{{ d }}</span></label>
-        {% endfor %}
-      </div>
-      <button type="submit" class="btn">Add task</button>
-    </form>
   </div>
 
   <!-- Homework -->
