@@ -140,10 +140,13 @@
     if (el.isConnected && document.activeElement === el) el.blur();
     scrolled.forEach((top, s) => { s.scrollTop = top; });
     scrolled.clear();
-    // The page is overflow:hidden by design; focusing an input low on the
-    // screen can still scroll it, which would leave the top bar hidden.
-    document.body.scrollTop = 0;
-    document.documentElement.scrollTop = 0;
+    // The dashboard is overflow:hidden by design; focusing an input low on
+    // the screen can still scroll it, which would leave the top bar hidden.
+    // Scrollable pages (Admin) keep the user's position.
+    if (getComputedStyle(document.documentElement).overflowY === 'hidden') {
+      document.body.scrollTop = 0;
+      document.documentElement.scrollTop = 0;
+    }
   }
 
   // Programmatic value changes never fire `change` on blur, so inputs that
