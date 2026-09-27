@@ -13,6 +13,9 @@
   <a href="/admin" class="btn-ghost">Admin</a>
 </div>
 
+{# The scroller is its own element: Gridstack sizes #dashboard-grid with an
+   inline height, so the grid can't be what scrolls. #}
+<div id="dashboard-scroll" class="dashboard-scroll">
 <div id="dashboard-grid" class="grid-stack">
   {% for widget in layout %}
   <div class="grid-stack-item"
@@ -41,6 +44,7 @@
   </div>
   {% endfor %}
 </div>
+</div>
 {% endblock %}
 
 {% block scripts %}{% with part = "scripts" %}{% include "_keyboard_assets.html" %}{% endwith %}
@@ -59,6 +63,12 @@
     margin: 8,
     float: true,
     disableOneColumnMode: true,
+    // Drag by each widget's .drag-handle (its header) only: Gridstack
+    // preventDefault()s touchmove on its drag handles, so a whole-card handle
+    // would swallow every swipe meant to scroll the dashboard (or a widget's
+    // own list). Every widget template needs exactly one .drag-handle —
+    // Gridstack silently falls back to the whole card when none matches.
+    handle: '.drag-handle',
   });
 
   function persistLayout() {
@@ -74,11 +84,12 @@
 
   grid.on('change', persistLayout);
 
-  // Re-initialize Gridstack drag/resize handles after any HTMX swap
-  // inside a grid item (the widget's own content changes, not its position).
-  document.body.addEventListener('htmx:afterSwap', () => {
-    // No-op for now: swaps target elements *inside* grid-stack-item-content,
-    // so Gridstack's own item wrapper is untouched and needs no re-init.
+  // A widget re-rendering itself (outerHTML swap) replaces its header/tab,
+  // and Gridstack binds drag listeners to the handle elements themselves —
+  // re-bind them. The item wrapper and resize handles are untouched.
+  document.body.addEventListener('htmx:afterSwap', (evt) => {
+    const item = evt.target.closest && evt.target.closest('.grid-stack-item');
+    if (item) grid.refreshDragHandles(item);
   });
 
   // Alpine only scans the DOM once on load — any widget swapped in by HTMX

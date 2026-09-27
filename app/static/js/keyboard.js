@@ -111,8 +111,7 @@
   }
 
   // Lift the input above the keyboard by scrolling whichever ancestors can
-  // scroll — including the overflow:hidden body, since Gridstack gives the
-  // grid a fixed inline height and the page itself overflows instead.
+  // scroll: a widget's own list, the dashboard's scroll area, or the page.
   const scrolled = new Map();  // element -> scrollTop before we moved it
   function reveal(el) {
     if (!el.isConnected) return;
@@ -140,9 +139,10 @@
     if (el.isConnected && document.activeElement === el) el.blur();
     scrolled.forEach((top, s) => { s.scrollTop = top; });
     scrolled.clear();
-    // The dashboard is overflow:hidden by design; focusing an input low on
-    // the screen can still scroll it, which would leave the top bar hidden.
-    // Scrollable pages (Admin) keep the user's position.
+    // Safety net: on a locked (overflow:hidden) page the document should
+    // never be scrolled — the dashboard scrolls inside #dashboard-scroll —
+    // so undo any stray scroll that would hide the top bar. Scrollable
+    // pages (Admin) keep the user's position.
     if (getComputedStyle(document.documentElement).overflowY === 'hidden') {
       document.body.scrollTop = 0;
       document.documentElement.scrollTop = 0;

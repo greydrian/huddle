@@ -82,6 +82,11 @@ html.osk-open body::after {
   display: block;
   height: var(--osk-height, 0px);
 }
+/* The dashboard scrolls inside .dashboard-scroll, so the room goes there
+   instead — as padding, so nothing shifts under the finger that opened the
+   keyboard (a spacer in the flex body would shrink the scroll area). */
+html.osk-open body:has(> .dashboard-scroll)::after { display: none; }
+html.osk-open .dashboard-scroll { padding-bottom: calc(16px + var(--osk-height, 0px)); }
 .osk .osk-theme.hg-layout-numeric .hg-button-enter {
   font-family: var(--font-body);
   font-size: 1.25rem;

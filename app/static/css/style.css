@@ -140,13 +140,24 @@ html, body {
 }
 .notification-banner.active { display: inline-block; }
 
-/* Grid container fills remaining viewport */
-#dashboard-grid {
-  padding: 16px;
-  height: calc(100vh - 76px);
+/* The page stays locked (above); the area under the top bar scrolls.
+   Gridstack gives #dashboard-grid an inline height as tall as its rows,
+   so the scrolling happens on this wrapper instead of the grid itself. */
+body:has(> .dashboard-scroll) {
+  display: flex;
+  flex-direction: column;
+}
+body:has(> .dashboard-scroll) > .topbar { flex-shrink: 0; }
+.dashboard-scroll {
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
+  overscroll-behavior: contain;
+  /* Room above the first row so its pins/tabs aren't clipped by this box. */
+  padding-block: 16px;
 }
+#dashboard-grid { padding: 16px; }
 
 /* --- Widget card: the "paper pinned to the wall" signature --- */
 .widget-card {
