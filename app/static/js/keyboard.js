@@ -1,0 +1,216 @@
+/* On-screen keyboard for the kiosk (admin toggle "On-screen keyboard").
+ *
+ * Opt-in per input: the server renders inputmode="none" on inputs that should
+ * use this keyboard (which also stops Android's own keyboard popping up), and
+ * data-osk-layout="numeric" for the PIN pad. All listeners are delegated on
+ * document because HTMX widgets replace their own DOM (hx-swap="outerHTML").
+ */
+(function () {
+  'use strict';
+
+  const lib = window.SimpleKeyboard;
+  const Keyboard = lib && (lib.default || lib);
+  if (!Keyboard) return;
+
+  const LAYOUT = {
+    default: [
+      '1 2 3 4 5 6 7 8 9 0 {bksp}',
+      'q w e r t y u i o p',
+      "a s d f g h j k l '",
+      '{shift} z x c v b n m , . -',
+      '{done} {space} {enter}',
+    ],
+    shift: [
+      '! ? & ( ) / : ; + @ {bksp}',
+      'Q W E R T Y U I O P',
+      'A S D F G H J K L "',
+      '{shift} Z X C V B N M , . -',
+      '{done} {space} {enter}',
+    ],
+    numeric: ['1 2 3', '4 5 6', '7 8 9', '{bksp} 0 {enter}'],
+  };
+  const DISPLAY = {
+    '{bksp}': '⌫',
+    '{shift}': '⇧',
+    '{space}': ' ',
+    '{enter}': 'Enter',
+    '{done}': 'Done',
+  };
+
+  const panel = document.createElement('div');
+  panel.className = 'osk';
+  panel.setAttribute('aria-hidden', 'true');
+  panel.innerHTML = '<div class="osk-keys simple-keyboard"></div>';
+  document.body.appendChild(panel);
+
+  const keyboard = new Keyboard(panel.querySelector('.osk-keys'), {
+    layout: LAYOUT,
+    display: DISPLAY,
+    theme: 'hg-theme-default osk-theme',
+    mergeDisplay: false,
+    preventMouseDownDefault: true,
+    onKeyPress: handleKey,
+  });
+
+  let target = null;       // the input currently being typed into
+  let valueAtOpen = '';    // to know whether closing should fire `change`
+
+  function isEligible(el) {
+    return el instanceof HTMLInputElement
+      && el.getAttribute('inputmode') === 'none'
+      && !el.disabled && !el.readOnly;
+  }
+
+  function isNumeric(el) {
+    return el.dataset.oskLayout === 'numeric';
+  }
+
+  // How to find this input again after HTMX re-renders its widget.
+  function selectorFor(el) {
+    if (el.id) return '#' + CSS.escape(el.id);
+    const hxPost = el.getAttribute('hx-post');
+    if (hxPost) return `input[hx-post="${CSS.escape(hxPost)}"]`;
+    if (el.name) return `input[name="${CSS.escape(el.name)}"]`;
+    return null;
+  }
+
+  function syncShift() {
+    // Auto-capitalise the first letter; shift is otherwise one-shot.
+    if (!target || isNumeric(target)) return;
+    const wanted = target.value === '' && target.type !== 'password' ? 'shift' : 'default';
+    if (keyboard.options.layoutName !== wanted) keyboard.setOptions({ layoutName: wanted });
+  }
+
+  function open(el) {
+    if (target && target !== el) commitChange();
+    target = el;
+    valueAtOpen = el.value;
+    const numeric = isNumeric(el);
+    panel.classList.toggle('osk--numeric', numeric);
+    keyboard.setOptions({ layoutName: numeric ? 'numeric' : 'default' });
+    syncShift();
+    panel.classList.add('osk--open');
+    panel.setAttribute('aria-hidden', 'false');
+    document.documentElement.classList.add('osk-open');
+    document.documentElement.style.setProperty('--osk-height', panel.offsetHeight + 'px');
+    requestAnimationFrame(() => reveal(el));
+  }
+
+  // Lift the input above the keyboard by scrolling whichever ancestors can
+  // scroll — including the overflow:hidden body, since Gridstack gives the
+  // grid a fixed inline height and the page itself overflows instead.
+  const scrolled = new Map();  // element -> scrollTop before we moved it
+  function reveal(el) {
+    if (!el.isConnected) return;
+    const margin = 16;
+    const limit = window.innerHeight - panel.offsetHeight - margin;
+    for (let s = el.parentElement; s; s = s.parentElement) {
+      if (s.scrollHeight <= s.clientHeight || getComputedStyle(s).overflowY === 'visible') continue;
+      const over = el.getBoundingClientRect().bottom - Math.min(limit, s.getBoundingClientRect().bottom - margin);
+      if (over > 0) {
+        if (!scrolled.has(s)) scrolled.set(s, s.scrollTop);
+        s.scrollTop += over;
+      }
+    }
+  }
+
+  function close() {
+    if (!target) return;
+    commitChange();
+    const el = target;
+    target = null;
+    panel.classList.remove('osk--open');
+    panel.setAttribute('aria-hidden', 'true');
+    document.documentElement.classList.remove('osk-open');
+    if (el.isConnected && document.activeElement === el) el.blur();
+    scrolled.forEach((top, s) => { s.scrollTop = top; });
+    scrolled.clear();
+    // The page is overflow:hidden by design; focusing an input low on the
+    // screen can still scroll it, which would leave the top bar hidden.
+    document.body.scrollTop = 0;
+    document.documentElement.scrollTop = 0;
+  }
+
+  // Programmatic value changes never fire `change` on blur, so inputs that
+  // save on change (meal plan: hx-trigger="change") need it dispatched.
+  function commitChange() {
+    if (target && target.isConnected && target.value !== valueAtOpen) {
+      valueAtOpen = target.value;
+      target.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+  }
+
+  function edit(text, start, end) {
+    target.setRangeText(text, start, end, 'end');
+    target.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+
+  function handleKey(button) {
+    const el = target;
+    if (!el) return;
+    if (!el.isConnected) { close(); return; }
+    const start = el.selectionStart ?? el.value.length;
+    const end = el.selectionEnd ?? start;
+
+    if (button === '{done}') { close(); return; }
+    if (button === '{shift}') {
+      const next = keyboard.options.layoutName === 'shift' ? 'default' : 'shift';
+      keyboard.setOptions({ layoutName: next });
+      return;
+    }
+    if (button === '{bksp}') {
+      if (start !== end) edit('', start, end);
+      else if (start > 0) edit('', start - 1, start);
+      syncShift();
+      return;
+    }
+    if (button === '{enter}') {
+      const onChange = (el.getAttribute('hx-trigger') || '').includes('change');
+      if (onChange || !el.form) {
+        close();
+      } else {
+        el.form.requestSubmit();
+      }
+      return;
+    }
+
+    const text = button === '{space}' ? ' ' : button;
+    if (el.maxLength > 0 && el.value.length - (end - start) >= el.maxLength) return;
+    edit(text, start, end);
+    if (keyboard.options.layoutName === 'shift') keyboard.setOptions({ layoutName: 'default' });
+  }
+
+  document.addEventListener('focusin', (evt) => {
+    if (isEligible(evt.target)) open(evt.target);
+  });
+
+  // Tapping anywhere else closes; tapping the keyboard itself must not steal
+  // focus from the input (touch taps would otherwise blur it).
+  document.addEventListener('pointerdown', (evt) => {
+    if (!target) return;
+    if (panel.contains(evt.target)) { evt.preventDefault(); return; }
+    if (evt.target === target || isEligible(evt.target)) return;
+    close();
+  }, true);
+
+  // A widget re-rendered while typing (e.g. the shopping list after Enter)
+  // replaces the input: carry on in its replacement so several items can be
+  // added in a row, or close if it's gone.
+  document.addEventListener('htmx:afterSettle', () => {
+    if (!target || target.isConnected) return;
+    const selector = selectorFor(target);
+    const replacement = selector && document.querySelector(selector);
+    if (replacement && isEligible(replacement)) {
+      target = null;
+      replacement.focus();
+      if (document.activeElement !== replacement) open(replacement);
+    } else {
+      close();
+    }
+  });
+
+  // Autofocused inputs (the PIN field) are focused before this script runs.
+  window.addEventListener('load', () => {
+    if (!target && isEligible(document.activeElement)) open(document.activeElement);
+  });
+})();

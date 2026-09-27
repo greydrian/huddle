@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Family Display{% endblock %}
+{% block head %}{% with part = "head" %}{% include "_keyboard_assets.html" %}{% endwith %}{% endblock %}
 
 {% block content %}
 <div class="topbar">
@@ -40,6 +41,7 @@
 {% endblock %}
 
 {% block scripts %}
+{% with part = "scripts" %}{% include "_keyboard_assets.html" %}{% endwith %}
 <script src="/static/vendor/gridstack/gridstack-all.js"></script>
 <script>
   // Render today's date in the person's locale without a server round-trip.

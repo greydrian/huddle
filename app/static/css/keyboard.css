@@ -1,0 +1,88 @@
+/* On-screen keyboard (loaded only when the admin toggle is on).
+   Restyles simple-keyboard's default grey theme into the paper/ink/ochre
+   palette from style.css's :root tokens. */
+
+.osk {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1000;
+  padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+  background: var(--wall-soft);
+  border-top: 1px solid rgba(241, 234, 217, 0.12);
+  box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.35);
+  transform: translateY(105%);
+  visibility: hidden;
+  transition: transform 0.2s ease-out, visibility 0s linear 0.2s;
+}
+.osk.osk--open {
+  transform: translateY(0);
+  visibility: visible;
+  transition: transform 0.2s ease-out, visibility 0s;
+}
+
+.osk .osk-theme {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 0;
+  background: transparent;
+  font-family: var(--font-body);
+}
+.osk.osk--numeric .osk-theme { max-width: 420px; }
+
+.osk .osk-theme .hg-row:not(:last-child) { margin-bottom: 8px; }
+.osk .osk-theme .hg-row .hg-button:not(:last-child) { margin-right: 8px; }
+
+.osk .osk-theme .hg-button {
+  height: 58px;
+  background: var(--paper);
+  color: var(--ink);
+  border: none;
+  border-bottom: 3px solid var(--pin-hi);
+  border-radius: 10px;
+  box-shadow: none;
+  font-family: var(--font-body);
+  font-size: 1.35rem;
+  font-weight: 500;
+}
+.osk .osk-theme .hg-button.hg-activeButton {
+  background: var(--paper-shade);
+  border-bottom-width: 1px;
+  transform: translateY(2px);
+}
+
+.osk .osk-theme .hg-functionBtn {
+  background: var(--paper-shade);
+  color: var(--ink-soft);
+  font-size: 1.2rem;
+}
+.osk .osk-theme .hg-button-bksp,
+.osk .osk-theme .hg-button-shift { flex-grow: 1.4; }
+.osk .osk-theme .hg-button-space { flex-grow: 8; }
+.osk .osk-theme .hg-button-done { flex-grow: 1.6; font-weight: 600; }
+.osk .osk-theme .hg-button-enter {
+  flex-grow: 2;
+  background: var(--system-accent);
+  border-bottom-color: var(--system-accent-dark);
+  color: var(--wall);
+  font-weight: 600;
+}
+
+/* Numeric (PIN) pad: big square-ish keys. */
+.osk .osk-theme.hg-layout-numeric .hg-button {
+  height: 72px;
+  font-family: var(--font-mono);
+  font-size: 1.7rem;
+}
+
+/* Room to scroll the page's last row of inputs up above the keyboard. */
+html.osk-open body::after {
+  content: "";
+  display: block;
+  height: var(--osk-height, 0px);
+}
+.osk .osk-theme.hg-layout-numeric .hg-button-enter {
+  font-family: var(--font-body);
+  font-size: 1.25rem;
+}

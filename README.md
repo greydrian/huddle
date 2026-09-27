@@ -177,8 +177,11 @@ app/
   templates/           Jinja2 templates (base, dashboard, widgets/, admin/)
   static/
     css/style.css      Design system (fonts, palette, widget styling)
+    css/keyboard.css   On-screen keyboard styling (loaded only when enabled)
+    js/keyboard.js     On-screen keyboard behaviour (loaded only when enabled)
     fonts/             Self-hosted Fraunces/Inter/JetBrains Mono (woff2)
-    vendor/            Pinned HTMX 2.0.10, Alpine 3.16.3, Gridstack 13.2.0
+    vendor/            Pinned HTMX 2.0.10, Alpine 3.16.3, Gridstack 13.2.0,
+                       simple-keyboard 3.8.192
 data/                  SQLite DB + secret key — local dev only; in Docker this
                        is a bind-mounted folder instead (see docker-compose.yml)
 ```
@@ -228,9 +231,9 @@ used — every recurring task currently resets daily.
 4. **Notifications banner logic** — the `<div id="notification-banner">` exists
    in the dashboard template but nothing populates it yet; needs the
    due-soon-task and calendar-reminder logic from Section 4.6 of the spec.
-5. **On-screen keyboard** — currently relies on whatever virtual keyboard the
-   OS provides on focus; the spec calls for an embedded JS keyboard
-   (simple-keyboard) for a more reliable kiosk experience.
+5. **On-screen keyboard** — built (simple-keyboard), off by default: turn it on
+   in Admin → On-screen Keyboard. While on, the dashboard's text inputs and the
+   PIN field get `inputmode="none"` so Android's own keyboard stays hidden.
 6. **Google Photos + Classroom** — lower priority, both have the API caveats
    documented in the spec (Picker-only access, Guardian-email-first for
    homework).
