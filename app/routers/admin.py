@@ -265,7 +265,8 @@ async def save_profile_tasklists(request: Request):
 async def save_weather_location(place: str = Form(...)):
     try:
         location = await weather.geocode(place)
-    except (httpx.HTTPError, KeyError, ValueError):
+    # A malformed geocoder response is treated like an outage, never a 500.
+    except (httpx.HTTPError, KeyError, IndexError, ValueError, TypeError, AttributeError):
         return RedirectResponse(url="/admin?weather_error=offline#weather", status_code=303)
     if not location:
         return RedirectResponse(url="/admin?weather_error=notfound#weather", status_code=303)

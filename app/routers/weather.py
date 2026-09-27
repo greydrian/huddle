@@ -5,6 +5,7 @@ stored in app_settings; forecasts are cached there too so the wall keeps
 showing the last good reading when Open-Meteo is down or slow.
 """
 
+import asyncio
 import json
 from datetime import date, datetime, timedelta, timezone
 
@@ -21,8 +22,14 @@ FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
 GEOCODING_URL = "https://geocoding-api.open-meteo.com/v1/search"
 LOCATION_SETTING = "weather_location"
 CACHE_SETTING = "weather_cache"
+FAILURE_SETTING = "weather_last_failure"
 CACHE_MAX_AGE = timedelta(minutes=15)
-TIMEOUT = httpx.Timeout(5.0)
+STALE_MAX_AGE = timedelta(hours=24)
+RETRY_BACKOFF = timedelta(minutes=5)
+# httpx timeouts are per phase, so the whole fetch is also capped: the
+# dashboard render awaits it inline.
+TIMEOUT = httpx.Timeout(4.0, connect=3.0)
+FETCH_DEADLINE = 6.0
 
 CONDITION_LABELS = {
     "clear": "Clear",
@@ -93,6 +100,8 @@ async def get_location(db) -> dict | None:
 
 async def set_location(db, location: dict):
     await set_setting(db, LOCATION_SETTING, json.dumps(location))
+    # A new place deserves a fetch now, not after the old place's backoff.
+    await set_setting(db, FAILURE_SETTING, "")
     await db.commit()
 
 
@@ -129,25 +138,30 @@ async def _fetch_forecast(location: dict) -> dict:
     }
 
 
-def _present(location: dict, forecast: dict, fetched_at: datetime, stale: bool) -> dict:
+def _present(location: dict, forecast: dict, fetched_at: datetime, stale: bool, now: datetime) -> dict:
     offset = timedelta(seconds=forecast["utc_offset_seconds"])
-    days = [
-        {
-            "label": date.fromisoformat(d["date"]).strftime("%a"),
-            "category": weather_category(d["weather_code"]),
-            "high": round(d["max"]),
-            "low": round(d["min"]),
-        }
-        for d in forecast["daily"]
-    ]
+    # A cache from before midnight (location time) still lists yesterday first.
+    local_today = (now + offset).date()
+    days = []
+    for d in forecast["daily"]:
+        day = date.fromisoformat(d["date"])
+        if day >= local_today:
+            days.append({
+                "date": day,
+                "label": day.strftime("%a"),
+                "category": weather_category(d["weather_code"]),
+                "high": round(d["max"]),
+                "low": round(d["min"]),
+            })
+    today = days[0] if days and days[0]["date"] == local_today else None
     category = weather_category(forecast["current"]["weather_code"])
     return {
         "location": location["name"],
         "temperature": round(forecast["current"]["temperature"]),
         "category": category,
         "condition": CONDITION_LABELS[category],
-        "today": days[0] if days else None,
-        "upcoming": days[1:4],
+        "today": today,
+        "upcoming": [d for d in days if d["date"] > local_today][:3],
         "stale": stale,
         # Shown in the forecast location's own time, which is what the family sees on their clocks.
         "updated_label": (fetched_at + offset).strftime("%H:%M"),
@@ -161,33 +175,61 @@ async def get_weather(db) -> dict | None:
     if not location:
         return None
 
-    cache_raw = await get_setting(db, CACHE_SETTING)
-    cache = json.loads(cache_raw) if cache_raw else None
-    # A cache for a previous location is worse than nothing.
-    if cache and (cache.get("latitude"), cache.get("longitude")) != (location["latitude"], location["longitude"]):
-        cache = None
-
     now = datetime.now(timezone.utc)
-    if cache:
-        fetched_at = datetime.fromisoformat(cache["fetched_at"])
-        if now - fetched_at < CACHE_MAX_AGE:
-            return _present(location, cache["forecast"], fetched_at, stale=False)
+    cached = await _load_cache(db, location, now)
+    if cached and now - cached["fetched_at"] < CACHE_MAX_AGE:
+        return cached["weather"]
 
+    last_failure = _parse_time(await get_setting(db, FAILURE_SETTING))
+    if not (last_failure and now - last_failure < RETRY_BACKOFF):
+        try:
+            forecast = await asyncio.wait_for(_fetch_forecast(location), FETCH_DEADLINE)
+        except (httpx.HTTPError, asyncio.TimeoutError, KeyError, IndexError, TypeError, ValueError, AttributeError):
+            await set_setting(db, FAILURE_SETTING, now.isoformat())
+            await db.commit()
+        else:
+            await set_setting(db, CACHE_SETTING, json.dumps({
+                "fetched_at": now.isoformat(),
+                "latitude": location["latitude"],
+                "longitude": location["longitude"],
+                "forecast": forecast,
+            }))
+            await set_setting(db, FAILURE_SETTING, "")
+            await db.commit()
+            return _present(location, forecast, now, stale=False, now=now)
+
+    # Open-Meteo is down (or backing off): this morning's forecast is fine, last week's isn't.
+    if cached and now - cached["fetched_at"] < STALE_MAX_AGE:
+        cached["weather"]["stale"] = True
+        return cached["weather"]
+    return {"location": location["name"], "unavailable": True}
+
+
+def _parse_time(value: str | None) -> datetime | None:
     try:
-        forecast = await _fetch_forecast(location)
-    except (httpx.HTTPError, KeyError, IndexError, TypeError, ValueError):
-        if cache:
-            return _present(location, cache["forecast"], datetime.fromisoformat(cache["fetched_at"]), stale=True)
-        return {"location": location["name"], "unavailable": True}
+        parsed = datetime.fromisoformat(value) if value else None
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed and parsed.tzinfo else None
 
-    await set_setting(db, CACHE_SETTING, json.dumps({
-        "fetched_at": now.isoformat(),
-        "latitude": location["latitude"],
-        "longitude": location["longitude"],
-        "forecast": forecast,
-    }))
-    await db.commit()
-    return _present(location, forecast, now, stale=False)
+
+async def _load_cache(db, location: dict, now: datetime) -> dict | None:
+    """The cached forecast, already presented, or None if it's missing,
+    corrupt, or for a previous location (worse than nothing)."""
+    raw = await get_setting(db, CACHE_SETTING)
+    if not raw:
+        return None
+    try:
+        cache = json.loads(raw)
+        if (cache["latitude"], cache["longitude"]) != (location["latitude"], location["longitude"]):
+            return None
+        fetched_at = _parse_time(cache["fetched_at"])
+        if fetched_at is None:
+            return None
+        weather = _present(location, cache["forecast"], fetched_at, stale=False, now=now)
+    except (KeyError, IndexError, TypeError, ValueError, AttributeError):
+        return None
+    return {"fetched_at": fetched_at, "weather": weather}
 
 
 @router.get("/widgets/weather", response_class=HTMLResponse)
