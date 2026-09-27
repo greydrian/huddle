@@ -539,6 +539,52 @@ html, body {
   gap: 5px;
 }
 
+/* --- Weather widget (Open-Meteo): sized for its small 2x2 slot — big
+   current temperature on top, a 3-day strip below. --- */
+.wx-place {
+  margin-left: auto;
+  font-family: var(--font-body);
+  font-weight: 500;
+  font-size: 0.72rem;
+  color: var(--ink-soft);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.wx { height: 100%; display: flex; flex-direction: column; justify-content: space-between; gap: 6px; }
+.wx-icon { flex-shrink: 0; color: var(--ink); }
+.wx-now { display: flex; align-items: center; gap: 6px; min-width: 0; padding: 0 2px; }
+.wx-temp {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 2.1rem;
+  line-height: 1;
+  color: var(--ink);
+}
+.wx-now-meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.wx-condition {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wx-hilo { font-family: var(--font-mono); font-size: 0.7rem; color: var(--ink-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wx-days {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+  border-top: 1px solid rgba(43,36,32,0.1);
+  padding-top: 6px;
+}
+.wx-day { display: flex; flex-direction: column; align-items: center; gap: 1px; }
+.wx-day-label { font-size: 0.68rem; font-weight: 600; color: var(--ink-soft); text-transform: uppercase; letter-spacing: 0.04em; }
+.wx-day-temps { font-family: var(--font-mono); font-size: 0.7rem; color: var(--ink); white-space: nowrap; }
+.wx-low { color: var(--ink-soft); }
+.wx-stale { margin: 0; font-size: 0.66rem; color: var(--ink-soft); text-align: right; }
+
 /* --- Gridstack overrides --- */
 .grid-stack { background: transparent; }
 /* Gridstack's own CSS clips this box (overflow-y: auto) by default,

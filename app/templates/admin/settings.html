@@ -171,6 +171,29 @@
     </p>
   </div>
 
+  <!-- Weather location -->
+  <div class="admin-panel" id="weather">
+    <h2>Weather location</h2>
+    {% if weather_error == 'notfound' %}
+    <p style="color: var(--danger); font-size: 0.85rem;">Couldn't find that place — try a nearby town or add the country.</p>
+    {% elif weather_error == 'offline' %}
+    <p style="color: var(--danger); font-size: 0.85rem;">Couldn't reach the weather service just now — try again in a minute.</p>
+    {% endif %}
+    {% if weather_location %}
+    <p style="font-size: 0.9rem;">
+      Using: <strong>{{ weather_location.name }}{% if weather_location.country %}, {{ weather_location.country }}{% endif %}</strong>
+      <span style="color: var(--ink-soft); font-size: 0.8rem;">({{ '%.2f' % weather_location.latitude }}, {{ '%.2f' % weather_location.longitude }})</span>
+    </p>
+    <p style="color: var(--ink-soft); font-size: 0.85rem;">Wrong place? Add the county or country, e.g. "Reading, Berkshire".</p>
+    {% else %}
+    <p style="color: var(--ink-soft); font-size: 0.9rem;">Type your town and the dashboard will show its forecast.</p>
+    {% endif %}
+    <form class="admin-form" method="post" action="/admin/weather-location">
+      <input type="text" name="place" placeholder="Town or city" required>
+      <button type="submit" class="btn">{{ 'Change location' if weather_location else 'Set location' }}</button>
+    </form>
+  </div>
+
   <!-- Device management -->
   <div class="admin-panel">
     <h2>Device</h2>

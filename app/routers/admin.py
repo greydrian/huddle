@@ -13,6 +13,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app import google_oauth, google_tasks, recurrence, task_sync
 from app.database import get_db, get_setting, set_setting
+from app.routers import weather
 from app.security import create_session_token, hash_pin, lockout_seconds_for, verify_pin, verify_session_token
 from app.templating import templates
 
@@ -99,7 +100,7 @@ async def logout():
 
 
 @router.get("", response_class=HTMLResponse, dependencies=[Depends(require_admin)])
-async def admin_home(request: Request):
+async def admin_home(request: Request, weather_error: str | None = None):
     async with get_db() as db:
         profiles = [dict(r) for r in await (await db.execute(
             "SELECT * FROM profiles ORDER BY sort_order"
@@ -115,6 +116,7 @@ async def admin_home(request: Request):
             days = recurrence.parse_rule(task["recurrence_rule"]) if task["is_recurring"] else None
             task["days"] = [recurrence.WEEKDAYS[i] for i in sorted(days)] if days else []
         google_account = await google_oauth.get_connected_account(db)
+        weather_location = await weather.get_location(db)
 
         available_calendars = []
         selected_calendar_ids = []
@@ -160,6 +162,8 @@ async def admin_home(request: Request):
             "tasklists_error": tasklists_error,
             "google_offline": google_offline,
             "shopping_tasklist": shopping_tasklist,
+            "weather_location": weather_location,
+            "weather_error": weather_error,
         },
     )
 
@@ -289,6 +293,22 @@ async def save_profile_tasklists(request: Request):
             await task_sync.relink_profile(db, profile["id"])
         await db.commit()
     return RedirectResponse(url="/admin", status_code=303)
+
+
+# --- Weather ---
+
+@router.post("/weather-location", dependencies=[Depends(require_admin)])
+async def save_weather_location(place: str = Form(...)):
+    try:
+        location = await weather.geocode(place)
+    # A malformed geocoder response is treated like an outage, never a 500.
+    except (httpx.HTTPError, KeyError, IndexError, ValueError, TypeError, AttributeError):
+        return RedirectResponse(url="/admin?weather_error=offline#weather", status_code=303)
+    if not location:
+        return RedirectResponse(url="/admin?weather_error=notfound#weather", status_code=303)
+    async with get_db() as db:
+        await weather.set_location(db, location)
+    return RedirectResponse(url="/admin#weather", status_code=303)
 
 
 # --- PIN management ---
