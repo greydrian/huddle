@@ -4,8 +4,8 @@ lists. Runs on a schedule (app/scheduler.py) — never inline with a request,
 so a slow/unreachable Google API never blocks the dashboard.
 
 Two halves each cycle:
-- push_pending_changes: drains sync_queue (rows written by shopping.py/
-  tasks.py/admin.py on every local mutation — the "optimistic, offline-
+- push_pending_changes: drains sync_queue (rows written via queue_sync()
+  on every local mutation — the "optimistic, offline-
   first" part) and pushes them to Google.
 - reconcile_*: pulls each configured list's current state from Google and
   reconciles it against the local rows — this is what picks up changes
@@ -66,7 +66,13 @@ async def set_shopping_tasklist(db, tasklist: dict):
     await db.commit()
 
 
-async def _queue(db, service: str, payload: dict):
+async def queue_sync(db, service: str, payload: dict) -> None:
+    """Queue a local mutation for the next background push to Google.
+
+    `service` is "shopping" or "tasks"; the payload identifies the row by id
+    ("item_id" / "task_id"). A hard-deleted shopping item's payload must also
+    carry {"action": "delete", "google_task_id": ...}, since its row is gone
+    by the time the queue drains. The caller commits."""
     await db.execute(
         "INSERT INTO sync_queue (service, payload_json) VALUES (?, ?)", (service, json.dumps(payload))
     )
@@ -78,7 +84,7 @@ async def relink_shopping(db):
     of reconcile treating them as "deleted on Google" and wiping them."""
     await db.execute("UPDATE shopping_items SET google_task_id = NULL")
     for row in await (await db.execute("SELECT id FROM shopping_items")).fetchall():
-        await _queue(db, "shopping", {"item_id": row["id"]})
+        await queue_sync(db, "shopping", {"item_id": row["id"]})
     await db.commit()
 
 
@@ -89,7 +95,7 @@ async def relink_profile(db, profile_id: int):
         "SELECT id FROM tasks WHERE profile_id = ? AND archived = 0", (profile_id,)
     )).fetchall()
     for row in rows:
-        await _queue(db, "tasks", {"task_id": row["id"]})
+        await queue_sync(db, "tasks", {"task_id": row["id"]})
     await db.commit()
 
 
@@ -108,7 +114,7 @@ async def detach_from_profile_list(db, task_id: int):
            VALUES (?, ?, ?, 1, datetime('now'))""",
         (task["profile_id"], task["title"], task["google_task_id"]),
     )
-    await _queue(db, "tasks", {"task_id": cursor.lastrowid})
+    await queue_sync(db, "tasks", {"task_id": cursor.lastrowid})
     await db.execute("UPDATE tasks SET google_task_id = NULL WHERE id = ?", (task_id,))
 
 
@@ -277,7 +283,7 @@ async def reconcile_profile_tasks(db, access_token: str, profile):
                 "SELECT 1 FROM sync_queue WHERE service = 'tasks' AND payload_json = ?", (payload,)
             )).fetchone()
             if not already:
-                await _queue(db, "tasks", {"task_id": local["id"]})
+                await queue_sync(db, "tasks", {"task_id": local["id"]})
         elif local is not None:
             if remote_updated > _parse_local_ts(local["updated_at"]):
                 await db.execute(

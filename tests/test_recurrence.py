@@ -3,8 +3,9 @@ from datetime import date
 import pytest
 
 from app import recurrence
-from app.routers import admin, tasks
+from app.routers import admin
 from app.security import create_session_token
+from app.services import tasks
 
 MON, TUE, WED, THU, FRI, SAT, SUN = range(7)
 

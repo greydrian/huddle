@@ -15,8 +15,8 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app import google_oauth
+from app.auth import require_admin
 from app.database import get_db
-from app.routers.admin import require_admin
 from app.templating import templates
 
 router = APIRouter()
