@@ -110,26 +110,32 @@ before this runs anywhere other than your own laptop.
 ## Connecting Google Calendar
 
 The app talks to Google's OAuth and Calendar REST endpoints directly (via `httpx` —
-see `app/google_oauth.py`), no Google SDK. This pass is **read-only** (`calendar.readonly`
-scope): Calendar shows today's agenda, Upcoming Events shows the next 7 days. In-app
-event creation/editing and Google Tasks sync are separate follow-ups.
+see `app/google_oauth.py`), no Google SDK. Calendar is **read-only** (`calendar.readonly`
+scope) and renders as a month grid with a day view; the `tasks` scope drives shopping-list
+and per-person task sync (`app/task_sync.py`). In-app event creation/editing is a separate
+follow-up.
 
 **1. Create a Google Cloud project and OAuth credentials** (one-time, in a browser):
 
 1. Go to [console.cloud.google.com](https://console.cloud.google.com), create a project
    (or reuse one).
-2. **APIs & Services → Library** — enable the **Google Calendar API**.
-3. **APIs & Services → OAuth consent screen** — User type **External**, publishing
-   status **Testing** is fine indefinitely for personal/family use (no Google review
-   needed at this scale). Add your own Google account under **Test users**.
+2. **APIs & Services → Library** — enable the **Google Calendar API** and **Google Tasks API**.
+3. **APIs & Services → OAuth consent screen** — User type **External**. Add your own
+   Google account under **Test users**. **Warning:** while publishing status is
+   **Testing**, Google expires refresh tokens after 7 days, so the connection silently
+   drops weekly. For an always-on display, switch it to **In production** (an unverified
+   app is usable for personal use; you'll see a "Google hasn't verified this app" screen
+   when connecting) — otherwise plan on reconnecting in Admin every week.
 4. **APIs & Services → Credentials → Create Credentials → OAuth client ID** —
-   Application type **Web application**. Under **Authorized redirect URIs**, add:
-   - `http://localhost:8000/admin/google/callback` for local dev
-   - `http://<g10-lan-address>:8000/admin/google/callback` once deployed to the G10
-     (Google only accepts plain `http://` for `localhost`/`127.0.0.1` — a LAN IP needs
-     `http://` too, which Google *does* allow for a `Web application` client's
-     non-primary redirect URIs; if it's rejected, add HTTPS via Caddy first, per spec 9.7,
-     and register the HTTPS URL instead)
+   Application type **Web application**. Under **Authorized redirect URIs**, add both
+   `http://localhost:8000/admin/google/callback` and
+   `http://127.0.0.1:8000/admin/google/callback` (Google matches the string exactly, so
+   whichever host you type in the browser must be registered).
+   **For the G10:** Google rejects raw IP addresses (e.g. `192.168.x.x`) and requires
+   HTTPS for anything that isn't localhost, so the callback can't point at the G10's LAN
+   IP. Either put the app behind Caddy with a real hostname + HTTPS (spec 9.7) and register
+   that URL, or do the one-time Connect step through an SSH tunnel
+   (`ssh -L 8000:localhost:8000 <g10>`) so your browser reaches it as `localhost`.
 5. Copy the **Client ID** and **Client Secret**.
 
 **2. Configure the app:**

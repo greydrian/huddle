@@ -5,11 +5,16 @@ gated behind the admin PIN.
 
 Talks to Google's REST endpoints directly via httpx rather than pulling in
 google-api-python-client — the Calendar API is plain JSON over HTTPS and
-this matches the project's minimal-dependency approach.
+this matches the project's minimal-dependency approach. The Tasks API
+client (app/google_tasks.py) shares this module's OAuth plumbing —
+get_valid_access_token() is generic across whatever's in SCOPES.
 
-Scope is calendar.readonly (plus openid/email for the account label in
-Admin) — this pass only displays events. Editing from the screen (spec 4.2)
-needs the broader `calendar` write scope and its own consent round, later.
+Scope is calendar.readonly (read-only — editing events from the screen per
+spec 4.2 needs the broader `calendar` write scope and its own consent round,
+later) plus the full `tasks` scope (read/write — shopping list and
+per-person task list sync need to push local changes) and openid/email for
+the account label in Admin. Accounts connected before `tasks` was added
+need to disconnect and reconnect once to grant it.
 """
 
 import json
@@ -39,7 +44,7 @@ CALENDAR_TIMEZONE_SETTING = "calendar_timezone"
 SELECTED_CALENDARS_SETTING = "google_selected_calendars"
 DEFAULT_SELECTED_CALENDARS = [{"id": "primary", "summary": "Calendar", "color": "#D6A02C"}]
 
-SCOPES = "https://www.googleapis.com/auth/calendar.readonly openid email"
+SCOPES = "https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/tasks openid email"
 TOKEN_REFRESH_BUFFER_SECONDS = 60
 MAX_BAR_SLOTS = 3  # event bars shown per week in the month grid before "+N more"
 

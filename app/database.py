@@ -24,7 +24,8 @@ CREATE TABLE IF NOT EXISTS profiles (
     name TEXT NOT NULL,
     colour_hex TEXT NOT NULL,
     avatar_path TEXT,
-    sort_order INTEGER NOT NULL DEFAULT 0
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    google_tasklist_id TEXT
 );
 
 CREATE TABLE IF NOT EXISTS tasks (
@@ -37,7 +38,8 @@ CREATE TABLE IF NOT EXISTS tasks (
     is_completed INTEGER NOT NULL DEFAULT 0,
     completed_at TEXT,
     archived INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE TABLE IF NOT EXISTS meal_plans (
@@ -50,7 +52,8 @@ CREATE TABLE IF NOT EXISTS shopping_items (
     title TEXT NOT NULL,
     is_checked INTEGER NOT NULL DEFAULT 0,
     google_task_id TEXT,
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE TABLE IF NOT EXISTS layout_state (
@@ -107,6 +110,17 @@ DEFAULT_PROFILES = [
 ]
 
 
+async def _add_column_if_missing(db, table: str, column: str, coltype: str):
+    """CREATE TABLE IF NOT EXISTS never retroactively alters an existing
+    table, so columns added after a table already shipped need an explicit,
+    idempotent ALTER TABLE — PRAGMA table_info first since SQLite errors on
+    adding a column that's already there."""
+    cursor = await db.execute(f"PRAGMA table_info({table})")
+    existing = [row["name"] for row in await cursor.fetchall()]
+    if column not in existing:
+        await db.execute(f"ALTER TABLE {table} ADD COLUMN {column} {coltype}")
+
+
 async def init_db():
     """Create tables (if needed) and seed default data on first run."""
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -116,6 +130,15 @@ async def init_db():
         await db.execute("PRAGMA synchronous=NORMAL;")
         await db.execute("PRAGMA foreign_keys=ON;")
         await db.executescript(SCHEMA)
+        await db.commit()
+
+        # Migration: Google Tasks sync (shopping list + per-person task
+        # lists) added columns to tables that already shipped without them.
+        await _add_column_if_missing(db, "profiles", "google_tasklist_id", "TEXT")
+        await _add_column_if_missing(db, "shopping_items", "updated_at", "TEXT")
+        await _add_column_if_missing(db, "tasks", "updated_at", "TEXT")
+        await db.execute("UPDATE shopping_items SET updated_at = created_at WHERE updated_at IS NULL")
+        await db.execute("UPDATE tasks SET updated_at = created_at WHERE updated_at IS NULL")
         await db.commit()
 
         # Seed profiles only if the table is empty (first run)

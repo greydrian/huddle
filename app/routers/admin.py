@@ -13,11 +13,18 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from app.database import get_db, get_setting, set_setting
 from app.security import verify_pin, hash_pin, lockout_seconds_for, create_session_token, verify_session_token
 from app.templating import templates
-from app import google_oauth
+from app import google_oauth, google_tasks, task_sync
 
 router = APIRouter(prefix="/admin")
 
 SESSION_COOKIE = "admin_session"
+
+
+def _queue_sync(db, service: str, payload: dict):
+    return db.execute(
+        "INSERT INTO sync_queue (service, payload_json) VALUES (?, ?)",
+        (service, json.dumps(payload)),
+    )
 
 
 async def require_admin(request: Request):
@@ -98,11 +105,21 @@ async def admin_home(request: Request):
 
         available_calendars = []
         selected_calendar_ids = []
+        available_tasklists = []
+        tasklists_error = False
+        shopping_tasklist = None
         if google_account:
             access_token = await google_oauth.get_valid_access_token(db)
             if access_token:
                 available_calendars = await google_oauth.fetch_calendar_list(access_token)
+                try:
+                    available_tasklists = await google_tasks.fetch_tasklists(access_token)
+                except Exception:
+                    # Most likely: this account connected before the `tasks`
+                    # scope existed — settings.html shows a reconnect prompt.
+                    tasklists_error = True
             selected_calendar_ids = [c["id"] for c in await google_oauth.get_selected_calendars(db)]
+            shopping_tasklist = await task_sync.get_shopping_tasklist(db)
 
     return templates.TemplateResponse(
         request,
@@ -114,6 +131,9 @@ async def admin_home(request: Request):
             "google_configured": google_oauth.is_configured(),
             "available_calendars": available_calendars,
             "selected_calendar_ids": selected_calendar_ids,
+            "available_tasklists": available_tasklists,
+            "tasklists_error": tasklists_error,
+            "shopping_tasklist": shopping_tasklist,
         },
     )
 
@@ -151,11 +171,12 @@ async def add_task(
     recurrence_rule: str = Form(""),
 ):
     async with get_db() as db:
-        await db.execute(
+        cursor = await db.execute(
             """INSERT INTO tasks (profile_id, title, is_recurring, recurrence_rule)
                VALUES (?, ?, ?, ?)""",
             (profile_id, title.strip(), int(is_recurring), recurrence_rule.strip() or None),
         )
+        await _queue_sync(db, "tasks", {"task_id": cursor.lastrowid})
         await db.commit()
     return RedirectResponse(url="/admin", status_code=303)
 
@@ -163,7 +184,40 @@ async def add_task(
 @router.post("/tasks/{task_id}/delete", dependencies=[Depends(require_admin)])
 async def delete_task(task_id: int):
     async with get_db() as db:
-        await db.execute("UPDATE tasks SET archived = 1 WHERE id = ?", (task_id,))
+        await db.execute(
+            "UPDATE tasks SET archived = 1, updated_at = datetime('now') WHERE id = ?", (task_id,)
+        )
+        await _queue_sync(db, "tasks", {"task_id": task_id})
+        await db.commit()
+    return RedirectResponse(url="/admin", status_code=303)
+
+
+# --- Google Tasks sync ---
+
+@router.post("/google/shopping-list", dependencies=[Depends(require_admin)])
+async def save_shopping_tasklist(tasklist_id: str = Form(...)):
+    async with get_db() as db:
+        access_token = await google_oauth.get_valid_access_token(db)
+        if access_token:
+            # Re-derive the title from Google rather than trusting the form.
+            available = await google_tasks.fetch_tasklists(access_token)
+            match = next((t for t in available if t["id"] == tasklist_id), None)
+            if match:
+                await task_sync.set_shopping_tasklist(db, match)
+    return RedirectResponse(url="/admin", status_code=303)
+
+
+@router.post("/google/task-lists", dependencies=[Depends(require_admin)])
+async def save_profile_tasklists(request: Request):
+    form = await request.form()
+    async with get_db() as db:
+        profiles = await (await db.execute("SELECT id FROM profiles")).fetchall()
+        for profile in profiles:
+            field = f"tasklist_{profile['id']}"
+            tasklist_id = form.get(field) or None
+            await db.execute(
+                "UPDATE profiles SET google_tasklist_id = ? WHERE id = ?", (tasklist_id, profile["id"])
+            )
         await db.commit()
     return RedirectResponse(url="/admin", status_code=303)
 

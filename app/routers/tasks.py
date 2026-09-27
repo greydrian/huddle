@@ -66,7 +66,7 @@ async def toggle_task(request: Request, task_id: int):
         completed_at = datetime.utcnow().isoformat() if now_completed else None
 
         await db.execute(
-            "UPDATE tasks SET is_completed = ?, completed_at = ? WHERE id = ?",
+            "UPDATE tasks SET is_completed = ?, completed_at = ?, updated_at = datetime('now') WHERE id = ?",
             (int(now_completed), completed_at, task_id),
         )
 

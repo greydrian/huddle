@@ -22,6 +22,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.database import init_db
 from app.routers import dashboard, tasks, shopping, meals, layout, admin, calendar
+from app import scheduler
 
 BASE_DIR = Path(__file__).parent
 
@@ -29,7 +30,9 @@ BASE_DIR = Path(__file__).parent
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
+    scheduler.start()
     yield
+    scheduler.stop()
 
 
 app = FastAPI(title="Family Display", lifespan=lifespan)
