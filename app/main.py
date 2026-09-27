@@ -55,7 +55,19 @@ async def reject_cross_site_writes(request: Request, call_next):
     return await call_next(request)
 
 
-app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
+class RevalidatedStaticFiles(StaticFiles):
+    """Static URLs aren't versioned, so without a Cache-Control header browsers
+    (and Fully Kiosk) heuristically reuse a stale style.css/keyboard.js for
+    days after a deploy. no-cache makes them revalidate every load; unchanged
+    files still come back as a cheap 304 via the ETag."""
+
+    def file_response(self, *args, **kwargs):
+        response = super().file_response(*args, **kwargs)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
+app.mount("/static", RevalidatedStaticFiles(directory=BASE_DIR / "static"), name="static")
 
 app.include_router(dashboard.router)
 app.include_router(tasks.router)
