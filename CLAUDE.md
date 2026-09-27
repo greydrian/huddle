@@ -23,12 +23,13 @@ uvicorn app.main:app --reload --host 127.0.0.1 --port 8010   # 8000 is usually t
 
 python -c "import app.main"   # fastest syntax/import check
 
-# Tests (pip install -r requirements-dev.txt)
+# Tests + lint (pip install -r requirements-dev.txt) — CI runs both plus `docker build`
+ruff check app tests          # config in pyproject.toml; DTZ rules flag naive dates on purpose
 python -m pytest -q
 python -m pytest tests/test_task_sync.py::test_outage_keeps_queue_and_does_not_burn_retries
 ```
 
-Tests use a fresh temp SQLite DB per test (`tests/conftest.py`) and `respx` to mock every Google call — an unmocked outbound request fails the test. They go through `httpx.ASGITransport`, which skips the lifespan, so the scheduler never starts. No linter or CI yet. For UI changes, also run the app and drive it with Playwright (installed in `./venv`). Admin PIN defaults to `1234`.
+Tests use a fresh temp SQLite DB per test (`tests/conftest.py`) and `respx` to mock every Google call — an unmocked outbound request fails the test. They go through `httpx.ASGITransport`, which skips the lifespan, so the scheduler never starts. For UI changes, also run the app and drive it with Playwright (installed in `./venv`). Admin PIN defaults to `1234`.
 
 ## Architecture
 
@@ -44,7 +45,7 @@ Tests use a fresh temp SQLite DB per test (`tests/conftest.py`) and `respx` to m
 
 ## Gotchas learned the hard way
 
-- The container runs in **UTC**. Never use naive `datetime.now()` for "today" in calendar code — use the calendar's timezone (`_get_calendar_timezone`), and keep Google's own offsets on event times (don't `.astimezone()` them).
+- The container runs in **UTC**. Never use naive `date.today()`/`datetime.now()` for "today" — use `database.family_today(db)` (the calendar's timezone, else UTC), and keep Google's own offsets on event times (don't `.astimezone()` them). The daily task reset (`scheduler.py` → `tasks.run_daily_reset_if_due`) depends on this too.
 - The pin/tab above each `.widget-card` pokes outside the card: `.widget-card` must not get `overflow: hidden`, and `.grid-stack-item-content` is forced `overflow: visible`. Flex children that should shrink need `min-height: 0`.
 - `#dashboard-grid` scrolls internally, so Playwright `full_page` screenshots don't capture below the fold — scroll the element instead.
 - In Playwright, use native `page.click()` + `wait_for_selector(...)` on the expected result; `element.click()` via `evaluate` and `networkidle` waits give false negatives with HTMX. Automated clicks can also trigger Gridstack drags, which **persist** to `layout_state` — check it after UI automation.

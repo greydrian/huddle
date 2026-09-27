@@ -213,15 +213,17 @@ Tab A9+ instead:
 
 ## Next steps (in rough priority order)
 
-1. **Google Tasks sync** — Calendar is wired up (read-only, see "Connecting Google
-   Calendar"); the shopping/task lists are still local-only. Switch them over to
-   actually pushing/pulling Google Tasks using the `sync_queue` table that's already
-   in the schema (rows are being written, nothing consumes them yet — that's the
-   background sync worker to build), reusing the OAuth token plumbing in
-   `app/google_oauth.py`.
-2. **End-of-day task reset job** — `archive_completed_one_off_tasks()` and
-   `reset_recurring_tasks()` are written in `tasks.py` but nothing calls them
-   yet; needs a scheduler (APScheduler, per the spec's system architecture).
+Done since the original list: Google Tasks sync for the shopping list and
+per-person task lists (`app/task_sync.py`, pick lists in Admin → Google Account →
+Task Sync), and the end-of-day task reset (`tasks.run_daily_reset_if_due`, run by
+`app/scheduler.py` once per family-local day: recurring tasks untick, finished
+one-offs are archived). Recurrence rules like "Mon,Wed,Fri" are stored but not yet
+used — every recurring task currently resets daily.
+
+1. **Verify Tasks sync end-to-end** against a real account (needs the reconnect
+   described in "Connecting Google Calendar").
+2. **Recurrence rules** — honour `recurrence_rule` so a Mon/Wed/Fri task only
+   appears on those days.
 3. **Weather widget** — Open-Meteo, no auth needed, probably the quickest win.
 4. **Notifications banner logic** — the `<div id="notification-banner">` exists
    in the dashboard template but nothing populates it yet; needs the

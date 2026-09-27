@@ -11,13 +11,13 @@ import time as time_module
 from datetime import date as date_cls
 
 import httpx
-from fastapi import APIRouter, Request, Depends, Form, HTTPException, Query
-from fastapi.responses import RedirectResponse, HTMLResponse
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
+from fastapi.responses import HTMLResponse, RedirectResponse
 
-from app.database import get_db
-from app.templating import templates
-from app.routers.admin import require_admin
 from app import google_oauth
+from app.database import get_db
+from app.routers.admin import require_admin
+from app.templating import templates
 
 router = APIRouter()
 
@@ -112,7 +112,7 @@ async def calendar_day_widget(request: Request, date: str):
     try:
         parsed = date_cls.fromisoformat(date)
     except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid date")
+        raise HTTPException(status_code=400, detail="Invalid date") from None
     async with get_db() as db:
         day = await google_oauth.get_day_events(db, parsed)
     day_label = parsed.strftime("%A, %d %B").replace(" 0", " ")  # no leading zero, cross-platform

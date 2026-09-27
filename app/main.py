@@ -23,9 +23,9 @@ from fastapi import FastAPI, Request
 from fastapi.responses import PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.database import init_db
-from app.routers import dashboard, tasks, shopping, meals, layout, admin, calendar
 from app import scheduler
+from app.database import init_db
+from app.routers import admin, calendar, dashboard, layout, meals, shopping, tasks
 
 BASE_DIR = Path(__file__).parent
 

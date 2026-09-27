@@ -13,8 +13,9 @@ import hmac
 import json
 import os
 import time
-from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
+
 from cryptography.fernet import Fernet, InvalidToken
+from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 
 from app.database import DATA_DIR
 

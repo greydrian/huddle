@@ -21,8 +21,8 @@ from datetime import datetime, timezone
 
 import httpx
 
-from app.database import get_setting, set_setting
 from app import google_oauth, google_tasks
+from app.database import get_setting, set_setting
 
 SHOPPING_TASKLIST_SETTING = "google_shopping_tasklist"
 MAX_RETRY = 5

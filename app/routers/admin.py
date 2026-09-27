@@ -8,13 +8,13 @@ import json
 from datetime import datetime, timedelta, timezone
 
 import httpx
-from fastapi import APIRouter, Request, Form, Depends, HTTPException
+from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from app.database import get_db, get_setting, set_setting
-from app.security import verify_pin, hash_pin, lockout_seconds_for, create_session_token, verify_session_token
-from app.templating import templates
 from app import google_oauth, google_tasks, task_sync
+from app.database import get_db, get_setting, set_setting
+from app.security import create_session_token, hash_pin, lockout_seconds_for, verify_pin, verify_session_token
+from app.templating import templates
 
 router = APIRouter(prefix="/admin")
 
