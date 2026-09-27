@@ -626,7 +626,7 @@ html:has(.admin-shell), html:has(.admin-shell) body { height: auto; overflow-y: 
 }
 .btn-danger { background: var(--danger); color: var(--paper); }
 
-/* Admin "add task" day picker — touch-sized toggle chips (checkbox hidden,
+/* Admin task-schedule day picker — touch-sized toggle chips (checkbox hidden,
    its label is the tap target). */
 .day-picker { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; width: 100%; }
 .day-chip { position: relative; }
@@ -654,6 +654,15 @@ html:has(.admin-shell), html:has(.admin-shell) body { height: auto; overflow-y: 
 .task-edit[open] { order: 3; flex-basis: 100%; }
 .task-edit .admin-form { margin-top: 8px; }
 .task-edit .admin-form input[type="text"] { flex: 1; min-width: 160px; }
+/* Task Schedules panel: tasks grouped under each person's name, rows kept
+   tighter than other Admin rows since there's one per task. */
+.schedule-person { margin-top: 12px; }
+.schedule-person h3 { margin: 0; font-size: 0.95rem; }
+.schedule-person h3 .admin-meta { font-weight: 400; }
+.schedule-person .task-row { padding: 3px 0; }
+.schedule-person .task-edit summary { min-height: 0; padding: 5px 12px; }
+.schedule-person .task-edit .admin-form { margin: 4px 0 6px; }
+.schedule-empty { margin: 2px 0 0; }
 
 /* Quiet outline button for the topbar — sits next to the ochre
    notification pill without competing with it for attention. */

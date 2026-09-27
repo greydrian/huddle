@@ -1,7 +1,7 @@
 """
 Admin / Parent Controls (Section 4.7): single shared PIN, exponential backoff
 on failed attempts, short-lived signed session cookie. Manages family
-profiles, tasks, and (eventually) Google account connections.
+profiles, task schedules, and (eventually) Google account connections.
 """
 
 import json
@@ -121,7 +121,7 @@ async def _render_admin(
             "SELECT * FROM profiles ORDER BY sort_order"
         )).fetchall()]
         tasks = [dict(r) for r in await (await db.execute(
-            "SELECT tasks.*, profiles.name as profile_name FROM tasks "
+            "SELECT tasks.* FROM tasks "
             "JOIN profiles ON profiles.id = tasks.profile_id "
             "WHERE archived = 0 ORDER BY profiles.sort_order, tasks.created_at"
         )).fetchall()]
@@ -232,12 +232,14 @@ async def delete_profile(profile_id: int):
     return RedirectResponse(url="/admin", status_code=303)
 
 
-# --- Task management ---
+# --- Task schedules ---
+# Tasks are added, renamed and deleted in Google Tasks; its API has no
+# recurrence, so which days a task repeats (and whose it is) is set here.
 
-@router.post("/tasks", dependencies=[Depends(require_admin)])
-async def add_task(
+@router.post("/tasks/{task_id}/edit", dependencies=[Depends(require_admin)])
+async def edit_task(
+    task_id: int,
     profile_id: int = Form(...),
-    title: str = Form(...),
     is_recurring: bool = Form(False),
     days: list[str] = Form(default=[]),
 ):
@@ -246,58 +248,37 @@ async def add_task(
     recurring = is_recurring or bool(days)
     rule = recurrence.normalize_rule(days) if recurring else None
     async with get_db() as db:
-        cursor = await db.execute(
-            """INSERT INTO tasks (profile_id, title, is_recurring, recurrence_rule)
-               VALUES (?, ?, ?, ?)""",
-            (profile_id, title.strip(), int(recurring), rule),
-        )
-        await _queue_sync(db, "tasks", {"task_id": cursor.lastrowid})
-        await db.commit()
-    return RedirectResponse(url="/admin", status_code=303)
-
-
-@router.post("/tasks/{task_id}/edit", dependencies=[Depends(require_admin)])
-async def edit_task(
-    task_id: int,
-    profile_id: int = Form(...),
-    title: str = Form(...),
-    is_recurring: bool = Form(False),
-    days: list[str] = Form(default=[]),
-):
-    title = title.strip()
-    if not title:
-        raise HTTPException(status_code=400, detail="Task title can't be blank")
-    recurring = is_recurring or bool(days)
-    rule = recurrence.normalize_rule(days) if recurring else None
-    async with get_db() as db:
         task = await (await db.execute(
             "SELECT profile_id FROM tasks WHERE id = ? AND archived = 0", (task_id,)
         )).fetchone()
         if task is None:
             raise HTTPException(status_code=404, detail="Task not found")
-        if not await (await db.execute("SELECT 1 FROM profiles WHERE id = ?", (profile_id,))).fetchone():
-            raise HTTPException(status_code=400, detail="Unknown family member")
-        if profile_id != task["profile_id"]:
+        if profile_id == task["profile_id"]:
+            # The schedule is local-only (never pushed, never reconciled), so
+            # don't bump updated_at or queue a push: that would overwrite a
+            # newer rename/tick in Google with this row's stale copy.
+            await db.execute(
+                "UPDATE tasks SET is_recurring = ?, recurrence_rule = ? WHERE id = ?",
+                (int(recurring), rule, task_id),
+            )
+        else:
+            target = await (await db.execute(
+                "SELECT google_tasklist_id FROM profiles WHERE id = ?", (profile_id,)
+            )).fetchone()
+            if target is None:
+                raise HTTPException(status_code=400, detail="Unknown family member")
+            if not target["google_tasklist_id"]:
+                # Its Google copy would be deleted, leaving a task nothing can rename or remove.
+                raise HTTPException(status_code=400, detail="That family member has no Google list linked")
             await task_sync.detach_from_profile_list(db, task_id)
-        await db.execute(
-            """UPDATE tasks SET profile_id = ?, title = ?, is_recurring = ?, recurrence_rule = ?,
-                   updated_at = datetime('now') WHERE id = ?""",
-            (profile_id, title, int(recurring), rule, task_id),
-        )
-        await _queue_sync(db, "tasks", {"task_id": task_id})
+            await db.execute(
+                """UPDATE tasks SET profile_id = ?, is_recurring = ?, recurrence_rule = ?,
+                       updated_at = datetime('now') WHERE id = ?""",
+                (profile_id, int(recurring), rule, task_id),
+            )
+            await _queue_sync(db, "tasks", {"task_id": task_id})
         await db.commit()
-    return RedirectResponse(url="/admin", status_code=303)
-
-
-@router.post("/tasks/{task_id}/delete", dependencies=[Depends(require_admin)])
-async def delete_task(task_id: int):
-    async with get_db() as db:
-        await db.execute(
-            "UPDATE tasks SET archived = 1, updated_at = datetime('now') WHERE id = ?", (task_id,)
-        )
-        await _queue_sync(db, "tasks", {"task_id": task_id})
-        await db.commit()
-    return RedirectResponse(url="/admin", status_code=303)
+    return RedirectResponse(url="/admin#tasks", status_code=303)
 
 
 # --- Homework + practice words (not synced to Google) ---

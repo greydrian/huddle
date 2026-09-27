@@ -53,22 +53,13 @@ async def test_dashboard_only_shows_recurring_tasks_on_their_days(db, monkeypatc
     assert shown == {"Bins", "Brush teeth", "Call dentist"}
 
 
-async def test_admin_day_checkboxes_create_a_recurring_task(db, client):
+async def test_admin_day_checkboxes_make_a_task_recurring(db, client):
+    await db.execute("INSERT INTO tasks (profile_id, title) VALUES (1, 'Piano')")
+    await db.commit()
     client.cookies.set(admin.SESSION_COOKIE, create_session_token())
 
-    resp = await client.post(
-        "/admin/tasks", data={"profile_id": "1", "title": "Piano", "days": ["Wed", "Mon"]}
-    )
+    resp = await client.post("/admin/tasks/1/edit", data={"profile_id": "1", "days": ["Wed", "Mon"]})
 
     assert resp.status_code == 303
     row = await (await db.execute("SELECT is_recurring, recurrence_rule FROM tasks WHERE title = 'Piano'")).fetchone()
     assert (row["is_recurring"], row["recurrence_rule"]) == (1, "Mon,Wed")
-
-
-async def test_admin_one_off_task_stores_no_rule(db, client):
-    client.cookies.set(admin.SESSION_COOKIE, create_session_token())
-
-    await client.post("/admin/tasks", data={"profile_id": "1", "title": "Post letter"})
-
-    row = await (await db.execute("SELECT is_recurring, recurrence_rule FROM tasks WHERE title = 'Post letter'")).fetchone()
-    assert (row["is_recurring"], row["recurrence_rule"]) == (0, None)
