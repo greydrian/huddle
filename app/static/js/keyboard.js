@@ -1,8 +1,8 @@
 /* On-screen keyboard for the kiosk (admin toggle "On-screen keyboard").
  *
- * Opt-in per input: the server marks inputs with data-osk="text" or
- * data-osk="numeric" (PIN pad). Only once the keyboard has actually started do
- * we set inputmode="none" on them to suppress Android's own keyboard, so if
+ * Opt-in per input: the server marks inputs and textareas with data-osk="text"
+ * or data-osk="numeric" (PIN pad). Only once the keyboard has actually started
+ * do we set inputmode="none" on them to suppress Android's own keyboard, so if
  * this script fails the native keyboard still works (including on the PIN
  * screen, which is how the setting gets turned back off). All listeners are
  * delegated on document because HTMX widgets replace their own DOM.
@@ -62,14 +62,14 @@
   }
 
   function suppressNativeKeyboard(root) {
-    root.querySelectorAll('input[data-osk]').forEach((el) => el.setAttribute('inputmode', 'none'));
+    root.querySelectorAll('input[data-osk], textarea[data-osk]').forEach((el) => el.setAttribute('inputmode', 'none'));
   }
 
   let target = null;       // the input currently being typed into
   let valueAtOpen = '';    // to know whether closing should fire `change`
 
   function isEligible(el) {
-    return el instanceof HTMLInputElement
+    return (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)
       && el.dataset.osk !== undefined
       && !el.disabled && !el.readOnly;
   }
@@ -88,8 +88,8 @@
   }
 
   function syncShift() {
-    // Auto-capitalise the first letter; shift is otherwise one-shot.
-    if (!target || isNumeric(target)) return;
+    // Auto-capitalise the first letter (unless autocapitalize="off"); shift is otherwise one-shot.
+    if (!target || isNumeric(target) || target.getAttribute('autocapitalize') === 'off') return;
     const wanted = target.value === '' && target.type !== 'password' ? 'shift' : 'default';
     if (keyboard.options.layoutName !== wanted) keyboard.setOptions({ layoutName: wanted });
   }
@@ -176,6 +176,11 @@
     if (button === '{bksp}') {
       if (start !== end) edit('', start, end);
       else if (start > 0) edit('', start - 1, start);
+      syncShift();
+      return;
+    }
+    if (button === '{enter}' && el instanceof HTMLTextAreaElement) {
+      edit('\n', start, end);
       syncShift();
       return;
     }

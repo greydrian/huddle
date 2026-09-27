@@ -1,0 +1,41 @@
+<div class="widget-card" id="widget-practice_words">
+  <div class="widget-pin"></div>
+  <div class="widget-tab" style="background: var(--system-accent);">
+    <svg width="13" height="13" viewBox="0 0 24 24"><path d="M4,20 L5,15 L16,4 L20,8 L9,19 Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><line x1="13.5" y1="6.5" x2="17.5" y2="10.5" stroke="currentColor" stroke-width="1.5"/></svg>
+    Handwriting
+  </div>
+  <div class="widget-header" style="font-size:0.95rem; padding:18px 14px 6px;">
+    <svg width="17" height="17" viewBox="0 0 24 24"><path d="M4,20 L5,15 L16,4 L20,8 L9,19 Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><line x1="13.5" y1="6.5" x2="17.5" y2="10.5" stroke="currentColor" stroke-width="1.3"/></svg>
+    Practice Words
+  </div>
+  <div class="widget-body pw-body">
+    {% for wl in practice_lists %}
+    <section class="pw-list" style="--pw-colour: {{ wl.colour_hex }};">
+      <div class="pw-list-head">
+        <span class="task-group-name" style="color: {{ wl.colour_hex }};">
+          <span class="task-group-dot" style="background: {{ wl.colour_hex }};"></span>
+          {{ wl.profile_name }}
+        </span>
+        <span class="pw-list-title">{{ wl.title }}</span>
+      </div>
+      <ul class="pw-words hand-{{ handwriting_style }}">
+        {% for word in wl.word_items %}<li>{{ word }}</li>{% endfor %}
+      </ul>
+      <button type="button"
+              class="pw-practised{{ ' on' if wl.practised_today else '' }}"
+              aria-pressed="{{ 'true' if wl.practised_today else 'false' }}"
+              hx-post="/api/practice-words/{{ wl.id }}/practised"
+              hx-target="#widget-practice_words"
+              hx-swap="outerHTML">
+        <span class="pw-tick" aria-hidden="true">✓</span>
+        {{ 'Practised today' if wl.practised_today else 'Practised today?' }}
+      </button>
+    </section>
+    {% else %}
+    <div class="stub-empty compact">
+      <p class="stub-title">No practice words this week</p>
+      <p class="stub-caption">Add a word list in Admin and the words will show up here.</p>
+    </div>
+    {% endfor %}
+  </div>
+</div>
