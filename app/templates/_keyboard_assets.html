@@ -1,0 +1,11 @@
+{#- On-screen keyboard (admin toggle). `part` picks the head (CSS) or scripts
+    half. Renders nothing at all when the toggle is off. -#}
+{%- if onscreen_keyboard -%}
+{%- if part == "head" %}
+  <link rel="stylesheet" href="/static/vendor/simple-keyboard/index.css">
+  <link rel="stylesheet" href="/static/css/keyboard.css">
+{%- else %}
+<script src="/static/vendor/simple-keyboard/index.modern.js"></script>
+<script src="/static/js/keyboard.js"></script>
+{%- endif -%}
+{%- endif -%}

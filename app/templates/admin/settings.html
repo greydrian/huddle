@@ -203,6 +203,21 @@
     </p>
   </div>
 
+  <!-- On-screen keyboard -->
+  <div class="admin-panel">
+    <h2>On-screen Keyboard</h2>
+    <form method="post" action="/admin/onscreen-keyboard">
+      <label style="display:flex; align-items:center; gap:8px; font-size:0.9rem;">
+        <input type="checkbox" name="enabled" value="true" {{ 'checked' if onscreen_keyboard else '' }}>
+        Use the built-in keyboard on the dashboard and PIN screen
+      </label>
+      <p style="color: var(--ink-soft); font-size: 0.85rem; margin: 6px 0 10px;">
+        Replaces the tablet's own keyboard (which is suppressed while this is on).
+      </p>
+      <button type="submit" class="btn" style="padding:6px 14px;font-size:0.85rem;">Save</button>
+    </form>
+  </div>
+
   <!-- Change PIN -->
   <div class="admin-panel">
     <h2>Change Admin PIN</h2>

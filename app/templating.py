@@ -1,5 +1,19 @@
 from pathlib import Path
 
+from fastapi import Request
 from fastapi.templating import Jinja2Templates
 
-templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
+from app import database
+
+
+def onscreen_keyboard_context(request: Request) -> dict:
+    """Exposes `onscreen_keyboard` to every template, so widget fragments
+    re-rendered by their own routes keep the keyboard marker without each
+    router having to pass it."""
+    return {"onscreen_keyboard": database.onscreen_keyboard_enabled}
+
+
+templates = Jinja2Templates(
+    directory=Path(__file__).parent / "templates",
+    context_processors=[onscreen_keyboard_context],
+)

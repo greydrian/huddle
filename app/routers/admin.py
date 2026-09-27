@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app import google_oauth, google_tasks, recurrence, task_sync
-from app.database import get_db, get_setting, set_setting
+from app.database import get_db, get_setting, set_onscreen_keyboard, set_setting
 from app.routers import weather
 from app.security import create_session_token, hash_pin, lockout_seconds_for, verify_pin, verify_session_token
 from app.templating import templates
@@ -309,6 +309,15 @@ async def save_weather_location(place: str = Form(...)):
     async with get_db() as db:
         await weather.set_location(db, location)
     return RedirectResponse(url="/admin#weather", status_code=303)
+
+
+# --- Display ---
+
+@router.post("/onscreen-keyboard", dependencies=[Depends(require_admin)])
+async def save_onscreen_keyboard(enabled: bool = Form(False)):
+    async with get_db() as db:
+        await set_onscreen_keyboard(db, enabled)
+    return RedirectResponse(url="/admin", status_code=303)
 
 
 # --- PIN management ---

@@ -46,8 +46,8 @@ async def dashboard(request: Request):
         {
             "layout": layout,
             "profiles": profiles,
-            "shopping_items": shopping_items,
-            "meal_days": meal_days,
+            "items": shopping_items,  # names must match widgets/shopping.html
+            "days": meal_days,  # names must match widgets/meals.html
             "view": "month",
             "calendar_month": calendar_month,
             "weather": weather,
