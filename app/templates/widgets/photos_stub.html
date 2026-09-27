@@ -1,6 +1,9 @@
-{% from "_icons.html" import icon, widget_header %}
+{% from "_icons.html" import icon %}
 <div class="widget-card" id="widget-photos">
-  {{ widget_header("image", "Photos") }}
+  <div class="widget-header drag-handle">
+    {{ icon("image", 22, "widget-icon") }}
+    <h2 class="widget-title">Photos</h2>
+  </div>
   <div class="widget-body">
     <div class="stub-empty compact">
       <div class="stub-badge">{{ icon("image", 30) }}</div>

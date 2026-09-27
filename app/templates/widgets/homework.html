@@ -1,6 +1,9 @@
-{% from "_icons.html" import icon, widget_header, person_pill %}
+{% from "_icons.html" import icon, person_pill %}
 <div class="widget-card" id="widget-homework">
-  {{ widget_header("book-open", "Homework") }}
+  <div class="widget-header drag-handle">
+    {{ icon("book-open", 22, "widget-icon") }}
+    <h2 class="widget-title">Homework</h2>
+  </div>
   <div class="widget-body hw-body">
     {% for child in homework_groups %}
     <div class="hw-group">

@@ -8,7 +8,7 @@
      hx-trigger="every 180s" hx-swap="outerHTML"
      {% endif %}>
   {#- One title only: the month (or day) being shown, with its navigation. -#}
-  <div class="widget-header cal-header">
+  <div class="widget-header cal-header drag-handle">
     {{ icon("calendar-days", 22, "widget-icon") }}
     {% if (view == 'day' and day_events is none) or (view != 'day' and calendar_month is none) %}
     <h2 class="widget-title">Calendar</h2>

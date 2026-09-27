@@ -1,6 +1,9 @@
-{% from "_icons.html" import icon, widget_header, person_pill %}
+{% from "_icons.html" import icon, person_pill %}
 <div class="widget-card" id="widget-practice_words">
-  {{ widget_header("pencil-line", "Practice Words") }}
+  <div class="widget-header drag-handle">
+    {{ icon("pencil-line", 22, "widget-icon") }}
+    <h2 class="widget-title">Practice Words</h2>
+  </div>
   <div class="widget-body pw-body">
     {% for wl in practice_lists %}
     <section class="pw-list ink-{{ wl.colour_hex | person_ink }}" style="--person: {{ wl.colour_hex }};">

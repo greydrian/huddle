@@ -126,8 +126,7 @@ input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-
   vertical-align: middle;
 }
 
-/* Top bar: date + notifications banner. Its height is what #dashboard-grid
-   subtracts from the viewport, so it's pinned at 76px. */
+/* Top bar: date + notifications banner + Admin. */
 .topbar {
   display: flex;
   align-items: center;

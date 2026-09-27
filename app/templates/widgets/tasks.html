@@ -1,4 +1,4 @@
-{% from "_icons.html" import icon, widget_header, person_pill %}
+{% from "_icons.html" import icon, person_pill %}
 {% macro task_row(task) %}
 <div class="task-row {{ 'completed' if task.is_completed else '' }}">
   {# Ticking an open task shows the (bouncy) tick first, then the swap folds it away. #}
@@ -12,7 +12,10 @@
 </div>
 {% endmacro %}
 <div class="widget-card" id="widget-tasks">
-  {{ widget_header("list-checks", "Today's Tasks") }}
+  <div class="widget-header drag-handle">
+    {{ icon("list-checks", 22, "widget-icon") }}
+    <h2 class="widget-title">Today's Tasks</h2>
+  </div>
   <div class="widget-body">
     {% for profile in profiles %}
     {% set open_tasks = profile.tasks | rejectattr('is_completed') | list %}

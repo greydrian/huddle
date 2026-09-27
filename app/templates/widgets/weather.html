@@ -1,4 +1,4 @@
-{% from "_icons.html" import icon, widget_header %}
+{% from "_icons.html" import icon %}
 {#- Meteocons (MIT, static/icons/meteocons): one illustration per weather
     category from routers/weather.py (clear, partly, cloudy, fog, rain, snow, thunder). -#}
 {% macro weather_icon(category, size) -%}
@@ -6,7 +6,11 @@
 {%- endmacro %}
 <div class="widget-card" id="widget-weather"
      hx-get="/widgets/weather" hx-trigger="every 900s" hx-swap="outerHTML">
-  {% call widget_header("cloud-sun", "Weather") %}{% if weather %}<span class="wx-place" title="{{ weather.location }}">{{ weather.location }}</span>{% endif %}{% endcall %}
+  <div class="widget-header drag-handle">
+    {{ icon("cloud-sun", 22, "widget-icon") }}
+    <h2 class="widget-title">Weather</h2>
+    {% if weather %}<span class="wx-place" title="{{ weather.location }}">{{ weather.location }}</span>{% endif %}
+  </div>
   <div class="widget-body">
     {% if weather and not weather.unavailable %}
     <div class="wx">

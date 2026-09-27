@@ -1,6 +1,9 @@
-{% from "_icons.html" import icon, widget_header %}
+{% from "_icons.html" import icon %}
 <div class="widget-card" id="widget-shopping">
-  {{ widget_header("shopping-basket", "Shopping List") }}
+  <div class="widget-header drag-handle">
+    {{ icon("shopping-basket", 22, "widget-icon") }}
+    <h2 class="widget-title">Shopping List</h2>
+  </div>
   <div class="widget-body">
     {% for item in items %}
     <div class="shopping-row {{ 'checked' if item.is_checked else '' }}">

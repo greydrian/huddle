@@ -1,17 +1,7 @@
 {#- Lucide icon from the vendored sprite (static/icons/lucide/lucide.svg).
-    Usage: {% from "_icons.html" import icon, widget_header %} … {{ icon("check") }} -#}
+    Usage: {% from "_icons.html" import icon %} … {{ icon("check") }} -#}
 {% macro icon(name, size=24, cls="") -%}
 <svg class="icon{{ ' ' ~ cls if cls else '' }}" width="{{ size }}" height="{{ size }}" aria-hidden="true" focusable="false"><use href="/static/icons/lucide/lucide.svg#{{ name }}"/></svg>
-{%- endmacro %}
-
-{#- The one title each widget carries: icon + name, plus optional extras
-    (e.g. the weather's place name) passed through caller(). -#}
-{% macro widget_header(icon_name, title) -%}
-<div class="widget-header">
-  {{ icon(icon_name, 22, "widget-icon") }}
-  <h2 class="widget-title">{{ title }}</h2>
-  {%- if caller is defined %}{{ caller() }}{% endif %}
-</div>
 {%- endmacro %}
 
 {#- A family member's solid name pill: initial avatar + name, in their

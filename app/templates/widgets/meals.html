@@ -1,6 +1,9 @@
-{% from "_icons.html" import widget_header %}
+{% from "_icons.html" import icon %}
 <div class="widget-card" id="widget-meals">
-  {{ widget_header("utensils", "Meal Plan") }}
+  <div class="widget-header drag-handle">
+    {{ icon("utensils", 22, "widget-icon") }}
+    <h2 class="widget-title">Meal Plan</h2>
+  </div>
   <div class="widget-body">
     {% for day in days %}
     <div class="meal-row {{ 'today' if day.is_today else '' }}">
