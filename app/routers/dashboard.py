@@ -8,6 +8,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 
 from app import google_oauth
+from app.appearance import current_mode
 from app.database import family_today, get_db
 from app.routers.homework import get_handwriting_style, get_homework_groups, get_practice_lists
 from app.routers.meals import get_week_meal_plan
@@ -43,6 +44,7 @@ async def dashboard(request: Request):
         homework_groups = await get_homework_groups(db)
         practice_lists = await get_practice_lists(db)
         handwriting_style = await get_handwriting_style(db)
+        appearance = await current_mode(db)
 
     return templates.TemplateResponse(
         request,
@@ -59,5 +61,6 @@ async def dashboard(request: Request):
             "homework_groups": homework_groups,  # names must match widgets/homework.html
             "practice_lists": practice_lists,  # and widgets/practice_words.html
             "handwriting_style": handwriting_style,
+            "appearance": appearance,
         },
     )

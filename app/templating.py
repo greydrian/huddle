@@ -4,6 +4,7 @@ from fastapi import Request
 from fastapi.templating import Jinja2Templates
 
 from app import database
+from app.appearance import person_ink
 
 
 def onscreen_keyboard_context(request: Request) -> dict:
@@ -17,3 +18,5 @@ templates = Jinja2Templates(
     directory=Path(__file__).parent / "templates",
     context_processors=[onscreen_keyboard_context],
 )
+
+templates.env.filters["person_ink"] = person_ink

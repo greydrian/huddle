@@ -23,7 +23,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
-from app import scheduler
+from app import appearance, scheduler
 from app.database import init_db
 from app.routers import admin, calendar, dashboard, homework, layout, meals, shopping, tasks, weather
 
@@ -70,6 +70,7 @@ class RevalidatedStaticFiles(StaticFiles):
 app.mount("/static", RevalidatedStaticFiles(directory=BASE_DIR / "static"), name="static")
 
 app.include_router(dashboard.router)
+app.include_router(appearance.router)
 app.include_router(tasks.router)
 app.include_router(shopping.router)
 app.include_router(meals.router)

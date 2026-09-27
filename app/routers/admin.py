@@ -11,7 +11,7 @@ import httpx
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from app import google_oauth, google_tasks, recurrence, task_sync
+from app import appearance, google_oauth, google_tasks, recurrence, task_sync
 from app.database import family_today, get_db, get_setting, set_onscreen_keyboard, set_setting
 from app.routers import homework, weather
 from app.security import create_session_token, hash_pin, lockout_seconds_for, verify_pin, verify_session_token
@@ -41,9 +41,17 @@ async def require_admin(request: Request):
         raise HTTPException(status_code=303, headers={"Location": "/admin/login"})
 
 
+async def _login_page(request: Request, error: str | None, status_code: int = 200):
+    async with get_db() as db:
+        mode = await appearance.current_mode(db)
+    return templates.TemplateResponse(
+        request, "admin/login.html", {"error": error, "appearance": mode}, status_code=status_code
+    )
+
+
 @router.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request):
-    return templates.TemplateResponse(request, "admin/login.html", {"error": None})
+    return await _login_page(request, None)
 
 
 @router.post("/login")
@@ -56,12 +64,7 @@ async def login_submit(request: Request, pin: str = Form(...)):
         now = datetime.now(timezone.utc)
         if locked_until and now < _parse_utc(locked_until):
             wait_seconds = int((_parse_utc(locked_until) - now).total_seconds())
-            return templates.TemplateResponse(
-                request,
-                "admin/login.html",
-                {"error": f"Too many attempts. Try again in {wait_seconds}s."},
-                status_code=429,
-            )
+            return await _login_page(request, f"Too many attempts. Try again in {wait_seconds}s.", 429)
 
         stored_hash = await get_setting(db, "pin_hash")
         if stored_hash and verify_pin(pin, stored_hash):
@@ -84,12 +87,7 @@ async def login_submit(request: Request, pin: str = Form(...)):
         )
         await db.commit()
 
-    return templates.TemplateResponse(
-        request,
-        "admin/login.html",
-        {"error": f"Incorrect PIN. Try again in {wait}s." if wait else "Incorrect PIN."},
-        status_code=401,
-    )
+    return await _login_page(request, f"Incorrect PIN. Try again in {wait}s." if wait else "Incorrect PIN.", 401)
 
 
 @router.post("/logout")
@@ -148,6 +146,8 @@ async def _render_admin(
         handwriting_style = await homework.get_handwriting_style(db)
         google_account = await google_oauth.get_connected_account(db)
         weather_location = await weather.get_location(db)
+        current_appearance = await appearance.get_appearance(db)
+        mode = await appearance.current_mode(db)
 
         available_calendars = []
         selected_calendar_ids = []
@@ -204,6 +204,9 @@ async def _render_admin(
             "words_error": words_error,
             "handwriting_style": handwriting_style,
             "handwriting_styles": homework.HANDWRITING_STYLES,
+            "appearance": mode,
+            "appearance_setting": current_appearance,
+            "appearances": appearance.APPEARANCES,
         },
         status_code=status_code,
     )
@@ -523,6 +526,15 @@ async def save_onscreen_keyboard(enabled: bool = Form(False)):
     async with get_db() as db:
         await set_onscreen_keyboard(db, enabled)
     return RedirectResponse(url="/admin", status_code=303)
+
+
+@router.post("/appearance", dependencies=[Depends(require_admin)])
+async def save_appearance(value: str = Form("")):
+    if value not in appearance.APPEARANCES:
+        raise HTTPException(status_code=400, detail="Unknown appearance")
+    async with get_db() as db:
+        await appearance.set_appearance(db, value)
+    return RedirectResponse(url="/admin#display", status_code=303)
 
 
 # --- PIN management ---

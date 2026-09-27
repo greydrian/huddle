@@ -1,28 +1,23 @@
+{% from "_icons.html" import icon, person_pill %}
 <div class="widget-card" id="widget-homework">
-  <div class="widget-pin"></div>
-  <div class="widget-tab" style="background: var(--system-accent);">
-    <svg width="13" height="13" viewBox="0 0 24 24"><path d="M12,5 C7,4 4,6 4,7 L4,15 C7,14 10,15 12,17 C14,15 17,14 20,15 L20,7 C20,6 17,4 12,5 Z" fill="none" stroke="currentColor" stroke-width="1.8"/><line x1="12" y1="5" x2="12" y2="17" stroke="currentColor" stroke-width="1.3" opacity="0.75"/></svg>
-    School
-  </div>
-  <div class="widget-header drag-handle" style="font-size:0.95rem; padding:18px 14px 6px;">
-    <svg width="17" height="17" viewBox="0 0 24 24"><path d="M12,5 C7,4 4,6 4,7 L4,15 C7,14 10,15 12,17 C14,15 17,14 20,15 L20,7 C20,6 17,4 12,5 Z" fill="none" stroke="currentColor" stroke-width="1.6"/><line x1="12" y1="5" x2="12" y2="17" stroke="currentColor" stroke-width="1.2" opacity="0.6"/></svg>
-    Homework
+  <div class="widget-header drag-handle">
+    {{ icon("book-open", 22, "widget-icon") }}
+    <h2 class="widget-title">Homework</h2>
   </div>
   <div class="widget-body hw-body">
     {% for child in homework_groups %}
     <div class="hw-group">
-      <div class="task-group-name" style="color: {{ child.colour_hex }};">
-        <span class="task-group-dot" style="background: {{ child.colour_hex }};"></span>
-        {{ child.name }}
-      </div>
+      {{ person_pill(child.name, child.colour_hex) }}
       {% for hw in child.homework %}
       <button type="button"
               class="hw-item{{ ' done' if hw.done else '' }}{{ ' overdue' if hw.overdue else '' }}{{ ' due-soon' if hw.due_soon else '' }}"
               aria-pressed="{{ 'true' if hw.done else 'false' }}"
               hx-post="/api/homework/{{ hw.id }}/toggle"
               hx-target="#widget-homework"
-              hx-swap="outerHTML">
-        <span class="hw-check" aria-hidden="true">✓</span>
+              {% if hw.done %}hx-swap="outerHTML"
+              {% else %}hx-swap="outerHTML swap:450ms"
+              hx-on:click="this.classList.add('done', 'just-ticked')"{% endif %}>
+        <span class="hw-check" aria-hidden="true">{{ icon("check", 18) }}</span>
         <span class="hw-text">
           <span class="hw-title">{% if hw.subject %}<span class="hw-subject">{{ hw.subject }}</span> {% endif %}{{ hw.title }}</span>
           {% if hw.details %}<span class="hw-details">{{ hw.details }}</span>{% endif %}
@@ -33,18 +28,7 @@
     </div>
     {% else %}
     <div class="stub-empty compact">
-      <div class="stub-badge">
-        <svg width="52" height="52" viewBox="0 0 80 80" aria-hidden="true">
-          <path d="M40,22 C24,20 14,26 12,30 C14,44 14,50 12,52 C22,48 34,50 40,56 Z" fill="var(--paper)" stroke="var(--ink)" stroke-width="3" stroke-linejoin="round"/>
-          <path d="M40,22 C56,20 66,26 68,30 C66,44 66,50 68,52 C58,48 46,50 40,56 Z" fill="var(--paper)" stroke="var(--ink)" stroke-width="3" stroke-linejoin="round"/>
-          <line x1="40" y1="22" x2="40" y2="56" stroke="var(--ink-soft)" stroke-width="2"/>
-          <line x1="19" y1="34" x2="31" y2="34" stroke="var(--ink-soft)" stroke-width="1.6" opacity="0.7"/>
-          <line x1="19" y1="40" x2="31" y2="40" stroke="var(--ink-soft)" stroke-width="1.6" opacity="0.7"/>
-          <line x1="49" y1="34" x2="61" y2="34" stroke="var(--ink-soft)" stroke-width="1.6" opacity="0.7"/>
-          <line x1="49" y1="40" x2="61" y2="40" stroke="var(--ink-soft)" stroke-width="1.6" opacity="0.7"/>
-          <line x1="19" y1="16" x2="55" y2="9" stroke="var(--system-accent)" stroke-width="4" stroke-linecap="round"/>
-        </svg>
-      </div>
+      <div class="stub-badge">{{ icon("book-open", 30) }}</div>
       <p class="stub-title">No homework right now</p>
       <p class="stub-caption">Add homework in Admin and it'll show up here.</p>
     </div>

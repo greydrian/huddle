@@ -1,30 +1,26 @@
+{% from "_icons.html" import icon %}
 <div class="widget-card" id="widget-shopping">
-  <div class="widget-pin"></div>
-  <div class="widget-tab" style="background: var(--success);">
-    <svg width="13" height="13" viewBox="0 0 24 24"><path d="M5,9 L19,9 L17,19 C17,19.8 16.3,20.5 15.5,20.5 L8.5,20.5 C7.7,20.5 7,19.8 7,19 Z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M8.5,9 V7 C8.5,4.5 10.5,3 12,3 C13.5,3 15.5,4.5 15.5,7 V9" fill="none" stroke="currentColor" stroke-width="1.7"/><circle cx="10.5" cy="14" r="1" fill="currentColor"/><circle cx="13.5" cy="15" r="1" fill="currentColor"/></svg>
-    Household
-  </div>
   <div class="widget-header drag-handle">
-    <svg width="17" height="17" viewBox="0 0 24 24"><path d="M5,9 L19,9 L17,19 C17,19.8 16.3,20.5 15.5,20.5 L8.5,20.5 C7.7,20.5 7,19.8 7,19 Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M8.5,9 V7 C8.5,4.5 10.5,3 12,3 C13.5,3 15.5,4.5 15.5,7 V9" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="10.5" cy="14" r="1" fill="currentColor" opacity="0.6"/><circle cx="13.5" cy="15" r="1" fill="currentColor" opacity="0.6"/></svg>
-    Shopping List
+    {{ icon("shopping-basket", 22, "widget-icon") }}
+    <h2 class="widget-title">Shopping List</h2>
   </div>
   <div class="widget-body">
     {% for item in items %}
     <div class="shopping-row {{ 'checked' if item.is_checked else '' }}">
-      <button class="shopping-check"
+      <button class="shopping-check" aria-label="{{ 'Untick' if item.is_checked else 'Tick' }} {{ item.title }}"
               hx-post="/api/shopping/{{ item.id }}/toggle"
-              hx-target="#widget-shopping" hx-swap="outerHTML"></button>
+              hx-target="#widget-shopping" hx-swap="outerHTML">{{ icon("check", 18) }}</button>
       <span class="shopping-title">{{ item.title }}</span>
-      <button class="shopping-delete"
+      <button class="shopping-delete" aria-label="Remove {{ item.title }}"
               hx-post="/api/shopping/{{ item.id }}/delete"
-              hx-target="#widget-shopping" hx-swap="outerHTML">✕</button>
+              hx-target="#widget-shopping" hx-swap="outerHTML">{{ icon("x", 20) }}</button>
     </div>
     {% else %}
-    <div class="stub-widget" style="padding: 4px 0; font-size: 0.8rem;">List's empty — add something below.</div>
+    <div class="widget-note">List's empty — add something below.</div>
     {% endfor %}
     <form class="shopping-add-form"
           hx-post="/api/shopping" hx-target="#widget-shopping" hx-swap="outerHTML">
-      <input type="text" name="title" placeholder="Add an item…" required autocomplete="off"{% if onscreen_keyboard %} data-osk="text"{% endif %}>
+      <input type="text" name="title" aria-label="New item" placeholder="Add an item…" required autocomplete="off"{% if onscreen_keyboard %} data-osk="text"{% endif %}>
       <button type="submit">Add</button>
     </form>
   </div>

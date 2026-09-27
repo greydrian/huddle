@@ -1,0 +1,19 @@
+{#- Lucide icon from the vendored sprite (static/icons/lucide/lucide.svg).
+    Usage: {% from "_icons.html" import icon %} … {{ icon("check") }} -#}
+{% macro icon(name, size=24, cls="") -%}
+<svg class="icon{{ ' ' ~ cls if cls else '' }}" width="{{ size }}" height="{{ size }}" aria-hidden="true" focusable="false"><use href="/static/icons/lucide/lucide.svg#{{ name }}"/></svg>
+{%- endmacro %}
+
+{#- A family member's solid name pill: initial avatar + name, in their
+    colour, with light or dark ink picked for contrast (person_ink filter). -#}
+{% macro person_pill(name, colour) -%}
+<span class="person-pill ink-{{ colour | person_ink }}" style="--person: {{ colour }};">
+  <span class="person-avatar" aria-hidden="true">{{ name[:1] | upper }}</span>
+  <span class="person-name">{{ name }}</span>
+</span>
+{%- endmacro %}
+
+{#- Coloured-initial avatar on its own (Admin lists). -#}
+{% macro person_avatar(name, colour) -%}
+<span class="person-dot ink-{{ colour | person_ink }}" style="--person: {{ colour }};" aria-hidden="true">{{ name[:1] | upper }}</span>
+{%- endmacro %}

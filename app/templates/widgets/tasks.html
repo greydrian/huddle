@@ -1,37 +1,30 @@
+{% from "_icons.html" import icon, person_pill %}
 {% macro task_row(task) %}
 <div class="task-row {{ 'completed' if task.is_completed else '' }}">
-  {# Ticking an open task shows the tick first, then the swap hides it. #}
-  <button class="task-check"
+  {# Ticking an open task shows the (bouncy) tick first, then the swap folds it away. #}
+  <button class="task-check" aria-label="{{ 'Mark not done' if task.is_completed else 'Mark done' }}"
           hx-post="/api/tasks/{{ task.id }}/toggle"
           hx-target="#widget-tasks"
           {% if task.is_completed %}hx-swap="outerHTML"
           {% else %}hx-swap="outerHTML swap:450ms"
-          hx-on:click="this.closest('.task-row').classList.add('completed')"{% endif %}>✓</button>
+          hx-on:click="this.closest('.task-row').classList.add('completed', 'just-ticked')"{% endif %}>{{ icon("check", 20) }}</button>
   <span class="task-title">{{ task.title }}</span>
 </div>
 {% endmacro %}
 <div class="widget-card" id="widget-tasks">
-  <div class="widget-pin"></div>
-  <div class="widget-tab" style="background: var(--system-accent);">
-    <svg width="13" height="13" viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="16" rx="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M7.5,11 L10,13.5 L16,6.5" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/></svg>
-    Chores
-  </div>
   <div class="widget-header drag-handle">
-    <svg width="18" height="18" viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="16" rx="3" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M7.5,11 L10,13.5 L16,6.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-    Today's Tasks
+    {{ icon("list-checks", 22, "widget-icon") }}
+    <h2 class="widget-title">Today's Tasks</h2>
   </div>
   <div class="widget-body">
     {% for profile in profiles %}
     {% set open_tasks = profile.tasks | rejectattr('is_completed') | list %}
     {% set done_tasks = profile.tasks | selectattr('is_completed') | list %}
     <div class="task-group">
-      <div class="task-group-name" style="color: {{ profile.colour_hex }};">
-        <span class="task-group-dot" style="background: {{ profile.colour_hex }};"></span>
-        {{ profile.name }}
-      </div>
+      {{ person_pill(profile.name, profile.colour_hex) }}
       {% for task in open_tasks %}{{ task_row(task) }}{% endfor %}
       {% if not profile.tasks %}
-      <div class="stub-widget" style="padding: 4px 0; font-size: 0.8rem;">No tasks yet — add some in Google Tasks.</div>
+      <div class="widget-note">No tasks yet — add some in Google Tasks.</div>
       {% elif not open_tasks %}
       <div class="task-all-done">All done for today</div>
       {% endif %}
