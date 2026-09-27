@@ -46,12 +46,14 @@ async def meals_widget(request: Request):
 
 
 @router.post("/api/meals/{meal_date}", response_class=HTMLResponse)
-async def update_meal(request: Request, meal_date: str, description: str = Form(...)):
+async def update_meal(request: Request, meal_date: date, description: str = Form(...)):
+    # Typed as `date` so FastAPI 422s anything that isn't YYYY-MM-DD before
+    # it can land in meal_plans as a junk key.
     async with get_db() as db:
         await db.execute(
             """INSERT INTO meal_plans (date, meal_description) VALUES (?, ?)
                ON CONFLICT(date) DO UPDATE SET meal_description = excluded.meal_description""",
-            (meal_date, description.strip()),
+            (meal_date.isoformat(), description.strip()),
         )
         await db.commit()
         days = await get_week_meal_plan(db)
