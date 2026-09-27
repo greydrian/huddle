@@ -23,7 +23,7 @@
        gs-x="{{ widget.grid_x }}" gs-y="{{ widget.grid_y }}"
        gs-w="{{ widget.grid_w }}" gs-h="{{ widget.grid_h }}">
     <div class="grid-stack-item-content">
-      {# Templates come from the registry in app/widgets.py. #}
+      {#- Templates come from the registry in app/widgets.py. -#}
       {% if widget.widget_id in widget_templates %}
         {% include "widgets/" ~ widget_templates[widget.widget_id] %}
       {% endif %}
