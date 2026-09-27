@@ -5,8 +5,9 @@ import httpx
 import pytest
 
 from app import database
-from app.routers import admin, weather
+from app.routers import admin
 from app.security import create_session_token
+from app.services import weather
 
 READING = {"name": "Reading", "country": "United Kingdom", "latitude": 51.45, "longitude": -0.97}
 

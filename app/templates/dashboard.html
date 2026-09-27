@@ -23,22 +23,9 @@
        gs-x="{{ widget.grid_x }}" gs-y="{{ widget.grid_y }}"
        gs-w="{{ widget.grid_w }}" gs-h="{{ widget.grid_h }}">
     <div class="grid-stack-item-content">
-      {% if widget.widget_id == 'tasks' %}
-        {% include "widgets/tasks.html" %}
-      {% elif widget.widget_id == 'shopping' %}
-        {% include "widgets/shopping.html" %}
-      {% elif widget.widget_id == 'meals' %}
-        {% include "widgets/meals.html" %}
-      {% elif widget.widget_id == 'calendar' %}
-        {% include "widgets/calendar.html" %}
-      {% elif widget.widget_id == 'weather' %}
-        {% include "widgets/weather.html" %}
-      {% elif widget.widget_id == 'photos' %}
-        {% include "widgets/photos_stub.html" %}
-      {% elif widget.widget_id == 'homework' %}
-        {% include "widgets/homework.html" %}
-      {% elif widget.widget_id == 'practice_words' %}
-        {% include "widgets/practice_words.html" %}
+      {#- Templates come from the registry in app/widgets.py. -#}
+      {% if widget.widget_id in widget_templates %}
+        {% include "widgets/" ~ widget_templates[widget.widget_id] %}
       {% endif %}
     </div>
   </div>

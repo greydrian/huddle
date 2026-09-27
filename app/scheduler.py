@@ -2,7 +2,7 @@
 Background jobs, started/stopped from app/main.py's lifespan:
 - Google Tasks sync every 60s (spec 9.4: polling, not push)
 - the end-of-day task reset, checked every 5 minutes (it only acts once per
-  family-local day — see tasks.run_daily_reset_if_due)
+  family-local day — see services.tasks.run_daily_reset_if_due)
 """
 
 from datetime import datetime, timezone
@@ -11,7 +11,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from app import task_sync
 from app.database import get_db
-from app.routers import tasks
+from app.services import tasks
 
 SYNC_INTERVAL_SECONDS = 60
 DAILY_RESET_CHECK_SECONDS = 300

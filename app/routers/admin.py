@@ -12,33 +12,23 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app import appearance, google_oauth, google_tasks, recurrence, task_sync
+from app.auth import SESSION_COOKIE, end_session, require_admin, start_session
 from app.database import family_today, get_db, get_setting, set_onscreen_keyboard, set_setting
-from app.routers import homework, weather
-from app.security import create_session_token, hash_pin, lockout_seconds_for, verify_pin, verify_session_token
+from app.security import hash_pin, lockout_seconds_for, verify_pin
+from app.services import homework, weather
+from app.services import tasks as task_service
 from app.templating import templates
 
+# Re-exported: older callers and tests import these from here.
+__all__ = ["SESSION_COOKIE", "require_admin", "router"]
+
 router = APIRouter(prefix="/admin")
-
-SESSION_COOKIE = "admin_session"
-
-
-def _queue_sync(db, service: str, payload: dict):
-    return db.execute(
-        "INSERT INTO sync_queue (service, payload_json) VALUES (?, ?)",
-        (service, json.dumps(payload)),
-    )
 
 
 def _parse_utc(value: str) -> datetime:
     dt = datetime.fromisoformat(value)
     # Lockouts stored before timestamps became tz-aware are naive UTC.
     return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
-
-
-async def require_admin(request: Request):
-    token = request.cookies.get(SESSION_COOKIE)
-    if not verify_session_token(token):
-        raise HTTPException(status_code=303, headers={"Location": "/admin/login"})
 
 
 async def _login_page(request: Request, error: str | None, status_code: int = 200):
@@ -71,9 +61,7 @@ async def login_submit(request: Request, pin: str = Form(...)):
             await set_setting(db, "pin_lockout", json.dumps({}))
             await db.commit()
             response = RedirectResponse(url="/admin", status_code=303)
-            response.set_cookie(
-                SESSION_COOKIE, create_session_token(), httponly=True, samesite="lax"
-            )
+            start_session(response)
             return response
 
         # Failed attempt: bump the counter and set an exponential-backoff lockout
@@ -93,7 +81,7 @@ async def login_submit(request: Request, pin: str = Form(...)):
 @router.post("/logout")
 async def logout():
     response = RedirectResponse(url="/admin/login", status_code=303)
-    response.delete_cookie(SESSION_COOKIE)
+    end_session(response)
     return response
 
 
@@ -118,31 +106,10 @@ async def _render_admin(
         profiles = [dict(r) for r in await (await db.execute(
             "SELECT * FROM profiles ORDER BY sort_order"
         )).fetchall()]
-        tasks = [dict(r) for r in await (await db.execute(
-            "SELECT tasks.* FROM tasks "
-            "JOIN profiles ON profiles.id = tasks.profile_id "
-            "WHERE archived = 0 ORDER BY profiles.sort_order, tasks.created_at"
-        )).fetchall()]
-        for task in tasks:
-            task["schedule"] = recurrence.describe(task["recurrence_rule"]) if task["is_recurring"] else None
-            # Day chips to pre-tick in the edit form; empty = every day (or one-off).
-            days = recurrence.parse_rule(task["recurrence_rule"]) if task["is_recurring"] else None
-            task["days"] = [recurrence.WEEKDAYS[i] for i in sorted(days)] if days else []
+        tasks = await task_service.get_admin_tasks(db)
         today = await family_today(db)
-        homework_items, finished_homework = [], []
-        for row in await (await db.execute(
-            "SELECT homework.*, profiles.name AS profile_name FROM homework "
-            "JOIN profiles ON profiles.id = homework.profile_id "
-            "ORDER BY homework.done, homework.due_date IS NULL, homework.due_date, homework.id"
-        )).fetchall():
-            item = dict(row)
-            # Archived, or done and already off the widget: tucked away so the panel doesn't grow all term.
-            (homework_items if homework.is_visible(item, today) else finished_homework).append(item)
-        word_lists = [dict(r) for r in await (await db.execute(
-            "SELECT practice_word_lists.*, profiles.name AS profile_name FROM practice_word_lists "
-            "JOIN profiles ON profiles.id = practice_word_lists.profile_id "
-            "ORDER BY practice_word_lists.archived, profiles.sort_order, practice_word_lists.id"
-        )).fetchall()]
+        homework_items, finished_homework = await homework.get_admin_homework(db, today)
+        word_lists = await homework.get_admin_word_lists(db)
         handwriting_style = await homework.get_handwriting_style(db)
         google_account = await google_oauth.get_connected_account(db)
         weather_location = await weather.get_location(db)
@@ -279,22 +246,12 @@ async def edit_task(
                        updated_at = datetime('now') WHERE id = ?""",
                 (profile_id, int(recurring), rule, task_id),
             )
-            await _queue_sync(db, "tasks", {"task_id": task_id})
+            await task_sync.queue_sync(db, "tasks", {"task_id": task_id})
         await db.commit()
     return RedirectResponse(url="/admin#tasks", status_code=303)
 
 
 # --- Homework + practice words (not synced to Google) ---
-
-async def _homework_fields(db, profile_id, subject, title, details, due_date) -> tuple:
-    return (
-        await homework.parse_profile_id(db, profile_id),
-        homework.clean_text(subject, "Subject", homework.MAX_SUBJECT),
-        homework.clean_text(title, "Title", homework.MAX_TITLE, required=True),
-        homework.clean_text(details, "Details", homework.MAX_DETAILS) or None,
-        homework.parse_optional_date(due_date, "Due date"),
-    )
-
 
 @router.post("/homework", dependencies=[Depends(require_admin)])
 async def add_homework(
@@ -308,7 +265,7 @@ async def add_homework(
     homework_id = None
     async with get_db() as db:
         try:
-            fields = await _homework_fields(db, profile_id, subject, title, details, due_date)
+            fields = await homework.homework_fields(db, profile_id, subject, title, details, due_date)
         except homework.ValidationError as exc:
             return await _render_admin(request, homework_error=str(exc), status_code=400, homework_form={
                 "id": homework_id, "profile_id": profile_id, "subject": subject, "title": title,
@@ -335,7 +292,7 @@ async def edit_homework(
         if not await (await db.execute("SELECT 1 FROM homework WHERE id = ?", (homework_id,))).fetchone():
             raise HTTPException(status_code=404, detail="Homework not found")
         try:
-            fields = await _homework_fields(db, profile_id, subject, title, details, due_date)
+            fields = await homework.homework_fields(db, profile_id, subject, title, details, due_date)
         except homework.ValidationError as exc:
             return await _render_admin(request, homework_error=str(exc), status_code=400, homework_form={
                 "id": homework_id, "profile_id": profile_id, "subject": subject, "title": title,
@@ -369,18 +326,6 @@ async def delete_homework(homework_id: int):
     return RedirectResponse(url="/admin#homework", status_code=303)
 
 
-async def _word_list_fields(db, profile_id, title, words, starts_on, ends_on) -> tuple:
-    profile = await homework.parse_profile_id(db, profile_id)
-    title = homework.clean_text(title, "Title", homework.MAX_TITLE, required=True)
-    word_items = homework.normalise_words(words)
-    if not word_items:
-        raise homework.ValidationError("Add at least one word.")
-    starts = homework.parse_optional_date(starts_on, "Start date")
-    ends = homework.parse_optional_date(ends_on, "End date")
-    if starts and ends and ends < starts:
-        raise homework.ValidationError("The end date is before the start date.")
-    return profile, title, "\n".join(word_items), starts, ends
-
 
 @router.post("/practice-words", dependencies=[Depends(require_admin)])
 async def add_word_list(
@@ -394,7 +339,7 @@ async def add_word_list(
     list_id = None
     async with get_db() as db:
         try:
-            fields = await _word_list_fields(db, profile_id, title, words, starts_on, ends_on)
+            fields = await homework.word_list_fields(db, profile_id, title, words, starts_on, ends_on)
         except homework.ValidationError as exc:
             return await _render_admin(request, words_error=str(exc), status_code=400, words_form={
                 "id": list_id, "profile_id": profile_id, "title": title, "words": words,
@@ -422,7 +367,7 @@ async def edit_word_list(
         if not await (await db.execute("SELECT 1 FROM practice_word_lists WHERE id = ?", (list_id,))).fetchone():
             raise HTTPException(status_code=404, detail="Word list not found")
         try:
-            fields = await _word_list_fields(db, profile_id, title, words, starts_on, ends_on)
+            fields = await homework.word_list_fields(db, profile_id, title, words, starts_on, ends_on)
         except homework.ValidationError as exc:
             return await _render_admin(request, words_error=str(exc), status_code=400, words_form={
                 "id": list_id, "profile_id": profile_id, "title": title, "words": words,

@@ -2,7 +2,7 @@ from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
 from app import database
-from app.routers import tasks
+from app.services import tasks
 
 
 async def _seed(db):
