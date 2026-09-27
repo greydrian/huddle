@@ -11,7 +11,7 @@ import httpx
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from app import google_oauth, google_tasks, task_sync
+from app import google_oauth, google_tasks, recurrence, task_sync
 from app.database import get_db, get_setting, set_setting
 from app.security import create_session_token, hash_pin, lockout_seconds_for, verify_pin, verify_session_token
 from app.templating import templates
@@ -109,6 +109,8 @@ async def admin_home(request: Request):
             "JOIN profiles ON profiles.id = tasks.profile_id "
             "WHERE archived = 0 ORDER BY profiles.sort_order, tasks.created_at"
         )).fetchall()]
+        for task in tasks:
+            task["schedule"] = recurrence.describe(task["recurrence_rule"]) if task["is_recurring"] else None
         google_account = await google_oauth.get_connected_account(db)
 
         available_calendars = []
@@ -189,13 +191,17 @@ async def add_task(
     profile_id: int = Form(...),
     title: str = Form(...),
     is_recurring: bool = Form(False),
-    recurrence_rule: str = Form(""),
+    days: list[str] = Form(default=[]),
 ):
+    # Ticking any day implies the task repeats; "Repeats" with no days ticked
+    # means every day. Rules are only stored for recurring tasks.
+    recurring = is_recurring or bool(days)
+    rule = recurrence.normalize_rule(days) if recurring else None
     async with get_db() as db:
         cursor = await db.execute(
             """INSERT INTO tasks (profile_id, title, is_recurring, recurrence_rule)
                VALUES (?, ?, ?, ?)""",
-            (profile_id, title.strip(), int(is_recurring), recurrence_rule.strip() or None),
+            (profile_id, title.strip(), int(recurring), rule),
         )
         await _queue_sync(db, "tasks", {"task_id": cursor.lastrowid})
         await db.commit()

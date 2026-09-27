@@ -565,6 +565,19 @@ html, body {
 }
 .btn-danger { background: var(--danger); color: var(--paper); }
 
+/* Admin "add task" day picker — touch-sized toggle chips (checkbox hidden,
+   its label is the tap target). */
+.day-picker { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; width: 100%; }
+.day-chip { position: relative; }
+.day-chip input { position: absolute; opacity: 0; pointer-events: none; }
+.day-chip span {
+  display: inline-block; min-width: 44px; padding: 8px 10px; text-align: center;
+  border-radius: 999px; border: 1.5px solid rgba(43,36,32,0.2); background: var(--paper-shade);
+  font-size: 0.85rem; cursor: pointer; user-select: none;
+}
+.day-chip input:checked + span { background: var(--system-accent); border-color: var(--system-accent); color: var(--wall); font-weight: 600; }
+.day-chip input:focus-visible + span { outline: 2px solid var(--ink); outline-offset: 2px; }
+
 /* Quiet outline button for the topbar — sits next to the ochre
    notification pill without competing with it for attention. */
 .btn-ghost {
