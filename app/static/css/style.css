@@ -595,6 +595,9 @@ html, body {
 .grid-stack > .grid-stack-item > .ui-resizable-handle { opacity: 0.5; }
 
 /* --- Admin --- */
+/* The kiosk locks html/body scrolling (above) for the dashboard; Admin and
+   the PIN page are ordinary documents that outgrow the screen, so unlock it. */
+html:has(.admin-shell), html:has(.admin-shell) body { height: auto; overflow-y: auto; }
 .admin-shell { max-width: 720px; margin: 0 auto; padding: 32px 20px; color: var(--chalk); }
 .admin-shell h1, .admin-shell h2 { font-family: var(--font-display); font-weight: 600; }
 .admin-panel { background: var(--paper); color: var(--ink); border-radius: var(--radius-card); padding: 20px 24px; margin-bottom: 20px; }
