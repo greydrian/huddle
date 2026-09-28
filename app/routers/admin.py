@@ -4,7 +4,9 @@ on failed attempts, short-lived signed session cookie. Manages family
 profiles, task schedules, and (eventually) Google account connections.
 """
 
+import asyncio
 import json
+import math
 import re
 from datetime import datetime, timedelta, timezone
 
@@ -13,9 +15,20 @@ from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app import appearance, backup, google_oauth, google_tasks, recurrence, task_sync
-from app.auth import SESSION_COOKIE, end_session, require_admin, start_session
+from app.auth import (
+    NEW_PIN_PATH,
+    PIN_IS_DEFAULT_SETTING,
+    SESSION_COOKIE,
+    bump_session_generation,
+    end_session,
+    has_valid_session,
+    require_admin,
+    require_session,
+    session_generation,
+    start_session,
+)
 from app.database import family_timezone, family_today, get_db, get_setting, set_onscreen_keyboard, set_setting
-from app.security import hash_pin, lockout_seconds_for, verify_pin
+from app.security import LONG_LOCKOUT_AFTER, hash_pin, is_weak_pin, lockout_seconds_for, verify_pin
 from app.services import homework, weather
 from app.services import tasks as task_service
 from app.templating import templates
@@ -39,6 +52,9 @@ ADMIN_ERRORS = {
     "appearance": ("display", "Pick one of the appearance options."),
     "pin-invalid": ("pin", "A PIN must be 4 to 8 digits, numbers only. Your PIN hasn't changed."),
     "backup-failed": ("backups", "The backup didn't complete. Check the logs (docker compose logs)."),
+    "pin-weak": ("pin", "That PIN is too easy to guess: avoid one digit repeated (like 0000) or a "
+                        "straight run (like 1234 or 9876). Your PIN hasn't changed."),
+    "pin-mismatch": ("pin", "The two PINs didn't match. Your PIN hasn't changed."),
 }
 
 # The login form only takes digits (inputmode=numeric, maxlength=8), so a PIN
@@ -64,6 +80,37 @@ def _parse_utc(value: str) -> datetime:
     return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
 
 
+# Serialises the PIN check and the lockout update: without it, parallel
+# guesses all read the lockout state before any of them records a failure,
+# and the backoff never applies. Single uvicorn process (see scheduler.py).
+_login_lock = asyncio.Lock()
+
+
+def _format_wait(seconds: int) -> str:
+    if seconds < 60:
+        return f"{seconds}s"
+    minutes, secs = divmod(seconds, 60)
+    return f"{minutes} min {secs}s" if secs else f"{minutes} min"
+
+
+def _lockout_message(failed_attempts: int, wait_seconds: int) -> str:
+    if failed_attempts >= LONG_LOCKOUT_AFTER:
+        return (f"Admin is locked after {failed_attempts} wrong PINs in a row. "
+                f"Try again in {_format_wait(wait_seconds)}.")
+    return f"Too many attempts. Try again in {_format_wait(wait_seconds)}."
+
+
+async def _active_lockout(db) -> tuple[dict, int]:
+    """The stored lockout state and the whole seconds left on it (0 if none)."""
+    lockout = json.loads(await get_setting(db, "pin_lockout", "{}"))
+    locked_until = lockout.get("locked_until")
+    if not locked_until:
+        return lockout, 0
+    remaining = (_parse_utc(locked_until) - datetime.now(timezone.utc)).total_seconds()
+    # Round up, so the screen never says "0s" while still locked.
+    return lockout, max(0, math.ceil(remaining))
+
+
 async def _login_page(request: Request, error: str | None, status_code: int = 200):
     async with get_db() as db:
         mode = await appearance.current_mode(db)
@@ -74,31 +121,31 @@ async def _login_page(request: Request, error: str | None, status_code: int = 20
 
 @router.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request):
-    return await _login_page(request, None)
+    async with get_db() as db:
+        lockout, wait = await _active_lockout(db)
+    error = _lockout_message(lockout.get("failed_attempts", 0), wait) if wait else None
+    return await _login_page(request, error)
 
 
 @router.post("/login")
 async def login_submit(request: Request, pin: str = Form(...)):
-    async with get_db() as db:
-        lockout_raw = await get_setting(db, "pin_lockout", "{}")
-        lockout = json.loads(lockout_raw)
-        locked_until = lockout.get("locked_until")
-
-        now = datetime.now(timezone.utc)
-        if locked_until and now < _parse_utc(locked_until):
-            wait_seconds = int((_parse_utc(locked_until) - now).total_seconds())
-            return await _login_page(request, f"Too many attempts. Try again in {wait_seconds}s.", 429)
+    async with _login_lock, get_db() as db:
+        lockout, wait = await _active_lockout(db)
+        failed_attempts = lockout.get("failed_attempts", 0)
+        if wait:
+            # Refused by the lockout: doesn't count as another failure.
+            return await _login_page(request, _lockout_message(failed_attempts, wait), 429)
 
         stored_hash = await get_setting(db, "pin_hash")
         if stored_hash and verify_pin(pin, stored_hash):
             await set_setting(db, "pin_lockout", json.dumps({}))
             await db.commit()
             response = RedirectResponse(url="/admin", status_code=303)
-            start_session(response)
+            start_session(response, request, await session_generation(db))
             return response
 
         # Failed attempt: bump the counter and set an exponential-backoff lockout
-        failed_attempts = lockout.get("failed_attempts", 0) + 1
+        failed_attempts += 1
         wait = lockout_seconds_for(failed_attempts)
         locked_until_new = (datetime.now(timezone.utc) + timedelta(seconds=wait)).isoformat()
         await set_setting(
@@ -108,11 +155,21 @@ async def login_submit(request: Request, pin: str = Form(...)):
         )
         await db.commit()
 
-    return await _login_page(request, f"Incorrect PIN. Try again in {wait}s." if wait else "Incorrect PIN.", 401)
+    if failed_attempts >= LONG_LOCKOUT_AFTER:
+        message = f"Incorrect PIN. {_lockout_message(failed_attempts, wait)}"
+    else:
+        message = f"Incorrect PIN. Try again in {_format_wait(wait)}." if wait else "Incorrect PIN."
+    return await _login_page(request, message, 401)
 
 
 @router.post("/logout")
-async def logout():
+async def logout(request: Request):
+    # Bumping the generation ends every session, including any copy of this
+    # cookie. Only a signed-in session can do that.
+    if await has_valid_session(request):
+        async with get_db() as db:
+            await bump_session_generation(db)
+            await db.commit()
     response = RedirectResponse(url="/admin/login", status_code=303)
     end_session(response)
     return response
@@ -522,14 +579,69 @@ async def save_appearance(value: str = Form("")):
 
 # --- PIN management ---
 
-@router.post("/change-pin", dependencies=[Depends(require_admin)])
-async def change_pin(new_pin: str = Form(...)):
+async def _save_new_pin(new_pin: str, confirm_pin: str | None) -> tuple[str | None, int]:
+    """Validates and stores a new PIN, clears the default-PIN flag and ends
+    every session. Returns (error code or None, new session generation)."""
     if not PIN_PATTERN.fullmatch(new_pin):
-        return _admin_error("pin-invalid")
+        return "pin-invalid", 0
+    if is_weak_pin(new_pin):
+        return "pin-weak", 0
+    if confirm_pin is not None and confirm_pin != new_pin:
+        return "pin-mismatch", 0
     async with get_db() as db:
         await set_setting(db, "pin_hash", hash_pin(new_pin))
+        await set_setting(db, PIN_IS_DEFAULT_SETTING, "0")
+        generation = await bump_session_generation(db)
         await db.commit()
-    return RedirectResponse(url="/admin", status_code=303)
+    return None, generation
+
+
+def _signed_in_redirect(request: Request, generation: int) -> RedirectResponse:
+    # The device that changed the PIN stays signed in, under the new generation.
+    response = RedirectResponse(url="/admin", status_code=303)
+    start_session(response, request, generation)
+    return response
+
+
+@router.post("/change-pin", dependencies=[Depends(require_admin)])
+async def change_pin(request: Request, new_pin: str = Form(...), confirm_pin: str | None = Form(None)):
+    error, generation = await _save_new_pin(new_pin, confirm_pin)
+    if error:
+        return _admin_error(error)
+    return _signed_in_redirect(request, generation)
+
+
+async def _pin_is_default() -> bool:
+    async with get_db() as db:
+        return await get_setting(db, PIN_IS_DEFAULT_SETTING) == "1"
+
+
+async def _new_pin_page(request: Request, error: str | None = None, status_code: int = 200):
+    async with get_db() as db:
+        mode = await appearance.current_mode(db)
+    return templates.TemplateResponse(
+        request, "admin/new_pin.html", {"error": error, "appearance": mode}, status_code=status_code
+    )
+
+
+# The forced "Choose a new PIN" screen: while the PIN is still the default,
+# require_admin sends every Admin page here. It needs only a session.
+@router.get(NEW_PIN_PATH.removeprefix("/admin"), response_class=HTMLResponse,
+            dependencies=[Depends(require_session)])
+async def new_pin_page(request: Request):
+    if not await _pin_is_default():
+        return RedirectResponse(url="/admin", status_code=303)
+    return await _new_pin_page(request)
+
+
+@router.post(NEW_PIN_PATH.removeprefix("/admin"), dependencies=[Depends(require_session)])
+async def new_pin_submit(request: Request, new_pin: str = Form(...), confirm_pin: str | None = Form(None)):
+    if not await _pin_is_default():
+        return RedirectResponse(url="/admin", status_code=303)
+    error, generation = await _save_new_pin(new_pin, confirm_pin)
+    if error:
+        return await _new_pin_page(request, ADMIN_ERRORS[error][1], 400)
+    return _signed_in_redirect(request, generation)
 
 
 # --- Backups ---

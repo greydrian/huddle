@@ -373,8 +373,10 @@
   <div class="admin-panel" id="pin">
     <h2>Change Admin PIN</h2>
     {{ section_error("pin") }}
+    <p class="admin-hint">4 to 8 digits. Not one digit repeated (like 0000) or a straight run (like 1234 or 9876). Changing it logs out every other device.</p>
     <form class="admin-form" method="post" action="/admin/change-pin">
-      <input type="password" name="new_pin" inputmode="numeric" pattern="[0-9]{4,8}" minlength="4" maxlength="8" placeholder="New PIN (4–8 digits)" required>
+      <input type="password" name="new_pin" inputmode="numeric" pattern="[0-9]{4,8}" minlength="4" maxlength="8" placeholder="New PIN" aria-label="New PIN" required autocomplete="off"{% if onscreen_keyboard %} data-osk="numeric"{% endif %}>
+      <input type="password" name="confirm_pin" inputmode="numeric" pattern="[0-9]{4,8}" minlength="4" maxlength="8" placeholder="New PIN again" aria-label="New PIN again" required autocomplete="off"{% if onscreen_keyboard %} data-osk="numeric"{% endif %}>
       <button type="submit" class="btn">Update PIN</button>
     </form>
   </div>
