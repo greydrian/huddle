@@ -67,7 +67,7 @@ async def test_no_location_shows_setup_prompt(client, google):
 
     assert resp.status_code == 200
     assert "Set your location in Admin" in resp.text
-    assert 'href="/admin"' in resp.text
+    assert 'href="/admin?tab=display#weather"' in resp.text
 
 
 async def test_widget_renders_forecast_and_caches_it(db, client, google):
@@ -225,7 +225,7 @@ async def test_admin_saves_geocoded_location(db, client, google):
     assert resp.status_code == 303
     stored = json.loads(await database.get_setting(db, weather.LOCATION_SETTING))
     assert stored == READING
-    page = await client.get("/admin")
+    page = await client.get("/admin?tab=display")
     assert "Reading, United Kingdom" in page.text
 
 

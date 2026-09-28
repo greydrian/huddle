@@ -30,6 +30,7 @@
   align-items: flex-start;
   gap: 10px;
   width: 100%;
+  min-height: 48px;  /* touch target (spec 10.0) */
   padding: 8px 6px;
   border: none;
   border-bottom: 1px solid var(--line);
@@ -91,7 +92,7 @@
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  min-height: 46px;
+  min-height: 48px;
   padding: 6px 18px 6px 8px;
   border-radius: 999px;
   border: 2px solid var(--person, var(--control));
@@ -114,10 +115,7 @@
 
 /* --- Admin: School inbox (admin/_inbox_source.html) and year groups ---
    Sources are cards; each candidate is a pre-filled approve form with its
-   evidence quoted underneath. */
-.admin-row:has(.school-year-form) { flex-wrap: wrap; }
-.school-year-form { display: flex; gap: 6px; align-items: center; margin-left: auto; }
-.school-year-form input { width: 11em; max-width: 40vw; padding: 7px 10px; border-radius: var(--radius-control); border: 1px solid var(--line); background: var(--card); color: var(--ink); font-size: 0.9rem; }
+   evidence quoted underneath. (Year groups: .profile-details in style.css.) */
 .inbox-setup { margin: 4px 0 12px; padding: 10px 14px; border-radius: var(--radius-control); background: var(--sunken); font-size: 0.92rem; }
 .inbox-setup p { margin: 4px 0; }
 .inbox-setup ol { margin: 4px 0; padding-left: 22px; }
@@ -154,8 +152,6 @@
 .school-email-status { margin: 4px 0 8px; line-height: 1.5; }
 .school-email-problem { color: var(--danger); font-weight: 600; }
 .school-email-check { margin-bottom: 12px; }
-.school-email-schedule select,
-.school-email-schedule input[type="time"] { min-height: 40px; }
 .school-email-senders .hw-field { flex: 1 1 260px; min-width: 0; }
 .school-email-senders textarea { min-height: 84px; font-family: inherit; }
 .school-email-schedule > .btn,
@@ -169,7 +165,7 @@
 .admin-error { color: var(--danger); font-size: 0.95rem; font-weight: 600; }
 .admin-meta { color: var(--ink-soft); font-size: 0.9rem; }
 .finished-homework { margin-top: 8px; }
-.finished-homework > summary { min-height: 38px; padding: 8px 0; font-size: 0.95rem; color: var(--accent); font-weight: 600; cursor: pointer; }
+.finished-homework > summary { min-height: 48px; padding: 13px 0; font-size: 0.95rem; color: var(--accent); font-weight: 600; cursor: pointer; }
 .finished-homework .admin-item-label { color: var(--ink-soft); }
-.hand-option { display: flex; align-items: center; gap: 10px; padding: 6px 0; font-size: 1rem; }
+.hand-option { display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 2px 0; font-size: 1rem; }
 .hand-option .hand-sample { font-size: 1.4rem; color: var(--ink); }

@@ -31,14 +31,14 @@ async def test_pen_test_renders_canvas_and_script(client):
     assert '<script src="/static/js/pen-test.js"></script>' in html
     for element_id in ("pt-type", "pt-pressure", "pt-hover", "pt-count", "pt-rejected", "pt-clear", "chk-palm"):
         assert f'id="{element_id}"' in html
-    assert 'href="/admin"' in html
+    assert 'href="/admin?tab=display#device"' in html
     assert (await client.get("/static/js/pen-test.js")).status_code == 200
 
 
 async def test_admin_links_to_pen_test(client):
     await client.post("/admin/login", data={"pin": DEFAULT_PIN})
 
-    assert 'href="/pen-test"' in (await client.get("/admin")).text
+    assert 'href="/pen-test"' in (await client.get("/admin?tab=display")).text
 
 
 def test_script_touches_nothing_on_the_server():

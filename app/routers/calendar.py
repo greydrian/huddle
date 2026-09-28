@@ -16,6 +16,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app import google_calendar, google_oauth, http_client, sync_status
+from app.admin_tabs import admin_url
 from app.auth import require_admin
 from app.database import get_db
 from app.templating import templates
@@ -33,7 +34,7 @@ def _callback_redirect_uri(request: Request) -> str:
 @router.get("/admin/google/connect", dependencies=[Depends(require_admin)])
 async def google_connect(request: Request):
     if not google_oauth.is_configured():
-        return RedirectResponse(url="/admin", status_code=303)
+        return RedirectResponse(url=admin_url("google"), status_code=303)
 
     state = secrets.token_urlsafe(24)
     auth_url = google_oauth.build_auth_url(state, _callback_redirect_uri(request))
@@ -50,7 +51,7 @@ async def google_callback(
     error: str | None = None,
 ):
     expected_state = request.cookies.get(STATE_COOKIE)
-    response = RedirectResponse(url="/admin", status_code=303)
+    response = RedirectResponse(url=admin_url("google"), status_code=303)
     response.delete_cookie(STATE_COOKIE)
 
     # Anything off here (denied consent, missing/mismatched state, no code)
@@ -81,7 +82,7 @@ async def google_disconnect():
         # A deliberate disconnect isn't a sync fault: forget the history, so
         # the dashboard dot stays hidden (sync_status.summary, "never connected").
         await sync_status.reset(db)
-    return RedirectResponse(url="/admin", status_code=303)
+    return RedirectResponse(url=admin_url("google"), status_code=303)
 
 
 @router.post("/admin/google/calendars", dependencies=[Depends(require_admin)])
@@ -101,7 +102,7 @@ async def save_selected_calendars(calendar_id: list[str] = Form(default=[])):
         selected = [{k: v for k, v in by_id[cid].items() if k != "writable"} for cid in calendar_id if cid in by_id]
         if selected:
             await google_oauth.set_selected_calendars(db, selected)
-    return RedirectResponse(url="/admin", status_code=303)
+    return RedirectResponse(url=admin_url("calendars"), status_code=303)
 
 
 @router.get("/widgets/calendar", response_class=HTMLResponse)

@@ -16,7 +16,18 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from starlette.datastructures import UploadFile as StarletteUploadFile
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app import appearance, backup, google_oauth, google_tasks, recurrence, school_email, sync_status, task_sync
+from app import (
+    admin_tabs,
+    appearance,
+    backup,
+    google_oauth,
+    google_tasks,
+    recurrence,
+    school_email,
+    sync_status,
+    task_sync,
+)
+from app.admin_tabs import admin_url
 from app.auth import (
     NEW_PIN_PATH,
     PIN_IS_DEFAULT_SETTING,
@@ -48,6 +59,9 @@ __all__ = ["SESSION_COOKIE", "require_admin", "router"]
 router = APIRouter(prefix="/admin")
 
 MAX_SCHOOL_YEAR = 30  # "Year 4", "Reception", "Year 6 (Oak Class)"
+# A parent's email: one plain address (no name, no list), checked loosely.
+MAX_EMAIL = 254
+EMAIL_PATTERN = re.compile(r"[^@\s,;:<>()\[\]\"']+@[^@\s,;:<>()\[\]\"'.]+(?:\.[^@\s,;:<>()\[\]\"'.]+)*\.[A-Za-z]{2,}")
 
 # A form that can't be saved redirects back to its Admin section with
 # ?error=<code> (like ?weather_error=), and the page shows that section's
@@ -56,7 +70,7 @@ ADMIN_ERRORS = {
     "task-missing": ("tasks", "That task no longer exists. It may have been deleted in Google Tasks."),
     "task-unknown-person": ("tasks", "That family member no longer exists."),
     "task-no-list": ("tasks", "That family member has no Google list linked yet, so the task can't move to "
-                              "them. Link one under Google Account → Task Sync first."),
+                              "them. Link one under Google & Sync → Task Sync first."),
     "homework-missing": ("homework", "That homework no longer exists. It may have just been deleted."),
     "words-missing": ("practice-words", "That word list no longer exists. It may have just been deleted."),
     "handwriting-style": ("practice-words", "Pick one of the handwriting styles."),
@@ -68,6 +82,8 @@ ADMIN_ERRORS = {
     "pin-mismatch": ("pin", "The two PINs didn't match. Your PIN hasn't changed."),
     "profile-missing": ("family", "That family member no longer exists."),
     "profile-year": ("family", f"A year group can be at most {MAX_SCHOOL_YEAR} characters."),
+    "profile-email": ("family", "That email address doesn't look right. Use one address, like "
+                                "name@example.com, or leave it blank. Nothing was changed."),
     "import-empty": ("classroom", "Add a screenshot, a PDF or some pasted text first."),
     "import-too-big": ("classroom", "That's too big to read: at most 15 MB a file and 22 MB in all. "
                                     "Try a smaller screenshot or fewer pages."),
@@ -102,7 +118,7 @@ PIN_PATTERN = re.compile(r"[0-9]{4,8}")
 
 def _admin_error(code: str) -> RedirectResponse:
     section, _ = ADMIN_ERRORS[code]
-    return RedirectResponse(url=f"/admin?error={code}#{section}", status_code=303)
+    return RedirectResponse(url=admin_url(section, error=code), status_code=303)
 
 
 def _form_error(code: str | None) -> dict | None:
@@ -243,12 +259,58 @@ async def logout(request: Request):
 
 
 @router.get("", response_class=HTMLResponse, dependencies=[Depends(require_admin)])
-async def admin_home(request: Request, weather_error: str | None = None, error: str | None = None):
-    return await _render_admin(request, weather_error=weather_error, error=error)
+async def admin_home(
+    request: Request, tab: str | None = None, weather_error: str | None = None, error: str | None = None
+):
+    return await _render_admin(request, tab=tab, weather_error=weather_error, error=error)
+
+
+async def _google_lists(db, google_account: str | None) -> dict:
+    """The Google account's calendars and task lists, for the Google & Sync
+    tab (and the School tab's calendar picker). Never raises on a Google
+    error: google_offline / tasklists_error say what went wrong."""
+    found: dict = {"available_calendars": [], "available_tasklists": [], "tasklists_error": False,
+                   "google_offline": False}
+    if not google_account:
+        return found
+    try:
+        access_token = await google_oauth.get_valid_access_token(db)
+    except httpx.HTTPError:
+        access_token, found["google_offline"] = None, True
+    if not access_token:
+        return found
+    try:
+        found["available_calendars"] = await google_oauth.fetch_calendar_list(access_token)
+    except httpx.HTTPError:
+        found["google_offline"] = True
+    try:
+        found["available_tasklists"] = await google_tasks.fetch_tasklists(access_token)
+    except httpx.HTTPStatusError as exc:
+        # 403 = this account connected before the `tasks` scope
+        # existed — settings.html shows a reconnect prompt.
+        if exc.response.status_code == 403:
+            found["tasklists_error"] = True
+        else:
+            found["google_offline"] = True
+    except httpx.HTTPError:
+        found["google_offline"] = True
+    return found
+
+
+def _tab_from_query(request: Request, form_error: dict | None, weather_error: str | None) -> str:
+    if form_error:
+        return admin_tabs.SECTIONS[form_error["section"]]
+    for param, section in (("sync", "sync"), ("school_email", "school-email")):
+        if request.query_params.get(param):
+            return admin_tabs.SECTIONS[section]
+    if weather_error:
+        return admin_tabs.SECTIONS["weather"]
+    return admin_tabs.DEFAULT_TAB
 
 
 async def _render_admin(
     request: Request,
+    tab: str | None = None,
     weather_error: str | None = None,
     error: str | None = None,
     homework_error: str | None = None,
@@ -259,100 +321,78 @@ async def _render_admin(
     inbox_error: str | None = None,
     status_code: int = 200,
 ):
-    """Renders Admin. After a validation error, *_form carries what was
-    submitted (with "id" None for the add form, else the row being edited)
-    so nothing typed is lost."""
+    """Renders one Admin tab (app/admin_tabs.py), loading only what that
+    tab shows. After a validation error, *_form carries what was submitted
+    (with "id" None for the add form, else the row being edited) so nothing
+    typed is lost."""
+    form_error = _form_error(error)
+    if tab not in admin_tabs.TABS:
+        # No (valid) tab: an older link such as /admin?error=pin-invalid#pin
+        # still opens the tab its message or status belongs to.
+        tab = _tab_from_query(request, form_error, weather_error)
+    if form_error and admin_tabs.SECTIONS[form_error["section"]] != tab:
+        form_error = None  # it belongs to another tab's section; never shown out of place
+    context: dict = {
+        "admin_tab": tab,
+        "admin_tabs": admin_tabs.TABS,
+        "admin_sections": admin_tabs.SECTIONS,
+        "form_error": form_error,
+    }
     async with get_db() as db:
-        profiles = [dict(r) for r in await (await db.execute(
+        context["appearance"] = await appearance.current_mode(db)
+        context["profiles"] = [dict(r) for r in await (await db.execute(
             "SELECT * FROM profiles ORDER BY sort_order"
         )).fetchall()]
-        tasks = await task_service.get_admin_tasks(db)
-        today = await family_today(db)
-        homework_items, finished_homework = await homework.get_admin_homework(db, today)
-        word_lists = await homework.get_admin_word_lists(db)
-        handwriting_style = await homework.get_handwriting_style(db)
         google_account = await google_oauth.get_connected_account(db)
-        weather_location = await weather.get_location(db)
-        current_appearance = await appearance.get_appearance(db)
-        mode = await appearance.current_mode(db)
-        backup_status = backup.status(await family_timezone(db))
-        sync = await sync_status.summary(db)
-        inbox = await imports.get_inbox(db)
-        school = await school_email.summary(db)
-        event_setup = await _event_setup(db)
+        context["google_account"] = google_account
+        context["google_configured"] = google_oauth.is_configured()
+        context["inbox_configured"] = extraction.is_configured()
 
-        available_calendars = []
-        selected_calendar_ids = []
-        available_tasklists = []
-        tasklists_error = False
-        google_offline = False
-        shopping_tasklist = None
-        if google_account:
-            try:
-                access_token = await google_oauth.get_valid_access_token(db)
-            except httpx.HTTPError:
-                access_token, google_offline = None, True
-            if access_token:
-                try:
-                    available_calendars = await google_oauth.fetch_calendar_list(access_token)
-                except httpx.HTTPError:
-                    google_offline = True
-                try:
-                    available_tasklists = await google_tasks.fetch_tasklists(access_token)
-                except httpx.HTTPStatusError as exc:
-                    # 403 = this account connected before the `tasks` scope
-                    # existed — settings.html shows a reconnect prompt.
-                    if exc.response.status_code == 403:
-                        tasklists_error = True
-                    else:
-                        google_offline = True
-                except httpx.HTTPError:
-                    google_offline = True
-            selected_calendar_ids = [c["id"] for c in await google_oauth.get_selected_calendars(db)]
-            shopping_tasklist = await task_sync.get_shopping_tasklist(db)
+        if tab == "family":
+            today = await family_today(db)
+            homework_items, finished_homework = await homework.get_admin_homework(db, today)
+            context.update({
+                "tasks": await task_service.get_admin_tasks(db),
+                "weekdays": recurrence.WEEKDAYS,
+                "homework_items": homework_items,
+                "finished_homework": finished_homework,
+                "homework_form": homework_form,
+                "homework_error": homework_error,
+                "word_lists": await homework.get_admin_word_lists(db),
+                "words_form": words_form,
+                "words_error": words_error,
+                "handwriting_style": await homework.get_handwriting_style(db),
+                "handwriting_styles": homework.HANDWRITING_STYLES,
+            })
+        elif tab == "school":
+            lists = await _google_lists(db, google_account)
+            context.update({
+                "inbox": await imports.get_inbox(db),
+                "inbox_form": inbox_form,
+                "inbox_error": inbox_error,
+                "school": await school_email.summary(db),
+                "event_setup": await _event_setup(db),
+                "writable_calendars": [c for c in lists["available_calendars"] if c.get("writable")],
+            })
+        elif tab == "display":
+            context.update({
+                "weather_location": await weather.get_location(db),
+                "weather_error": weather_error,
+                "appearance_setting": await appearance.get_appearance(db),
+                "appearances": appearance.APPEARANCES,
+            })
+        elif tab == "google":
+            context.update(await _google_lists(db, google_account))
+            context["sync"] = await sync_status.summary(db)
+            if google_account:
+                context["selected_calendar_ids"] = [c["id"] for c in await google_oauth.get_selected_calendars(db)]
+                context["shopping_tasklist"] = await task_sync.get_shopping_tasklist(db)
+        elif tab == "assistant":
+            context["assistant_model"] = extraction.model_name()
+        elif tab == "system":
+            context["backup_status"] = backup.status(await family_timezone(db))
 
-    return templates.TemplateResponse(
-        request,
-        "admin/settings.html",
-        {
-            "profiles": profiles,
-            "tasks": tasks,
-            "google_account": google_account,
-            "google_configured": google_oauth.is_configured(),
-            "available_calendars": available_calendars,
-            "selected_calendar_ids": selected_calendar_ids,
-            "available_tasklists": available_tasklists,
-            "tasklists_error": tasklists_error,
-            "google_offline": google_offline,
-            "shopping_tasklist": shopping_tasklist,
-            "weather_location": weather_location,
-            "weather_error": weather_error,
-            "form_error": _form_error(error),
-            "homework_items": homework_items,
-            "finished_homework": finished_homework,
-            "homework_form": homework_form,
-            "words_form": words_form,
-            "word_lists": word_lists,
-            "homework_error": homework_error,
-            "words_error": words_error,
-            "handwriting_style": handwriting_style,
-            "handwriting_styles": homework.HANDWRITING_STYLES,
-            "appearance": mode,
-            "appearance_setting": current_appearance,
-            "appearances": appearance.APPEARANCES,
-            "weekdays": recurrence.WEEKDAYS,
-            "backup_status": backup_status,
-            "sync": sync,
-            "inbox": inbox,
-            "inbox_configured": extraction.is_configured(),
-            "inbox_form": inbox_form,
-            "inbox_error": inbox_error,
-            "school": school,
-            "event_setup": event_setup,
-            "writable_calendars": [c for c in available_calendars if c.get("writable")],
-        },
-        status_code=status_code,
-    )
+    return templates.TemplateResponse(request, "admin/settings.html", context, status_code=status_code)
 
 
 # --- Family member management ---
@@ -367,23 +407,33 @@ async def add_profile(name: str = Form(...), colour_hex: str = Form(...)):
             (name.strip(), colour_hex, next_order),
         )
         await db.commit()
-    return RedirectResponse(url="/admin", status_code=303)
+    return RedirectResponse(url=admin_url("family"), status_code=303)
 
 
-@router.post("/profiles/{profile_id}/school-year", dependencies=[Depends(require_admin)])
-async def save_school_year(profile_id: int, school_year: str = Form("")):
-    """A child's year group ("Year 4"): the school inbox uses it to decide
-    whose spellings and homework are whose. Blank clears it."""
+@router.post("/profiles/{profile_id}/details", dependencies=[Depends(require_admin)])
+async def save_profile_details(
+    profile_id: int, school_year: str = Form(""), is_parent: bool = Form(False), email: str = Form("")
+):
+    """A family member's details. A child's year group ("Year 4"): the school
+    inbox uses it to decide whose spellings and homework are whose. Parent +
+    email (spec 10.0): for assistant parent tasks and the weekly digest; only
+    shown in Admin so far. Blank clears the year group or the email."""
     try:
-        value = homework.clean_text(school_year, "Year group", MAX_SCHOOL_YEAR) or None
+        year = homework.clean_text(school_year, "Year group", MAX_SCHOOL_YEAR) or None
     except homework.ValidationError:
         return _admin_error("profile-year")
+    address = email.strip() or None
+    if address is not None and (len(address) > MAX_EMAIL or not EMAIL_PATTERN.fullmatch(address)):
+        return _admin_error("profile-email")
     async with get_db() as db:
-        cursor = await db.execute("UPDATE profiles SET school_year = ? WHERE id = ?", (value, profile_id))
+        cursor = await db.execute(
+            "UPDATE profiles SET school_year = ?, is_parent = ?, email = ? WHERE id = ?",
+            (year, int(is_parent), address, profile_id),
+        )
         await db.commit()
     if not cursor.rowcount:
         return _admin_error("profile-missing")
-    return RedirectResponse(url="/admin#family", status_code=303)
+    return RedirectResponse(url=admin_url("family"), status_code=303)
 
 
 @router.post("/profiles/{profile_id}/delete", dependencies=[Depends(require_admin)])
@@ -391,7 +441,7 @@ async def delete_profile(profile_id: int):
     async with get_db() as db:
         await db.execute("DELETE FROM profiles WHERE id = ?", (profile_id,))
         await db.commit()
-    return RedirectResponse(url="/admin", status_code=303)
+    return RedirectResponse(url=admin_url("family"), status_code=303)
 
 
 # --- Task schedules ---
@@ -440,7 +490,7 @@ async def edit_task(
             )
             await task_sync.queue_sync(db, "tasks", {"task_id": task_id})
         await db.commit()
-    return RedirectResponse(url="/admin#tasks", status_code=303)
+    return RedirectResponse(url=admin_url("tasks"), status_code=303)
 
 
 # --- Homework + practice words (not synced to Google) ---
@@ -459,7 +509,7 @@ async def add_homework(
         try:
             fields = await homework.homework_fields(db, profile_id, subject, title, details, due_date)
         except homework.ValidationError as exc:
-            return await _render_admin(request, homework_error=str(exc), status_code=400, homework_form={
+            return await _render_admin(request, tab="family", homework_error=str(exc), status_code=400, homework_form={
                 "id": homework_id, "profile_id": profile_id, "subject": subject, "title": title,
                 "details": details, "due_date": due_date,
             })
@@ -467,7 +517,7 @@ async def add_homework(
             "INSERT INTO homework (profile_id, subject, title, details, due_date) VALUES (?, ?, ?, ?, ?)", fields
         )
         await db.commit()
-    return RedirectResponse(url="/admin#homework", status_code=303)
+    return RedirectResponse(url=admin_url("homework"), status_code=303)
 
 
 @router.post("/homework/{homework_id}/edit", dependencies=[Depends(require_admin)])
@@ -486,7 +536,7 @@ async def edit_homework(
         try:
             fields = await homework.homework_fields(db, profile_id, subject, title, details, due_date)
         except homework.ValidationError as exc:
-            return await _render_admin(request, homework_error=str(exc), status_code=400, homework_form={
+            return await _render_admin(request, tab="family", homework_error=str(exc), status_code=400, homework_form={
                 "id": homework_id, "profile_id": profile_id, "subject": subject, "title": title,
                 "details": details, "due_date": due_date,
             })
@@ -496,7 +546,7 @@ async def edit_homework(
             (*fields, homework_id),
         )
         await db.commit()
-    return RedirectResponse(url="/admin#homework", status_code=303)
+    return RedirectResponse(url=admin_url("homework"), status_code=303)
 
 
 @router.post("/homework/{homework_id}/archive", dependencies=[Depends(require_admin)])
@@ -507,7 +557,7 @@ async def archive_homework(homework_id: int):
             "UPDATE homework SET archived = 1 - archived, updated_at = datetime('now') WHERE id = ?", (homework_id,)
         )
         await db.commit()
-    return RedirectResponse(url="/admin#homework", status_code=303)
+    return RedirectResponse(url=admin_url("homework"), status_code=303)
 
 
 @router.post("/homework/{homework_id}/delete", dependencies=[Depends(require_admin)])
@@ -515,7 +565,7 @@ async def delete_homework(homework_id: int):
     async with get_db() as db:
         await db.execute("DELETE FROM homework WHERE id = ?", (homework_id,))
         await db.commit()
-    return RedirectResponse(url="/admin#homework", status_code=303)
+    return RedirectResponse(url=admin_url("homework"), status_code=303)
 
 
 
@@ -533,7 +583,7 @@ async def add_word_list(
         try:
             fields = await homework.word_list_fields(db, profile_id, title, words, starts_on, ends_on)
         except homework.ValidationError as exc:
-            return await _render_admin(request, words_error=str(exc), status_code=400, words_form={
+            return await _render_admin(request, tab="family", words_error=str(exc), status_code=400, words_form={
                 "id": list_id, "profile_id": profile_id, "title": title, "words": words,
                 "starts_on": starts_on, "ends_on": ends_on,
             })
@@ -542,7 +592,7 @@ async def add_word_list(
             fields,
         )
         await db.commit()
-    return RedirectResponse(url="/admin#practice-words", status_code=303)
+    return RedirectResponse(url=admin_url("practice-words"), status_code=303)
 
 
 @router.post("/practice-words/{list_id}/edit", dependencies=[Depends(require_admin)])
@@ -561,7 +611,7 @@ async def edit_word_list(
         try:
             fields = await homework.word_list_fields(db, profile_id, title, words, starts_on, ends_on)
         except homework.ValidationError as exc:
-            return await _render_admin(request, words_error=str(exc), status_code=400, words_form={
+            return await _render_admin(request, tab="family", words_error=str(exc), status_code=400, words_form={
                 "id": list_id, "profile_id": profile_id, "title": title, "words": words,
                 "starts_on": starts_on, "ends_on": ends_on,
             })
@@ -571,7 +621,7 @@ async def edit_word_list(
             (*fields, list_id),
         )
         await db.commit()
-    return RedirectResponse(url="/admin#practice-words", status_code=303)
+    return RedirectResponse(url=admin_url("practice-words"), status_code=303)
 
 
 @router.post("/practice-words/{list_id}/archive", dependencies=[Depends(require_admin)])
@@ -583,7 +633,7 @@ async def archive_word_list(list_id: int):
             (list_id,),
         )
         await db.commit()
-    return RedirectResponse(url="/admin#practice-words", status_code=303)
+    return RedirectResponse(url=admin_url("practice-words"), status_code=303)
 
 
 @router.post("/practice-words/{list_id}/delete", dependencies=[Depends(require_admin)])
@@ -591,7 +641,7 @@ async def delete_word_list(list_id: int):
     async with get_db() as db:
         await db.execute("DELETE FROM practice_word_lists WHERE id = ?", (list_id,))
         await db.commit()
-    return RedirectResponse(url="/admin#practice-words", status_code=303)
+    return RedirectResponse(url=admin_url("practice-words"), status_code=303)
 
 
 @router.post("/handwriting-style", dependencies=[Depends(require_admin)])
@@ -601,7 +651,7 @@ async def save_handwriting_style(style: str = Form("")):
     async with get_db() as db:
         await set_setting(db, homework.HANDWRITING_SETTING, style)
         await db.commit()
-    return RedirectResponse(url="/admin#practice-words", status_code=303)
+    return RedirectResponse(url=admin_url("practice-words"), status_code=303)
 
 
 # --- School inbox (app/services/imports.py): nothing reaches the wall unapproved ---
@@ -656,7 +706,7 @@ async def inbox_add(request: Request):
     result = await imports.start_ingest(doc)
     if result.already:
         return _admin_error("import-already")
-    return RedirectResponse(url="/admin#inbox", status_code=303)
+    return RedirectResponse(url=admin_url("inbox"), status_code=303)
 
 
 def _is_htmx(request: Request) -> bool:
@@ -696,7 +746,7 @@ async def _inbox_done(request: Request, source_id: int | None, error: str | None
     the ADMIN_ERRORS message, if any), else a redirect back to Admin."""
     if _is_htmx(request) and source_id is not None:
         return await _source_fragment(request, source_id, source_error=ADMIN_ERRORS[error][1] if error else None)
-    return _admin_error(error) if error else RedirectResponse(url="/admin#inbox", status_code=303)
+    return _admin_error(error) if error else RedirectResponse(url=admin_url("inbox"), status_code=303)
 
 
 async def _candidate_source(candidate_id: int) -> int | None:
@@ -754,7 +804,7 @@ async def inbox_approve(
             inbox_form = {"id": candidate_id, **form}
             if _is_htmx(request) and source_id is not None:
                 return await _source_fragment(request, source_id, inbox_form=inbox_form, inbox_error=str(exc))
-            return await _render_admin(request, inbox_error=str(exc), inbox_form=inbox_form, status_code=400)
+            return await _render_admin(request, tab="school", inbox_error=str(exc), inbox_form=inbox_form, status_code=400)
     return await _inbox_done(request, source_id)
 
 
@@ -811,7 +861,7 @@ async def save_school_email_schedule(mode: str = Form(""), time: str = Form(""))
         return _admin_error("school-schedule")
     async with get_db() as db:
         await school_email.set_schedule(db, schedule)
-    return RedirectResponse(url="/admin#school-email", status_code=303)
+    return RedirectResponse(url=admin_url("school-email"), status_code=303)
 
 
 @router.post("/school-email/senders", dependencies=[Depends(require_admin)])
@@ -823,7 +873,7 @@ async def save_school_email_senders(senders: str = Form(""), exclusions: str = F
         return _admin_error("school-senders")
     async with get_db() as db:
         await school_email.set_lists(db, allow, deny)
-    return RedirectResponse(url="/admin#school-email", status_code=303)
+    return RedirectResponse(url=admin_url("school-email"), status_code=303)
 
 
 @router.post("/school-email/calendar", dependencies=[Depends(require_admin)])
@@ -831,7 +881,7 @@ async def save_school_events_calendar(calendar_id: str = Form("")):
     async with get_db() as db:
         if not calendar_id:
             await school_events.set_target_calendar(db, None)
-            return RedirectResponse(url="/admin#school-email", status_code=303)
+            return RedirectResponse(url=admin_url("school-email"), status_code=303)
         try:
             access_token = await google_oauth.get_valid_access_token(db)
             # Re-derive the name and access from Google rather than trusting the form.
@@ -842,7 +892,7 @@ async def save_school_events_calendar(calendar_id: str = Form("")):
         if match is None:
             return _admin_error("school-calendar")
         await school_events.set_target_calendar(db, match)
-    return RedirectResponse(url="/admin#school-email", status_code=303)
+    return RedirectResponse(url=admin_url("school-email"), status_code=303)
 
 
 @router.post("/school-email/check", dependencies=[Depends(require_admin)])
@@ -851,7 +901,7 @@ async def check_school_email_now():
     MAX_MESSAGES_PER_RUN Claude reads). If a check is already running, this
     doesn't start a second one; Admin says so instead."""
     status = "started" if school_email.start_check() else "busy"
-    return RedirectResponse(url=f"/admin?school_email={status}#school-email", status_code=303)
+    return RedirectResponse(url=admin_url("school-email", school_email=status), status_code=303)
 
 
 @router.get("/school-email/status", response_class=HTMLResponse, dependencies=[Depends(require_admin)])
@@ -878,7 +928,7 @@ async def save_shopping_tasklist(tasklist_id: str = Form(...)):
         if match and (current is None or current["id"] != match["id"]):
             await task_sync.set_shopping_tasklist(db, match)
             await task_sync.relink_shopping(db)
-    return RedirectResponse(url="/admin", status_code=303)
+    return RedirectResponse(url=admin_url("task-lists"), status_code=303)
 
 
 @router.post("/google/task-lists", dependencies=[Depends(require_admin)])
@@ -895,7 +945,7 @@ async def save_profile_tasklists(request: Request):
             )
             await task_sync.relink_profile(db, profile["id"])
         await db.commit()
-    return RedirectResponse(url="/admin", status_code=303)
+    return RedirectResponse(url=admin_url("task-lists"), status_code=303)
 
 
 # --- Weather ---
@@ -906,12 +956,12 @@ async def save_weather_location(place: str = Form(...)):
         location = await weather.geocode(place)
     # A malformed geocoder response is treated like an outage, never a 500.
     except (httpx.HTTPError, KeyError, IndexError, ValueError, TypeError, AttributeError):
-        return RedirectResponse(url="/admin?weather_error=offline#weather", status_code=303)
+        return RedirectResponse(url=admin_url("weather", weather_error="offline"), status_code=303)
     if not location:
-        return RedirectResponse(url="/admin?weather_error=notfound#weather", status_code=303)
+        return RedirectResponse(url=admin_url("weather", weather_error="notfound"), status_code=303)
     async with get_db() as db:
         await weather.set_location(db, location)
-    return RedirectResponse(url="/admin#weather", status_code=303)
+    return RedirectResponse(url=admin_url("weather"), status_code=303)
 
 
 # --- Display ---
@@ -920,7 +970,7 @@ async def save_weather_location(place: str = Form(...)):
 async def save_onscreen_keyboard(enabled: bool = Form(False)):
     async with get_db() as db:
         await set_onscreen_keyboard(db, enabled)
-    return RedirectResponse(url="/admin", status_code=303)
+    return RedirectResponse(url=admin_url("keyboard"), status_code=303)
 
 
 @router.post("/appearance", dependencies=[Depends(require_admin)])
@@ -929,7 +979,7 @@ async def save_appearance(value: str = Form("")):
         return _admin_error("appearance")
     async with get_db() as db:
         await appearance.set_appearance(db, value)
-    return RedirectResponse(url="/admin#display", status_code=303)
+    return RedirectResponse(url=admin_url("display"), status_code=303)
 
 
 # --- PIN management ---
@@ -951,9 +1001,9 @@ async def _save_new_pin(new_pin: str, confirm_pin: str | None) -> tuple[str | No
     return None, generation
 
 
-def _signed_in_redirect(request: Request, generation: int) -> RedirectResponse:
+def _signed_in_redirect(request: Request, generation: int, url: str = "/admin") -> RedirectResponse:
     # The device that changed the PIN stays signed in, under the new generation.
-    response = RedirectResponse(url="/admin", status_code=303)
+    response = RedirectResponse(url=url, status_code=303)
     start_session(response, request, generation)
     return response
 
@@ -963,7 +1013,7 @@ async def change_pin(request: Request, new_pin: str = Form(...), confirm_pin: st
     error, generation = await _save_new_pin(new_pin, confirm_pin)
     if error:
         return _admin_error(error)
-    return _signed_in_redirect(request, generation)
+    return _signed_in_redirect(request, generation, admin_url("pin"))
 
 
 async def _pin_is_default() -> bool:
@@ -1005,4 +1055,4 @@ async def new_pin_submit(request: Request, new_pin: str = Form(...), confirm_pin
 async def run_backup_now():
     if await backup.create_backup() is None:
         return _admin_error("backup-failed")
-    return RedirectResponse(url="/admin#backups", status_code=303)
+    return RedirectResponse(url=admin_url("backups"), status_code=303)

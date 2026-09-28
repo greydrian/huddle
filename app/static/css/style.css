@@ -14,6 +14,11 @@
 
    Read from 1–3 m across a kitchen: body text is never below 1rem and
    secondary text never below 0.8rem. Every text pair meets WCAG AA.
+
+   Touch targets are at least 48 x 48 px (spec 10.0; tests/e2e/
+   test_touch_targets.py). Where a bigger visual would crowd the design, a
+   small control sets --hit-x/--hit-y and grows its tappable box with an
+   invisible ::after instead (see "Hit areas" below).
    ============================================================ */
 
 @font-face {
@@ -175,6 +180,7 @@ input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-
 .sync-dot:empty { display: none; }
 .sync-dot-amber, .sync-dot-red, .sync-state {
   display: inline-flex;
+  box-sizing: border-box;
   align-items: center;
   gap: 8px;
   padding: 8px 16px;
@@ -192,6 +198,7 @@ input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-
   background: var(--sync-colour, var(--accent));
   flex-shrink: 0;
 }
+.sync-dot-amber, .sync-dot-red { min-height: 48px; }
 .sync-dot-amber, .sync-state-amber { --sync-colour: var(--warn); background: var(--warn-soft); border: 1px solid var(--warn); }
 .sync-dot-red, .sync-state-red { --sync-colour: var(--danger); background: var(--danger-soft); border: 1px solid var(--danger); }
 .sync-state-ok { background: var(--accent-soft); }
@@ -328,6 +335,7 @@ body:has(> .dashboard-scroll) > .topbar { flex-shrink: 0; }
   color: var(--ink-soft);
 }
 .task-check {
+  position: relative;
   width: 36px; height: 36px;
   border-radius: 50%;
   border: 2px solid var(--control);
@@ -372,11 +380,12 @@ body:has(> .dashboard-scroll) > .topbar { flex-shrink: 0; }
 /* --- Shopping list --- */
 .shopping-row {
   display: flex; align-items: center; gap: 8px;
-  padding: 6px 0;
+  padding: 9px 0;
   border-bottom: 1px solid var(--line);
 }
 .shopping-row.checked .shopping-title { text-decoration: line-through; color: var(--ink-soft); }
 .shopping-check {
+  position: relative;
   width: 30px; height: 30px; padding: 0;
   border-radius: 50%; border: 2px solid var(--control); background: transparent;
   display: flex; align-items: center; justify-content: center;
@@ -385,6 +394,7 @@ body:has(> .dashboard-scroll) > .topbar { flex-shrink: 0; }
 .shopping-row.checked .shopping-check { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 .shopping-title { flex: 1; min-width: 0; font-size: 1.05rem; line-height: 1.25; overflow-wrap: break-word; hyphens: auto; }
 .shopping-delete {
+  position: relative;
   width: 30px; height: 36px; padding: 0; flex-shrink: 0; margin-right: -6px;
   display: flex; align-items: center; justify-content: center;
   background: none; border: none; border-radius: 50%;
@@ -392,12 +402,13 @@ body:has(> .dashboard-scroll) > .topbar { flex-shrink: 0; }
 }
 .shopping-add-form { display: flex; gap: 8px; margin-top: 12px; }
 .shopping-add-form input {
-  flex: 1; min-width: 0; padding: 10px 8px;
+  flex: 1; min-width: 0; min-height: 48px; padding: 10px 8px;
   border-radius: var(--radius-control); border: 1px solid var(--line);
   background: var(--sunken); font-size: 1rem;
 }
 .shopping-add-form input::placeholder, .meal-desc-input::placeholder { color: var(--ink-soft); opacity: 1; }
 .shopping-add-form button {
+  min-width: 56px; min-height: 48px;
   background: var(--accent); color: var(--on-accent); border: none;
   border-radius: var(--radius-control); padding: 0 12px;
   font-size: 1rem; font-weight: 600; cursor: pointer;
@@ -410,7 +421,7 @@ body:has(> .dashboard-scroll) > .topbar { flex-shrink: 0; }
 .cal-header .widget-title { font-size: 1.5rem; }
 .cal-nav { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 .cal-nav-btn {
-  width: 42px; height: 42px; padding: 0;
+  width: 48px; height: 48px; padding: 0;
   border-radius: 50%; border: none;
   background: var(--sunken); color: var(--ink);
   display: flex; align-items: center; justify-content: center;
@@ -423,6 +434,7 @@ body:has(> .dashboard-scroll) > .topbar { flex-shrink: 0; }
   background: transparent;
   border: 1.5px solid var(--accent);
   border-radius: 999px;
+  min-height: 48px;
   padding: 8px 16px;
   cursor: pointer;
   flex-shrink: 0;
@@ -545,7 +557,7 @@ body:has(> .dashboard-scroll) > .topbar { flex-shrink: 0; }
 /* --- Meal plan --- */
 .meal-row {
   display: flex; align-items: center; gap: 8px;
-  padding: 5px 0;
+  padding: 0;
   border-bottom: 1px solid var(--line);
 }
 .meal-row:last-child { border-bottom: none; }
@@ -555,6 +567,7 @@ body:has(> .dashboard-scroll) > .topbar { flex-shrink: 0; }
   flex: 1; min-width: 0;
   border: none; background: transparent;
   font-size: 1rem; color: var(--ink);
+  min-height: 48px;
   padding: 4px 6px; border-radius: 8px;
   text-overflow: ellipsis;
 }
@@ -596,6 +609,7 @@ body:has(> .dashboard-scroll) > .topbar { flex-shrink: 0; }
   color: var(--accent);
   border: 1.5px solid var(--accent);
   border-radius: 999px;
+  min-height: 48px;
   padding: 7px 16px;
   text-decoration: none;
   display: inline-flex;
@@ -659,7 +673,7 @@ body:has(> .dashboard-scroll) > .topbar { flex-shrink: 0; }
 /* --- Buttons --- */
 .btn, .admin-form button {
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
-  min-height: 42px;
+  min-height: 48px;
   background: var(--accent); color: var(--on-accent);
   border: none; border-radius: var(--radius-control);
   padding: 9px 18px;
@@ -669,7 +683,8 @@ body:has(> .dashboard-scroll) > .topbar { flex-shrink: 0; }
 }
 .btn-danger { background: var(--danger); color: var(--on-accent); }
 .btn-quiet { background: var(--sunken); color: var(--ink); }
-.btn-small { min-height: 36px; padding: 6px 14px; font-size: 0.9rem; }
+/* Smaller text and padding, same 48px touch height. */
+.btn-small { min-height: 48px; padding: 6px 14px; font-size: 0.9rem; }
 /* Quiet outline button for the topbar. */
 .btn-ghost {
   display: inline-flex;
@@ -681,11 +696,23 @@ body:has(> .dashboard-scroll) > .topbar { flex-shrink: 0; }
   background: var(--card);
   border: 1px solid var(--line);
   border-radius: 999px;
+  min-height: 48px;
   padding: 10px 20px;
   text-decoration: none;
   cursor: pointer;
   flex-shrink: 0;
 }
+
+/* Hit areas: a small visual with a 48px tappable box (see the header).
+   Each sets --hit-x/--hit-y (how far the box reaches past each side; the
+   touch-target test reads them) and must be position: relative, with room
+   around it so the boxes of neighbours don't overlap. */
+.task-check::after, .shopping-check::after, .shopping-delete::after {
+  content: ""; position: absolute; inset: var(--hit-y) var(--hit-x);
+}
+.task-check { --hit-x: -6px; --hit-y: -6px; }                /* 36 -> 48 */
+.shopping-check { --hit-x: -9px; --hit-y: -9px; }            /* 30 -> 48 */
+.shopping-delete { --hit-x: -9px; --hit-y: -6px; }           /* 30x36 -> 48 */
 
 /* --- Admin --- */
 /* The kiosk locks html/body scrolling (above) for the dashboard; Admin and
@@ -695,6 +722,19 @@ html:has(.admin-shell), html:has(.admin-shell) body { height: auto; overflow-y: 
 .admin-shell h1 { margin: 0; font-size: 2rem; font-weight: 700; letter-spacing: -0.02em; }
 .admin-topbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; }
 .admin-topbar-actions { display: flex; gap: 8px; align-items: center; }
+/* Admin tabs (app/admin_tabs.py): big pills; the current one is solid
+   accent, so it reads at a glance in both palettes. */
+.admin-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 20px; }
+.admin-tab {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-height: 52px; min-width: 88px; padding: 10px 20px;
+  border-radius: 999px; border: 1.5px solid var(--line);
+  background: var(--card); color: var(--ink);
+  font-size: 1.05rem; font-weight: 600; text-decoration: none;
+}
+/* (Beats the generic `.admin-shell a` link colour below.) */
+.admin-shell .admin-tabs a.admin-tab:not(.btn) { color: var(--ink); }
+.admin-shell .admin-tabs a.admin-tab.is-current:not(.btn) { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 .admin-panel {
   background: var(--card); color: var(--ink);
   border-radius: 20px; box-shadow: var(--shadow-card), 0 0 0 1px var(--card-edge);
@@ -709,15 +749,25 @@ html:has(.admin-shell), html:has(.admin-shell) body { height: auto; overflow-y: 
   padding: 10px 0; border-bottom: 1px solid var(--line);
 }
 .admin-person { display: inline-flex; align-items: center; gap: 10px; font-weight: 600; }
+/* Family Members: name + Remove, then year group / Parent / email on their own line. */
+.family-row { flex-wrap: wrap; }
+.profile-details { flex-basis: 100%; margin-top: 0; align-items: center; }
+.profile-details input[name="school_year"] { width: 10em; }
+.profile-details input[name="email"] { flex: 1; min-width: 200px; }
+.admin-badge {
+  margin-left: 4px; padding: 2px 10px; border-radius: 999px;
+  background: var(--accent-soft); color: var(--ink); font-size: 0.85rem; font-weight: 600;
+}
+.assistant-coming { margin: 0; padding-left: 1.2em; line-height: 1.6; }
 .admin-form { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
-.admin-form input, .admin-form select, .admin-panel select, .admin-form textarea {
-  min-height: 42px;
+.admin-form input:not([type="checkbox"]):not([type="radio"]), .admin-form select, .admin-panel select, .admin-form textarea {
+  min-height: 48px;
   padding: 9px 12px; border-radius: var(--radius-control); border: 1px solid var(--line);
   background: var(--sunken); color: var(--ink); font-size: 1rem;
 }
 .admin-form input[type="color"] { padding: 4px; width: 56px; }
 .admin-panel input[type="checkbox"], .admin-panel input[type="radio"] { width: 20px; height: 20px; accent-color: var(--accent); }
-.admin-check { display: flex; align-items: center; gap: 10px; padding: 6px 0; font-size: 1rem; }
+.admin-check { display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 2px 0; font-size: 1rem; }
 .admin-hint { color: var(--ink-soft); font-size: 0.9rem; margin: 6px 0 10px; }
 .admin-shell a:not(.btn):not(.btn-ghost) { color: var(--accent); }
 .admin-shell code { font-size: 0.9em; background: var(--sunken); padding: 1px 5px; border-radius: 5px; }
@@ -755,7 +805,8 @@ html:has(.admin-shell), html:has(.admin-shell) body { height: auto; overflow-y: 
 .day-chip { position: relative; }
 .day-chip input { position: absolute; opacity: 0; pointer-events: none; }
 .day-chip span {
-  display: inline-block; min-width: 52px; padding: 9px 12px; text-align: center;
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 52px; min-height: 48px; padding: 9px 12px; text-align: center;
   border-radius: 999px; border: 1.5px solid var(--line); background: var(--sunken);
   font-size: 0.95rem; cursor: pointer; user-select: none;
 }
@@ -769,7 +820,7 @@ html:has(.admin-shell), html:has(.admin-shell) body { height: auto; overflow-y: 
 .admin-item:last-child { border-bottom: none; }
 .admin-item-label { flex: 1; min-width: 0; }
 .task-edit summary {
-  list-style: none; display: inline-flex; min-height: 38px; padding: 8px 14px;
+  list-style: none; display: inline-flex; min-height: 48px; padding: 8px 14px;
   font-size: 0.9rem; background: var(--sunken); color: var(--ink);
   border: 1px solid var(--line);
 }
@@ -786,7 +837,6 @@ html:has(.admin-shell), html:has(.admin-shell) body { height: auto; overflow-y: 
 .schedule-person h3 .person-dot { vertical-align: middle; margin-right: 8px; }
 .schedule-person h3 .admin-meta { font-weight: 400; }
 .schedule-person .admin-item { padding: 4px 0; }
-.schedule-person .task-edit summary { min-height: 0; padding: 6px 12px; }
 .schedule-person .task-edit .admin-form { margin: 4px 0 6px; }
 .schedule-empty { margin: 2px 0 0; }
 

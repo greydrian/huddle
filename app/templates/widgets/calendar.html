@@ -37,7 +37,7 @@
     {% if not_connected %}
     {{ stub_empty("calendar-days", "Not connected yet",
                   "Connect a Google account in Admin to bring your family calendar onto the wall.",
-                  cta_href="/admin", cta_label="Connect in Admin →", compact=false, icon_size=44) }}
+                  cta_href="/admin?tab=google#google", cta_label="Connect in Admin →", compact=false, icon_size=44) }}
 
     {% elif view == 'day' %}
     {% if day_offline %}<p class="cal-offline">Couldn't reach Google — some events may be missing.</p>{% endif %}

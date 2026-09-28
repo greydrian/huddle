@@ -344,15 +344,15 @@ async def test_backups_route_requires_admin(client):
 async def test_back_up_now_and_admin_panel(client):
     client.cookies.set(admin.SESSION_COOKIE, create_session_token())
 
-    page = await client.get("/admin")
+    page = await client.get("/admin?tab=system")
     assert "No backups yet." in page.text
 
     resp = await client.post("/admin/backups/run")
     assert resp.status_code == 303
-    assert resp.headers["location"] == "/admin#backups"
+    assert resp.headers["location"] == "/admin?tab=system#backups"
     assert len(backup.list_backups(LONDON)) == 1
 
-    page = await client.get("/admin")
+    page = await client.get("/admin?tab=system")
     assert 'id="backups"' in page.text
     assert "1 kept" in page.text
 
@@ -366,7 +366,7 @@ async def test_back_up_now_failure_shows_an_error(client, monkeypatch):
     monkeypatch.setattr(backup, "_unique_name", unwritable)  # not a 500
     resp = await client.post("/admin/backups/run")
 
-    assert resp.headers["location"] == "/admin?error=backup-failed#backups"
+    assert resp.headers["location"] == "/admin?tab=system&error=backup-failed#backups"
     page = await client.get(resp.headers["location"])
     assert "The backup didn" in page.text
 

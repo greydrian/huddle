@@ -4,7 +4,7 @@
     or just blipping; amber = failing for a while or offline, red = needs a
     person (reconnect). Tapping it opens Admin's Sync panel. -#}
 {% if sync.level %}
-<a id="sync-dot" href="/admin#sync" class="sync-dot sync-dot-{{ sync.level }}"
+<a id="sync-dot" href="/admin?tab=google#sync" class="sync-dot sync-dot-{{ sync.level }}"
    hx-get="/sync-status" hx-trigger="every 60s" hx-swap="outerHTML"
    title="{{ sync.detail }}" data-state="{{ sync.state }}">
   <span class="sync-dot-mark" aria-hidden="true"></span>{{ sync.headline }}

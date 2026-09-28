@@ -143,7 +143,7 @@ async def test_change_pin_rejects_a_pin_the_login_form_cannot_type(client, db, b
     client.cookies.set(admin.SESSION_COOKIE, create_session_token())
     resp = await client.post("/admin/change-pin", data={"new_pin": bad_pin})
 
-    assert (resp.status_code, resp.headers["location"]) == (303, "/admin?error=pin-invalid#pin")
+    assert (resp.status_code, resp.headers["location"]) == (303, "/admin?tab=system&error=pin-invalid#pin")
     assert security.verify_pin(DEFAULT_PIN, await database.get_setting(db, "pin_hash"))
     page = (await client.get(resp.headers["location"])).text
     assert "A PIN must be 4 to 8 digits" in page
@@ -154,7 +154,7 @@ async def test_change_pin_accepts_four_to_eight_digits(client, db, good_pin):
     client.cookies.set(admin.SESSION_COOKIE, create_session_token())
     resp = await client.post("/admin/change-pin", data={"new_pin": good_pin})
 
-    assert resp.headers["location"] == "/admin"
+    assert resp.headers["location"] == "/admin?tab=system#pin"
     assert security.verify_pin(good_pin, await database.get_setting(db, "pin_hash"))
 
 
@@ -293,7 +293,7 @@ async def test_weak_pin_is_rejected_from_admin_settings_too(client, db):
     client.cookies.set(admin.SESSION_COOKIE, create_session_token())
     resp = await client.post("/admin/change-pin", data={"new_pin": "4444"})
 
-    assert resp.headers["location"] == "/admin?error=pin-weak#pin"
+    assert resp.headers["location"] == "/admin?tab=system&error=pin-weak#pin"
     assert "too easy to guess" in (await client.get(resp.headers["location"])).text
 
 
@@ -350,7 +350,7 @@ async def test_pin_change_ends_every_other_session(client):
     other_device = client.cookies[admin.SESSION_COOKIE]
 
     resp = await client.post("/admin/change-pin", data={"new_pin": "2580", "confirm_pin": "2580"})
-    assert resp.headers["location"] == "/admin"
+    assert resp.headers["location"] == "/admin?tab=system#pin"
     assert await _is_admin(client)  # the device that changed it
 
     client.cookies.set(admin.SESSION_COOKIE, other_device)

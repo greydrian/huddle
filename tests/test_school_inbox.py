@@ -207,18 +207,18 @@ async def test_migration_is_idempotent(db):
 
 async def test_school_year_editing(db, admin_client):
     jamie = await _profile_id(db, "Jamie")
-    r = await admin_client.post(f"/admin/profiles/{jamie}/school-year", data={"school_year": "  Reception "})
-    assert r.status_code == 303 and r.headers["location"] == "/admin#family"
+    r = await admin_client.post(f"/admin/profiles/{jamie}/details", data={"school_year": "  Reception "})
+    assert r.status_code == 303 and r.headers["location"] == "/admin?tab=family#family"
     assert (await _rows(db, "SELECT school_year FROM profiles WHERE id = ?", jamie))[0]["school_year"] == "Reception"
     page = (await admin_client.get("/admin")).text
     assert 'value="Reception"' in page
 
-    r = await admin_client.post(f"/admin/profiles/{jamie}/school-year", data={"school_year": "x" * 31})
-    assert r.headers["location"] == "/admin?error=profile-year#family"
-    r = await admin_client.post("/admin/profiles/9999/school-year", data={"school_year": "Year 1"})
-    assert r.headers["location"] == "/admin?error=profile-missing#family"
+    r = await admin_client.post(f"/admin/profiles/{jamie}/details", data={"school_year": "x" * 31})
+    assert r.headers["location"] == "/admin?tab=family&error=profile-year#family"
+    r = await admin_client.post("/admin/profiles/9999/details", data={"school_year": "Year 1"})
+    assert r.headers["location"] == "/admin?tab=family&error=profile-missing#family"
 
-    await admin_client.post(f"/admin/profiles/{jamie}/school-year", data={"school_year": ""})
+    await admin_client.post(f"/admin/profiles/{jamie}/details", data={"school_year": ""})
     assert (await _rows(db, "SELECT school_year FROM profiles WHERE id = ?", jamie))[0]["school_year"] is None
 
 
@@ -238,7 +238,7 @@ async def test_screenshot_upload_becomes_candidates(db, admin_client, api, confi
     r = await admin_client.post(
         "/admin/inbox/add", files=[("files", ("classroom.png", png, "image/png"))], data={"text": ""}
     )
-    assert r.status_code == 303 and r.headers["location"] == "/admin#inbox"
+    assert r.status_code == 303 and r.headers["location"] == "/admin?tab=school#inbox"
     await imports.wait_for_background()
 
     body = _body(route)
@@ -263,7 +263,7 @@ async def test_screenshot_upload_becomes_candidates(db, admin_client, api, confi
     # Nothing reaches the wall until approved.
     assert await _rows(db, "SELECT * FROM practice_word_lists") == []
     assert await _rows(db, "SELECT * FROM homework") == []
-    page = (await admin_client.get("/admin")).text
+    page = (await admin_client.get("/admin?tab=school")).text
     assert "Spellings week 1" in page and "Connect a Google account to add school events" in page
     assert "because\nbusy\nthough" in page
 
@@ -401,7 +401,7 @@ async def test_no_api_key_is_not_configured(db, admin_client, api):
     source = (await _rows(db, "SELECT * FROM import_sources"))[0]
     assert source["status"] == "not_configured"
     assert not route.called
-    page = (await admin_client.get("/admin")).text
+    page = (await admin_client.get("/admin?tab=school")).text
     assert "Not set up yet" in page and "ANTHROPIC_API_KEY" in page
     assert "The school inbox isn&#39;t set up yet" in page  # the source's own message
 
@@ -544,7 +544,7 @@ async def test_reingesting_is_idempotent(db, admin_client, api, configured, rile
 
     # The same paste through Admin is recognised too.
     r = await admin_client.post("/admin/inbox/add", data={"text": "  Spellings   for Year 4 "})
-    assert r.headers["location"] == "/admin?error=import-already#inbox"
+    assert r.headers["location"] == "/admin?tab=school&error=import-already#inbox"
     assert route.call_count == 1
 
 
@@ -588,7 +588,7 @@ async def test_approve_word_list_and_homework(db, admin_client, api, configured,
         "profile_id": riley, "title": "Week 1 spellings", "words": "because\nbusy\nthough, enough",
         "starts_on": "", "ends_on": "",  # open-ended, so it's on the widget whatever the real date
     })
-    assert r.status_code == 303 and r.headers["location"] == "/admin#inbox"
+    assert r.status_code == 303 and r.headers["location"] == "/admin?tab=school#inbox"
     lists = await _rows(db, "SELECT * FROM practice_word_lists")
     assert [(w["profile_id"], w["title"], w["words"], w["source"]) for w in lists] == [
         (riley, "Week 1 spellings", "because\nbusy\nthough\nenough", "import:paste")]
@@ -605,7 +605,7 @@ async def test_approve_word_list_and_homework(db, admin_client, api, configured,
 
     # Events can't be approved yet; they can be discarded.
     r = await admin_client.post(f"/admin/inbox/candidates/{event_id}/approve", data={"profile_id": riley})
-    assert r.headers["location"] == "/admin?error=import-event#inbox"
+    assert r.headers["location"] == "/admin?tab=school&error=import-event#inbox"
     r = await admin_client.post(f"/admin/inbox/candidates/{event_id}/discard")
     assert r.status_code == 303
     assert (await _rows(db, "SELECT status FROM import_candidates WHERE id = ?", event_id))[0]["status"] == "discarded"
@@ -617,7 +617,7 @@ async def test_approve_word_list_and_homework(db, admin_client, api, configured,
 
     # Approving again (a stale page) is refused, not duplicated.
     r = await admin_client.post(f"/admin/inbox/candidates/{words_id}/approve", data={"profile_id": riley})
-    assert r.headers["location"] == "/admin?error=import-missing#inbox"
+    assert r.headers["location"] == "/admin?tab=school&error=import-missing#inbox"
     assert len(await _rows(db, "SELECT * FROM practice_word_lists")) == 1
 
     # The approved items show up through the existing widgets.
@@ -645,7 +645,7 @@ async def test_approve_all_skips_unassigned_duplicates_and_events(db, admin_clie
     await db.commit()
     source_id, _ = await _extracted(db, api, [SPELLINGS, {**SPELLINGS, "words": ["cat"], "child": None}],
                                     [READING, {**READING, "title": "Old task", "due_date": None}], [TRIP])
-    page = (await admin_client.get("/admin")).text
+    page = (await admin_client.get("/admin?tab=school")).text
     assert "Approve all (2)" in page and "Already on the wall" in page
     r = await admin_client.post(f"/admin/inbox/sources/{source_id}/approve-all")
     assert r.status_code == 303
@@ -670,7 +670,7 @@ async def test_remove_source_keeps_approved_rows(db, admin_client, api, configur
 async def test_inbox_output_is_escaped(db, admin_client, api, configured, riley):
     await _extracted(db, api, homework=[{**READING, "title": "<script>alert(1)</script>",
                                          "evidence": "<img src=x onerror=alert(1)>"}])
-    page = (await admin_client.get("/admin")).text
+    page = (await admin_client.get("/admin?tab=school")).text
     assert "<script>alert(1)</script>" not in page and "&lt;script&gt;" in page
     assert "<img src=x" not in page
 
@@ -679,7 +679,7 @@ async def test_reading_source_polls_and_fragment(db, admin_client):
     await db.execute("INSERT INTO import_sources (kind, source_ref, status) VALUES ('paste', 'a', 'pending')")
     await db.commit()
     source_id = (await _rows(db, "SELECT id FROM import_sources"))[0]["id"]
-    page = (await admin_client.get("/admin")).text
+    page = (await admin_client.get("/admin?tab=school")).text
     assert f'hx-get="/admin/inbox/sources/{source_id}"' in page and "Reading…" in page
     await db.execute("UPDATE import_sources SET status = 'extracted' WHERE id = ?", (source_id,))
     await db.commit()
@@ -701,27 +701,27 @@ async def test_upload_limits(db, admin_client, api, configured, monkeypatch):
     png = _png()
 
     r = await admin_client.post("/admin/inbox/add", data={"text": "   "})
-    assert r.headers["location"] == "/admin?error=import-empty#classroom"
+    assert r.headers["location"] == "/admin?tab=school&error=import-empty#classroom"
 
     four = [("files", (f"{i}.png", png, "image/png")) for i in range(4)]
     r = await admin_client.post("/admin/inbox/add", files=four)
-    assert r.headers["location"] == "/admin?error=import-too-many#classroom"
+    assert r.headers["location"] == "/admin?tab=school&error=import-too-many#classroom"
 
     # The claimed type is ignored: a text file named .png is refused.
     r = await admin_client.post("/admin/inbox/add", files=[("files", ("x.png", b"hello there", "image/png"))])
-    assert r.headers["location"] == "/admin?error=import-bad-type#classroom"
+    assert r.headers["location"] == "/admin?tab=school&error=import-bad-type#classroom"
     # A truncated PNG doesn't decode.
     r = await admin_client.post("/admin/inbox/add", files=[("files", ("x.png", png[:30], "image/png"))])
-    assert r.headers["location"] == "/admin?error=import-bad-type#classroom"
+    assert r.headers["location"] == "/admin?tab=school&error=import-bad-type#classroom"
 
     monkeypatch.setattr(extraction, "MAX_ATTACHMENT_BYTES", len(png) - 1)
     r = await admin_client.post("/admin/inbox/add", files=[("files", ("big.png", png, "image/png"))])
-    assert r.headers["location"] == "/admin?error=import-too-big#classroom"
+    assert r.headers["location"] == "/admin?tab=school&error=import-too-big#classroom"
     monkeypatch.setattr(extraction, "MAX_ATTACHMENT_BYTES", 15 * 1024 * 1024)
     monkeypatch.setattr(imports, "MAX_TOTAL_BYTES", len(png) + 1)
     two = [("files", (f"{i}.png", png, "image/png")) for i in range(2)]
     r = await admin_client.post("/admin/inbox/add", files=two)
-    assert r.headers["location"] == "/admin?error=import-too-big#classroom"
+    assert r.headers["location"] == "/admin?tab=school&error=import-too-big#classroom"
 
     await imports.wait_for_background()
     assert not route.called
@@ -769,7 +769,7 @@ def test_large_images_are_shrunk(monkeypatch):
     ("post", "/admin/inbox/candidates/1/discard"),
     ("post", "/admin/inbox/sources/1/approve-all"),
     ("post", "/admin/inbox/sources/1/delete"),
-    ("post", "/admin/profiles/1/school-year"),
+    ("post", "/admin/profiles/1/details"),
 ])
 async def test_inbox_routes_require_admin(db, client, method, path):
     await db.execute("INSERT INTO import_sources (kind, source_ref) VALUES ('paste', 'a')")
@@ -837,7 +837,7 @@ async def test_a_fourth_file_is_refused(db, admin_client, api, configured):
     png = _png()
     files = [("files", (f"{i}.png", png, "image/png")) for i in range(4)]
     r = await admin_client.post("/admin/inbox/add", files=files)
-    assert r.headers["location"] == "/admin?error=import-too-many#classroom"
+    assert r.headers["location"] == "/admin?tab=school&error=import-too-many#classroom"
     assert not api.called
 
 
@@ -929,14 +929,14 @@ async def test_stuck_reading_source_can_be_removed(db, admin_client, monkeypatch
     source_id = (await _rows(db, "SELECT id FROM import_sources"))[0]["id"]
     # Being read right now: no Remove button, and a stale form is refused.
     monkeypatch.setattr(imports, "_running", {source_id})
-    page = (await admin_client.get("/admin")).text
+    page = (await admin_client.get("/admin?tab=school")).text
     assert f"/admin/inbox/sources/{source_id}/delete" not in page
     r = await admin_client.post(f"/admin/inbox/sources/{source_id}/delete")
-    assert r.headers["location"] == "/admin?error=import-busy#inbox"
+    assert r.headers["location"] == "/admin?tab=school&error=import-busy#inbox"
     # "Reading…" for 11 minutes: stuck, so it can go.
     await db.execute("UPDATE import_sources SET updated_at = datetime('now', '-11 minutes')")
     await db.commit()
-    page = (await admin_client.get("/admin")).text
+    page = (await admin_client.get("/admin?tab=school")).text
     assert f"/admin/inbox/sources/{source_id}/delete" in page
     await admin_client.post(f"/admin/inbox/sources/{source_id}/delete")
     assert await _rows(db, "SELECT * FROM import_sources") == []

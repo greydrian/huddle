@@ -34,7 +34,7 @@ async def test_admin_route_toggles_the_setting(db, client):
     assert resp.status_code == 303
     assert await database.get_setting(db, database.ONSCREEN_KEYBOARD_SETTING) == "1"
     assert database.onscreen_keyboard_enabled is True
-    assert "checked" in (await client.get("/admin")).text.split("/admin/onscreen-keyboard")[1][:400]
+    assert "checked" in (await client.get("/admin?tab=display")).text.split("/admin/onscreen-keyboard")[1][:400]
 
     # Unticked checkboxes aren't submitted at all.
     await client.post("/admin/onscreen-keyboard", data={})
