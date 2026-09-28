@@ -21,7 +21,7 @@ import aiosqlite
 DATA_DIR = Path(os.environ.get("DATA_DIR", Path(__file__).parent.parent / "data"))
 DB_PATH = DATA_DIR / "family_display.db"
 
-LAYOUT_VERSION = "2"  # applied by migration 0001; a future layout reset is a new migration
+LAYOUT_VERSION = "2"  # frozen in migration 0001; a future layout reset is a new migration, not a bump
 
 DEFAULT_LAYOUT = [
     # widget_id, x, y, w, h
@@ -55,11 +55,13 @@ async def _add_column_if_missing(db, table: str, column: str, coltype: str):
         await db.execute(f"ALTER TABLE {table} ADD COLUMN {column} {coltype}")
 
 
-async def _add_missing_widgets(db):
+async def _add_missing_widgets(db, layout=None):
+    """Give every widget in `layout` (default: the live DEFAULT_LAYOUT) that
+    has no layout_state row one below everything else."""
     rows = await (await db.execute("SELECT widget_id, grid_y + grid_h AS bottom FROM layout_state")).fetchall()
     present = {row["widget_id"] for row in rows}
     bottom = max((row["bottom"] for row in rows), default=0)
-    for widget_id, x, _y, w, h in DEFAULT_LAYOUT:
+    for widget_id, x, _y, w, h in DEFAULT_LAYOUT if layout is None else layout:
         if widget_id not in present:
             await db.execute(
                 """INSERT OR IGNORE INTO layout_state (widget_id, grid_x, grid_y, grid_w, grid_h, is_visible)

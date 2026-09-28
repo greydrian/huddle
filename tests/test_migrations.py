@@ -1,13 +1,15 @@
 """Numbered migrations (app/migrations.py).
 
-The baseline tests pin MIGRATIONS to version 1 so they stay true after later
-migrations are appended: they prove that a database built by the old
-init_db() (tests/legacy_database.py, a frozen copy) is left exactly as it was.
+The baseline tests run migration 1 only, with the live defaults swapped for
+the frozen ones, so they stay true after later migrations are appended or
+DEFAULT_LAYOUT grows: they prove that a database built by the old init_db()
+(tests/legacy_database.py, a frozen copy) is left exactly as it was.
 """
 
 import asyncio
 import sqlite3
 
+import aiosqlite
 import legacy_database
 import pytest
 
@@ -46,7 +48,28 @@ def _versions(path):
 
 @pytest.fixture
 def baseline_only(monkeypatch):
+    """init_db() as the first deploy runs it: migration 1, then the every-boot
+    checks with the defaults of that time."""
     monkeypatch.setattr(migrations, "MIGRATIONS", migrations.MIGRATIONS[:1])
+    monkeypatch.setattr(database, "DEFAULT_LAYOUT", list(migrations.BASELINE_LAYOUT))
+    monkeypatch.setattr(database, "DEFAULT_PROFILES", list(migrations.BASELINE_PROFILES))
+
+
+async def _run_migrations_only(path, versions):
+    async with aiosqlite.connect(path, isolation_level=None) as db:
+        db.row_factory = aiosqlite.Row
+        await db.execute("PRAGMA journal_mode=WAL;")
+        await db.execute("PRAGMA foreign_keys=ON;")
+        await migrations.run_migrations(db, [m for m in migrations.MIGRATIONS if m.version in versions])
+
+
+def _assert_matches_legacy(path, legacy_path):
+    assert _schema(path) == _schema(legacy_path)
+    # Seeded data is the same too, apart from the salted PIN hash.
+    new, old = _data(path), _data(legacy_path)
+    new["app_settings"] = [row for row in new["app_settings"] if row[0] != "pin_hash"]
+    old["app_settings"] = [row for row in old["app_settings"] if row[0] != "pin_hash"]
+    assert new == old
 
 
 @pytest.fixture
@@ -142,14 +165,38 @@ async def test_fresh_baseline_matches_the_old_init_db(tmp_path, use_db, legacy_d
     path = use_db(tmp_path / "fresh.db")
     await database.init_db()
 
-    assert _schema(path) == _schema(legacy_db)
+    _assert_matches_legacy(path, legacy_db)
     assert _versions(path) == {1}
 
-    # Seeded data is the same too, apart from the salted PIN hash.
-    new, old = _data(path), _data(legacy_db)
-    new["app_settings"] = [row for row in new["app_settings"] if row[0] != "pin_hash"]
-    old["app_settings"] = [row for row in old["app_settings"] if row[0] != "pin_hash"]
-    assert new == old
+
+def test_baseline_constants_are_the_old_ones():
+    assert list(migrations.BASELINE_LAYOUT) == legacy_database.DEFAULT_LAYOUT
+    assert list(migrations.BASELINE_PROFILES) == legacy_database.DEFAULT_PROFILES
+    assert migrations.BASELINE_LAYOUT_VERSION == legacy_database.LAYOUT_VERSION
+
+
+async def _add_board(db):
+    await db.execute("CREATE TABLE IF NOT EXISTS board (id INTEGER PRIMARY KEY)")
+
+
+async def test_baseline_is_frozen_against_later_changes(tmp_path, monkeypatch, use_db, legacy_db):
+    """A later migration, a new widget, new default profiles or a LAYOUT_VERSION
+    bump must not change what migration 1 builds."""
+    monkeypatch.setattr(migrations, "MIGRATIONS", [*migrations.MIGRATIONS, Migration(len(migrations.MIGRATIONS) + 1, "board", _add_board)])
+    monkeypatch.setattr(database, "DEFAULT_LAYOUT", [*database.DEFAULT_LAYOUT, ("clock", 0, 0, 2, 2)])
+    monkeypatch.setattr(database, "DEFAULT_PROFILES", [("Someone", "#000000", 0)])
+    monkeypatch.setattr(database, "LAYOUT_VERSION", "99")
+    path = use_db(tmp_path / "fresh.db")
+
+    await _run_migrations_only(path, {1})
+    _assert_matches_legacy(path, legacy_db)
+    assert _versions(path) == {1}
+
+    # The rest then apply on top as usual; the new widget gets its row.
+    await database.init_db()
+    assert _versions(path) == {m.version for m in migrations.MIGRATIONS}
+    assert "board" in _data(path)
+    assert "clock" in {row[0] for row in _data(path)["layout_state"]}
 
 
 async def test_upgrading_a_live_db_changes_nothing_and_records_the_baseline(legacy_db, use_db, baseline_only):
@@ -228,13 +275,28 @@ async def test_a_migration_that_commits_is_refused(tmp_path, monkeypatch, use_db
     path = use_db(tmp_path / "fresh.db")
     await database.init_db()
 
+    before = _data(path), _schema(path)
+
     async def commits(db):
+        await db.execute("CREATE TABLE half_done (id INTEGER)")
         await db.commit()
 
-    monkeypatch.setattr(migrations, "MIGRATIONS", [*migrations.MIGRATIONS, Migration(len(migrations.MIGRATIONS) + 1, "commits", commits)])
-    with pytest.raises(MigrationError, match="own transaction"):
-        await database.init_db()
-    assert _versions(path) == set(range(1, len(migrations.MIGRATIONS)))
+    async def rolls_back(db):
+        await db.execute("CREATE TABLE half_done (id INTEGER)")
+        await db.rollback()
+
+    async def scripts(db):
+        await db.execute("CREATE TABLE half_done (id INTEGER)")
+        await db.executescript("CREATE TABLE other (id INTEGER);")
+
+    latest = len(migrations.MIGRATIONS)
+    for bad in (commits, rolls_back, scripts):
+        monkeypatch.setattr(migrations, "MIGRATIONS", [*migrations.MIGRATIONS[:latest], Migration(latest + 1, "bad", bad)])
+        with pytest.raises(MigrationError, match="must not"):
+            await database.init_db()
+        # Refused before anything reached the disk: nothing is left behind.
+        assert (_data(path), _schema(path)) == before
+        assert _versions(path) == set(range(1, latest + 1))
 
 
 async def test_concurrent_runs_in_one_process_apply_once(tmp_path, use_db):

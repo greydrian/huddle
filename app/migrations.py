@@ -10,8 +10,11 @@ Rules for adding one:
   MIGRATIONS. Never edit, reorder or remove one that has shipped: the family's
   database has already applied it and will never run it again.
 - A migration receives a connection that is already inside a transaction.
-  It must not call `db.commit()` or `executescript()` (both end the
-  transaction early), and must not change PRAGMAs that can't run in one.
+  Its `commit()`, `rollback()` and `executescript()` raise MigrationError
+  (each would end the transaction early); PRAGMAs that can't run inside a
+  transaction don't belong in one either.
+- Don't read live constants (database.DEFAULT_LAYOUT, ...) in a migration:
+  freeze a copy, as the baseline does, so it means the same thing forever.
 - Keep them idempotent where it's cheap (`IF NOT EXISTS`,
   `database._add_column_if_missing`): a restored backup from before a
   migration simply runs it again.
@@ -43,10 +46,32 @@ class Migration:
     apply: Callable[..., Awaitable[None]]
 
 
+class _MigrationConnection:
+    """What a migration is given: the runner's connection, minus the calls
+    that would end its transaction early (and so commit half a migration)."""
+
+    def __init__(self, db):
+        self._db = db
+
+    def __getattr__(self, name):
+        return getattr(self._db, name)
+
+    async def commit(self):
+        raise MigrationError("a migration must not commit: the runner commits it with its version")
+
+    async def rollback(self):
+        raise MigrationError("a migration must not roll back: raise an exception instead")
+
+    async def executescript(self, *_args, **_kwargs):
+        raise MigrationError("a migration must not use executescript (it commits): execute each statement")
+
+
 # --- Every-boot checks ------------------------------------------------------------------
 # Each of these ran on every start before numbered migrations and still does:
 # they repair data (never schema) and are no-ops on a healthy database. The
-# baseline calls them too, at the same points the old init_db() did.
+# baseline calls them too, at the same points the old init_db() did, but with
+# its own frozen constants. They are shared with the baseline, so don't change
+# what they do to a database: add a new migration instead.
 
 async def _backfill_updated_at(db):
     # Shopping items / tasks inserted without updated_at on a database whose
@@ -55,28 +80,28 @@ async def _backfill_updated_at(db):
     await db.execute("UPDATE tasks SET updated_at = created_at WHERE updated_at IS NULL")
 
 
-async def _seed_profiles_if_empty(db):
+async def _seed_profiles_if_empty(db, profiles):
     cursor = await db.execute("SELECT COUNT(*) FROM profiles")
     (count,) = await cursor.fetchone()
     if count == 0:
         await db.executemany(
             "INSERT INTO profiles (name, colour_hex, sort_order) VALUES (?, ?, ?)",
-            database.DEFAULT_PROFILES,
+            profiles,
         )
 
 
-async def _seed_layout_if_empty(db):
+async def _seed_layout_if_empty(db, layout):
     cursor = await db.execute("SELECT COUNT(*) FROM layout_state")
     (count,) = await cursor.fetchone()
     if count == 0:
         await db.executemany(
             """INSERT INTO layout_state (widget_id, grid_x, grid_y, grid_w, grid_h, is_visible)
                VALUES (?, ?, ?, ?, ?, 1)""",
-            database.DEFAULT_LAYOUT,
+            layout,
         )
 
 
-async def _seed_pin(db):
+async def _seed_pin(db, default_pin):
     # Seed a default admin PIN (1234) on first run only — change this in Admin > Settings
     cursor = await db.execute("SELECT COUNT(*) FROM app_settings WHERE key = 'pin_hash'")
     (count,) = await cursor.fetchone()
@@ -85,7 +110,7 @@ async def _seed_pin(db):
 
         await db.execute(
             "INSERT INTO app_settings (key, value) VALUES ('pin_hash', ?)",
-            (hash_pin("1234"),),
+            (hash_pin(default_pin),),
         )
         # Whenever 1234 is seeded (first run, or the pin_hash row was
         # deleted), Admin must force a change away from it again.
@@ -96,10 +121,10 @@ async def _seed_pin(db):
     # once, for fresh installs and existing DBs alike, by checking whether
     # the stored hash is still "1234"; change-pin clears it.
     if await database.get_setting(db, "pin_is_default") is None:
-        from app.security import DEFAULT_PIN, verify_pin
+        from app.security import verify_pin
 
         stored = await database.get_setting(db, "pin_hash") or ""
-        await database.set_setting(db, "pin_is_default", "1" if verify_pin(DEFAULT_PIN, stored) else "0")
+        await database.set_setting(db, "pin_is_default", "1" if verify_pin(default_pin, stored) else "0")
 
 
 async def _seed_sync_status(db):
@@ -107,14 +132,17 @@ async def _seed_sync_status(db):
 
 
 async def startup_checks(db):
-    """Every-boot data repairs, in the order the old init_db() ran them."""
+    """Every-boot data repairs, in the order the old init_db() ran them, with
+    the live defaults."""
+    from app.security import DEFAULT_PIN
+
     await _backfill_updated_at(db)
-    await _seed_profiles_if_empty(db)
-    await _seed_layout_if_empty(db)
+    await _seed_profiles_if_empty(db, database.DEFAULT_PROFILES)
+    await _seed_layout_if_empty(db, database.DEFAULT_LAYOUT)
     # Widgets added after a layout shipped get a row of their own below
     # everything else, leaving every existing position alone.
-    await database._add_missing_widgets(db)
-    await _seed_pin(db)
+    await database._add_missing_widgets(db, database.DEFAULT_LAYOUT)
+    await _seed_pin(db, DEFAULT_PIN)
     await _seed_sync_status(db)
 
 
@@ -123,6 +151,32 @@ async def startup_checks(db):
 # same order (only its intermediate commits are gone: the runner commits once).
 # On a database that init_db() already built (the family's live one) every
 # step is a no-op, so applying it only records version 1. Never edit it.
+#
+# Frozen copies of everything it seeds, as of 28 Sep 2026. The live
+# database.DEFAULT_LAYOUT etc. will change; the baseline must not. A widget
+# added later reaches existing databases through startup_checks'
+# _add_missing_widgets, and a layout reset is a new migration, never a
+# LAYOUT_VERSION bump.
+BASELINE_LAYOUT_VERSION = "2"
+BASELINE_LAYOUT = (
+    # widget_id, x, y, w, h
+    ("calendar", 0, 0, 12, 7),
+    ("tasks", 0, 7, 4, 4),
+    ("shopping", 4, 7, 2, 4),
+    ("meals", 6, 7, 2, 4),
+    ("weather", 8, 7, 2, 2),
+    ("photos", 8, 9, 2, 2),
+    ("homework", 10, 7, 2, 4),
+    ("practice_words", 0, 11, 6, 4),
+)
+BASELINE_PROFILES = (
+    # name, colour_hex, sort_order
+    ("Mum", "#C1584A", 0),
+    ("Dad", "#3D6E93", 1),
+    ("Riley", "#D6A02C", 2),
+    ("Jamie", "#4C8577", 3),
+)
+BASELINE_PIN = "1234"
 
 BASELINE_SCHEMA = [
     """CREATE TABLE IF NOT EXISTS profiles (
@@ -234,23 +288,23 @@ async def m0001_baseline(db):
     await add_column(db, "tasks", "updated_at", "TEXT")
     await _backfill_updated_at(db)
 
-    await _seed_profiles_if_empty(db)
-    await _seed_layout_if_empty(db)
+    await _seed_profiles_if_empty(db, BASELINE_PROFILES)
+    await _seed_layout_if_empty(db, BASELINE_LAYOUT)
 
     # Calendar became the dashboard's hero widget (Google-style month grid
     # with event bars + a day view) and needs far more room, so every
     # widget's default position changed shape. One-time, keyed on a version
-    # flag: wipes the layout and re-inserts the new DEFAULT_LAYOUT. This
+    # flag: wipes the layout and re-inserts the layout of the time. This
     # intentionally resets any custom drag/resize positions. Future layout
     # changes are new migrations, not a LAYOUT_VERSION bump.
-    if await database.get_setting(db, "layout_version") != database.LAYOUT_VERSION:
+    if await database.get_setting(db, "layout_version") != BASELINE_LAYOUT_VERSION:
         await db.execute("DELETE FROM layout_state")
         await db.executemany(
             """INSERT INTO layout_state (widget_id, grid_x, grid_y, grid_w, grid_h, is_visible)
                VALUES (?, ?, ?, ?, ?, 1)""",
-            database.DEFAULT_LAYOUT,
+            BASELINE_LAYOUT,
         )
-        await database.set_setting(db, "layout_version", database.LAYOUT_VERSION)
+        await database.set_setting(db, "layout_version", BASELINE_LAYOUT_VERSION)
 
     # The Calendar widget absorbed Upcoming Events (now a month grid instead
     # of two agenda lists) — widen calendar's slot by upcoming_events' old
@@ -265,8 +319,8 @@ async def m0001_baseline(db):
         )
         await db.execute("DELETE FROM layout_state WHERE widget_id = 'upcoming_events'")
 
-    await database._add_missing_widgets(db)
-    await _seed_pin(db)
+    await database._add_missing_widgets(db, BASELINE_LAYOUT)
+    await _seed_pin(db, BASELINE_PIN)
 
     # Calendar outage cache (app/calendar_cache.py). Each selected calendar's
     # last successfully fetched events per displayed [range_start, range_end)
@@ -419,7 +473,7 @@ async def run_migrations(db, migrations: list[Migration] | None = None) -> list[
             if migration.version in await applied_versions(db):
                 await db.execute("ROLLBACK")
                 continue
-            await migration.apply(db)
+            await migration.apply(_MigrationConnection(db))
             if not db.in_transaction:
                 raise MigrationError("it ended its own transaction (commit or executescript)")
             await db.execute(
