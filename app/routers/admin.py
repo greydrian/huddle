@@ -28,7 +28,14 @@ from app.auth import (
     start_session,
 )
 from app.database import family_timezone, family_today, get_db, get_setting, set_onscreen_keyboard, set_setting
-from app.security import LONG_LOCKOUT_AFTER, hash_pin, is_weak_pin, lockout_seconds_for, verify_pin
+from app.security import (
+    FAILURE_DECAY_SECONDS,
+    LONG_LOCKOUT_AFTER,
+    hash_pin,
+    is_weak_pin,
+    lockout_seconds_for,
+    verify_pin,
+)
 from app.services import homework, weather
 from app.services import tasks as task_service
 from app.templating import templates
@@ -83,7 +90,17 @@ def _parse_utc(value: str) -> datetime:
 # Serialises the PIN check and the lockout update: without it, parallel
 # guesses all read the lockout state before any of them records a failure,
 # and the backoff never applies. Single uvicorn process (see scheduler.py).
-_login_lock = asyncio.Lock()
+# An asyncio.Lock belongs to one event loop, so it's made per loop (the app
+# only ever has one; the tests start a fresh loop per test).
+_login_locks: dict[asyncio.AbstractEventLoop, asyncio.Lock] = {}
+
+
+def _login_lock() -> asyncio.Lock:
+    loop = asyncio.get_running_loop()
+    if loop not in _login_locks:
+        _login_locks.clear()  # drop locks for loops that have gone
+        _login_locks[loop] = asyncio.Lock()
+    return _login_locks[loop]
 
 
 def _format_wait(seconds: int) -> str:
@@ -111,6 +128,16 @@ async def _active_lockout(db) -> tuple[dict, int]:
     return lockout, max(0, math.ceil(remaining))
 
 
+def _failures_have_decayed(lockout: dict, now: datetime) -> bool:
+    """True once the last failure is FAILURE_DECAY_SECONDS old. States saved
+    before last_failed_at existed fall back to locked_until, which is never
+    earlier than the failure that set it."""
+    last = lockout.get("last_failed_at") or lockout.get("locked_until")
+    if not last:
+        return False
+    return (now - _parse_utc(last)).total_seconds() >= FAILURE_DECAY_SECONDS
+
+
 async def _login_page(request: Request, error: str | None, status_code: int = 200):
     async with get_db() as db:
         mode = await appearance.current_mode(db)
@@ -129,7 +156,7 @@ async def login_page(request: Request):
 
 @router.post("/login")
 async def login_submit(request: Request, pin: str = Form(...)):
-    async with _login_lock, get_db() as db:
+    async with _login_lock(), get_db() as db:
         lockout, wait = await _active_lockout(db)
         failed_attempts = lockout.get("failed_attempts", 0)
         if wait:
@@ -144,14 +171,23 @@ async def login_submit(request: Request, pin: str = Form(...)):
             start_session(response, request, await session_generation(db))
             return response
 
-        # Failed attempt: bump the counter and set an exponential-backoff lockout
+        # Failed attempt: bump the counter and set an exponential-backoff
+        # lockout. After a quiet day the count starts again, so stray typos
+        # weeks apart never add up to the long lockout. (Someone guessing
+        # every 15 minutes keeps it; `python -m app.reset_pin` is the way out.)
+        now = datetime.now(timezone.utc)
+        if _failures_have_decayed(lockout, now):
+            failed_attempts = 0
         failed_attempts += 1
         wait = lockout_seconds_for(failed_attempts)
-        locked_until_new = (datetime.now(timezone.utc) + timedelta(seconds=wait)).isoformat()
         await set_setting(
             db,
             "pin_lockout",
-            json.dumps({"failed_attempts": failed_attempts, "locked_until": locked_until_new}),
+            json.dumps({
+                "failed_attempts": failed_attempts,
+                "locked_until": (now + timedelta(seconds=wait)).isoformat(),
+                "last_failed_at": now.isoformat(),
+            }),
         )
         await db.commit()
 

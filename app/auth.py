@@ -33,28 +33,38 @@ async def bump_session_generation(db) -> int:
     return generation
 
 
-async def has_valid_session(request: Request) -> bool:
+async def _session_state(request: Request) -> tuple[bool, bool]:
+    """(has a valid session, PIN is still the default), over one connection."""
     token = request.cookies.get(SESSION_COOKIE)
     if not token:
-        return False
+        return False, False
     async with get_db() as db:
         generation = await session_generation(db)
-    return verify_session_token(token, generation)
+        pin_is_default = await get_setting(db, PIN_IS_DEFAULT_SETTING) == "1"
+    return verify_session_token(token, generation), pin_is_default
+
+
+async def has_valid_session(request: Request) -> bool:
+    return (await _session_state(request))[0]
+
+
+def _to_login() -> HTTPException:
+    return HTTPException(status_code=303, headers={"Location": "/admin/login"})
 
 
 async def require_session(request: Request) -> None:
     """FastAPI dependency: a valid session, even if the PIN is still the
     default. Only the forced "Choose a new PIN" screen uses it directly."""
     if not await has_valid_session(request):
-        raise HTTPException(status_code=303, headers={"Location": "/admin/login"})
+        raise _to_login()
 
 
 async def require_admin(request: Request) -> None:
     """FastAPI dependency: bounce to the login page without a valid session,
     and to the "Choose a new PIN" screen while the PIN is the default."""
-    await require_session(request)
-    async with get_db() as db:
-        pin_is_default = await get_setting(db, PIN_IS_DEFAULT_SETTING) == "1"
+    valid, pin_is_default = await _session_state(request)
+    if not valid:
+        raise _to_login()
     if pin_is_default:
         raise HTTPException(status_code=303, headers={"Location": NEW_PIN_PATH})
 

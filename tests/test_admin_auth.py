@@ -406,3 +406,104 @@ async def test_session_cookie_is_secure_behind_an_https_proxy(client):
     resp = await client.post("/admin/login", data={"pin": DEFAULT_PIN}, headers={"X-Forwarded-Proto": "https"})
 
     assert "; secure" in resp.headers["set-cookie"].lower()
+
+
+# --- Failures decay after a quiet day ---
+
+async def _set_failures(db, count: int, last_failed_ago: timedelta, key: str = "last_failed_at"):
+    at = datetime.now(timezone.utc) - last_failed_ago
+    await database.set_setting(db, "pin_lockout", json.dumps({
+        "failed_attempts": count, "locked_until": at.isoformat(), key: at.isoformat(),
+    }))
+    await db.commit()
+
+
+@pytest.mark.parametrize("key", ["last_failed_at", "locked_until"])  # locked_until: states saved before
+async def test_old_failures_decay_so_a_stray_typo_gets_the_short_backoff(client, db, key):
+    await _set_failures(db, 9, timedelta(hours=25), key)
+
+    resp = await _login(client, "2222")
+
+    assert "Incorrect PIN. Try again in 5s." in resp.text
+    assert (await _lockout(db))["failed_attempts"] == 1
+
+
+async def test_recent_failures_still_count(client, db):
+    await _set_failures(db, 9, timedelta(hours=23))
+
+    resp = await _login(client, "2222")
+
+    assert "Admin is locked after 10 wrong PINs in a row" in resp.text
+    state = await _lockout(db)
+    assert state["failed_attempts"] == 10
+    last = datetime.fromisoformat(state["last_failed_at"])
+    assert (datetime.now(timezone.utc) - last).total_seconds() < 5
+
+
+async def test_parallel_guesses_after_decay_are_still_serialised(client, db):
+    await _set_failures(db, 9, timedelta(days=3))
+
+    resps = await asyncio.gather(*(_login(client, f"{n:04d}") for n in range(3000, 3020)))
+
+    assert sorted(r.status_code for r in resps) == [401] + [429] * 19
+    assert (await _lockout(db))["failed_attempts"] == 1
+
+
+# --- Corrupt hash and forgotten-PIN recovery ---
+
+async def test_corrupt_pin_hash_does_not_crash_startup_or_login(client, db):
+    assert not security.verify_pin(DEFAULT_PIN, "not-hex$abcd")
+    await database.set_setting(db, "pin_hash", "zz$nothex")
+    await db.execute("DELETE FROM app_settings WHERE key = 'pin_is_default'")
+    await db.commit()
+
+    await database.init_db()
+
+    assert await _pin_is_default(db) == "0"
+    assert (await _login(client, DEFAULT_PIN)).status_code == 401
+
+
+async def test_deleting_the_pin_hash_reseeds_1234_with_the_forced_change(db):
+    await _set_default_flag(db, "0")
+    await db.execute("DELETE FROM app_settings WHERE key = 'pin_hash'")
+    await db.commit()
+
+    await database.init_db()
+
+    assert security.verify_pin(DEFAULT_PIN, await database.get_setting(db, "pin_hash"))
+    assert await _pin_is_default(db) == "1"
+
+
+async def test_reset_pin_command(client, db, capsys):
+    from app import reset_pin
+
+    # A family that changed its PIN, forgot it, and locked itself out.
+    await database.set_setting(db, "pin_hash", security.hash_pin("2580"))
+    await db.commit()
+    await _login(client, "2580")
+    old_cookie = client.cookies[admin.SESSION_COOKIE]
+    await _set_failures(db, 12, timedelta(minutes=1))
+    await database.set_setting(db, "pin_lockout", json.dumps({
+        "failed_attempts": 12,
+        "locked_until": (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat(),
+    }))
+    await db.commit()
+
+    # main() runs its own event loop, so call it from a worker thread.
+    await asyncio.to_thread(reset_pin.main)
+
+    out = capsys.readouterr().out
+    assert "reset to 1234" in out
+    assert "$" not in out  # never prints a hash
+    stored = await database.get_setting(db, "pin_hash")
+    assert stored.split("$")[1] not in out
+    assert security.verify_pin(DEFAULT_PIN, stored)
+    assert await _pin_is_default(db) == "1"
+    assert await _lockout(db) == {}
+    # Every old session is gone...
+    assert not await _is_admin(client)
+    # ...and 1234 now leads straight to the forced change.
+    client.cookies.clear()
+    assert (await _login(client, DEFAULT_PIN)).status_code == 303
+    assert old_cookie != client.cookies[admin.SESSION_COOKIE]
+    assert (await client.get("/admin")).headers["location"] == "/admin/new-pin"

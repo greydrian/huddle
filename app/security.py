@@ -27,6 +27,9 @@ MAX_BACKOFF_SECONDS = 300
 # Sustained guessing: from this many consecutive failures, a long lockout.
 LONG_LOCKOUT_AFTER = 10
 LONG_LOCKOUT_SECONDS = 15 * 60
+# Failures this far apart don't add up: the count starts again, so a stray
+# typo weeks later isn't treated as sustained guessing.
+FAILURE_DECAY_SECONDS = 24 * 60 * 60
 DEFAULT_PIN = "1234"  # seeded on a fresh install; Admin forces a change
 # Baked into every stored PIN hash — changing it invalidates existing PINs.
 PBKDF2_ITERATIONS = 200_000
@@ -53,7 +56,10 @@ def verify_pin(pin: str, stored: str) -> bool:
         salt_hex, hash_hex = stored.split("$")
     except ValueError:
         return False
-    salt = bytes.fromhex(salt_hex)
+    try:
+        salt = bytes.fromhex(salt_hex)
+    except ValueError:  # a corrupt stored hash reads as "no match", not a crash
+        return False
     candidate = hashlib.pbkdf2_hmac("sha256", pin.encode(), salt, PBKDF2_ITERATIONS)
     return hmac.compare_digest(candidate.hex(), hash_hex)
 
