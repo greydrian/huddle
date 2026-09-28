@@ -33,8 +33,9 @@ async def bump_session_generation(db) -> int:
     return generation
 
 
-async def _session_state(request: Request) -> tuple[bool, bool]:
-    """(has a valid session, PIN is still the default), over one connection."""
+async def admin_session_state(request: Request) -> tuple[bool, bool]:
+    """(has a valid session, PIN is still the default), over one connection.
+    Reads only headers, so upload_guard can call it before the body."""
     token = request.cookies.get(SESSION_COOKIE)
     if not token:
         return False, False
@@ -45,7 +46,7 @@ async def _session_state(request: Request) -> tuple[bool, bool]:
 
 
 async def has_valid_session(request: Request) -> bool:
-    return (await _session_state(request))[0]
+    return (await admin_session_state(request))[0]
 
 
 def _to_login() -> HTTPException:
@@ -62,7 +63,7 @@ async def require_session(request: Request) -> None:
 async def require_admin(request: Request) -> None:
     """FastAPI dependency: bounce to the login page without a valid session,
     and to the "Choose a new PIN" screen while the PIN is the default."""
-    valid, pin_is_default = await _session_state(request)
+    valid, pin_is_default = await admin_session_state(request)
     if not valid:
         raise _to_login()
     if pin_is_default:

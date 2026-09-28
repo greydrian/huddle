@@ -316,6 +316,52 @@ async def init_db():
         await db.execute("INSERT OR IGNORE INTO sync_status (id) VALUES (1)")
         await db.commit()
 
+        # Migration: school inbox (app/services/imports.py). A child's year
+        # group ("Year 4") lets the extractor assign school items to them.
+        # import_sources has one row per ingested document (a screenshot,
+        # pasted text, later a Gmail message) — metadata and a short excerpt
+        # only, never attachment bytes or whole email bodies. Each candidate
+        # the extractor found waits in import_candidates until a parent
+        # approves (creating the row named by created_table/created_id) or
+        # discards it.
+        await _add_column_if_missing(db, "profiles", "school_year", "TEXT")
+        await db.execute(
+            """CREATE TABLE IF NOT EXISTS import_sources (
+                   id INTEGER PRIMARY KEY AUTOINCREMENT,
+                   kind TEXT NOT NULL,              -- upload / paste / gmail
+                   source_ref TEXT NOT NULL,        -- content hash, later the Gmail message id
+                   received_at TEXT,
+                   subject TEXT,
+                   excerpt TEXT,                    -- first few hundred characters of any text
+                   attachment_count INTEGER NOT NULL DEFAULT 0,
+                   status TEXT NOT NULL DEFAULT 'pending',  -- pending/extracted/failed/not_configured
+                   error_code TEXT,                 -- log-safe code, see imports.ERROR_MESSAGES
+                   created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                   updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+                   UNIQUE (kind, source_ref)
+               )"""
+        )
+        await db.execute(
+            """CREATE TABLE IF NOT EXISTS import_candidates (
+                   id INTEGER PRIMARY KEY AUTOINCREMENT,
+                   source_id INTEGER NOT NULL REFERENCES import_sources(id) ON DELETE CASCADE,
+                   kind TEXT NOT NULL,              -- word_list / homework / event
+                   profile_id INTEGER REFERENCES profiles(id) ON DELETE SET NULL,
+                   payload_json TEXT NOT NULL,
+                   evidence TEXT NOT NULL DEFAULT '',
+                   duplicate INTEGER NOT NULL DEFAULT 0,   -- already on the wall when found
+                   status TEXT NOT NULL DEFAULT 'pending', -- pending/approved/discarded
+                   created_table TEXT,
+                   created_id INTEGER,
+                   created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+               )"""
+        )
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS import_candidates_source ON import_candidates (source_id)"
+        )
+        await db.commit()
+
         await load_onscreen_keyboard(db)
 
 

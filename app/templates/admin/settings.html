@@ -19,11 +19,17 @@
   </div>
 
   <!-- Family members -->
-  <div class="admin-panel">
+  <div class="admin-panel" id="family">
     <h2>Family Members</h2>
+    {{ section_error("family") }}
     {% for p in profiles %}
     <div class="admin-row">
       <span class="admin-person">{{ person_avatar(p.name, p.colour_hex) }}{{ p.name }}</span>
+      {#- Children's year group: the School inbox matches "Year 4" posts to them. -#}
+      <form class="school-year-form" method="post" action="/admin/profiles/{{ p.id }}/school-year">
+        <input type="text" name="school_year" value="{{ p.school_year or '' }}" maxlength="30" placeholder="Year group" aria-label="{{ p.name }}'s year group" autocomplete="off"{% if onscreen_keyboard %} data-osk="text"{% endif %}>
+        <button type="submit" class="btn btn-quiet btn-small">Save</button>
+      </form>
       <form method="post" action="/admin/profiles/{{ p.id }}/delete">
         <button type="submit" class="btn btn-danger btn-small">Remove</button>
       </form>
@@ -79,6 +85,50 @@
       {% endfor %}
     </div>
     {% endfor %}
+  </div>
+
+  <!-- School inbox: Classroom screenshots / pasted text, read by Claude
+       (app/services/imports.py). Nothing reaches the wall until approved. -->
+  <div class="admin-panel" id="classroom">
+    <h2>Add from Classroom</h2>
+    {{ section_error("classroom") }}
+    <p class="admin-hint">Screenshot the Classroom post on your phone (or copy its text) and add it here. Claude reads it and puts the spellings and homework it finds in the School inbox below for you to check. Nothing goes on the wall until you approve it.</p>
+    {% if not inbox_configured %}
+    <div class="inbox-setup" role="note">
+      <p><strong>Not set up yet.</strong> Reading school posts needs an Anthropic API key:</p>
+      <ol>
+        <li>Create a key at <strong>console.anthropic.com</strong> (API keys).</li>
+        <li>Add <code>ANTHROPIC_API_KEY=your-key</code> to the <code>.env</code> file next to <code>docker-compose.yml</code>.</li>
+        <li>Restart: <code>docker compose up -d</code>.</li>
+      </ol>
+      <p class="admin-meta">Optional: <code>ANTHROPIC_MODEL</code> picks the model (default <code>claude-sonnet-5</code>). Anything added before then waits in the inbox as "not set up"; add it again afterwards.</p>
+    </div>
+    {% endif %}
+    <form class="admin-form inbox-add" method="post" action="/admin/inbox/add" enctype="multipart/form-data">
+      <label class="hw-field inbox-file">Screenshots or a PDF (up to 3)
+        <input type="file" name="files" accept="image/*,application/pdf" multiple>
+      </label>
+      <textarea name="text" maxlength="30000" placeholder="…or paste the post's text here" aria-label="Pasted text"{% if onscreen_keyboard %} data-osk="text"{% endif %}></textarea>
+      <select name="child_id" aria-label="Which child is this for? (optional)">
+        <option value="">Which child? (optional)</option>
+        {% for p in profiles %}<option value="{{ p.id }}">{{ p.name }}{% if p.school_year %} ({{ p.school_year }}){% endif %}</option>{% endfor %}
+      </select>
+      <button type="submit" class="btn">Add to inbox</button>
+    </form>
+  </div>
+
+  <div class="admin-panel" id="inbox">
+    <h2>School inbox</h2>
+    {{ section_error("inbox") }}
+    {% for source in inbox.active %}{% include "admin/_inbox_source.html" %}{% else %}
+    <p class="admin-meta">Nothing waiting to be checked.</p>
+    {% endfor %}
+    {% if inbox.processed %}
+    <details class="finished-homework inbox-processed">
+      <summary>Show processed ({{ inbox.processed|length }})</summary>
+      {% for source in inbox.processed %}{% include "admin/_inbox_source.html" %}{% endfor %}
+    </details>
+    {% endif %}
   </div>
 
   <!-- Homework -->

@@ -25,6 +25,10 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 # httpx logs every request URL at INFO: noise once a minute, and the token
 # revoke URL carries the refresh token in its query string — keep it off.
 logging.getLogger("httpx").setLevel(logging.WARNING)
+# The Anthropic SDK's client (school inbox) is httpx2; same rule.
+logging.getLogger("httpx2").setLevel(logging.WARNING)
+# aiosqlite's DEBUG log prints every SQL parameter (school documents included).
+logging.getLogger("aiosqlite").setLevel(logging.WARNING)
 # APScheduler logs "Running job…"/"executed successfully" every minute at INFO.
 logging.getLogger("apscheduler").setLevel(logging.WARNING)
 
@@ -54,8 +58,10 @@ from fastapi.responses import PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
 from app import appearance, freshness, scheduler
-from app.database import init_db
+from app.database import get_db, init_db
 from app.routers import admin, calendar, dashboard, homework, layout, meals, shopping, sync, tasks, weather
+from app.services import imports
+from app.upload_guard import UploadGuard
 
 BASE_DIR = Path(__file__).parent
 
@@ -63,12 +69,17 @@ BASE_DIR = Path(__file__).parent
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
+    async with get_db() as db:
+        # Documents being read when the app stopped are gone from memory.
+        await imports.fail_interrupted(db)
     scheduler.start()
     yield
     scheduler.stop()
 
 
 app = FastAPI(title="Family Display", lifespan=lifespan)
+# Admin uploads: session + size checked before the multipart body is read.
+app.add_middleware(UploadGuard)
 
 
 @app.middleware("http")

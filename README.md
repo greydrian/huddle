@@ -283,7 +283,7 @@ disconnect and reconnect.
 Dockerfile                   Python 3.14 image, non-root user, /health check
 docker-compose.yml           Bind-mounted /data, port 8000, restart policy, .env keys
 docker-compose.override.yml  Dev-only: --reload + bind-mounted app/
-.env.example                 GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET
+.env.example                 GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET / ANTHROPIC_API_KEY
 .github/workflows/ci.yml     ruff + pytest + docker build
 pyproject.toml, pytest.ini   ruff and pytest config
 requirements.txt             Runtime deps (requirements-dev.txt adds test/lint tools)
@@ -349,7 +349,9 @@ A9+:
    the queue.
 3. **PIN hardening**: stop shipping a default PIN that works forever, e.g.
    force a change on first login.
-4. **Gmail/Classroom homework import**: replace manual homework entry by
-   parsing the weekly Classroom guardian email (spec: Guardian-email-first).
+4. **Gmail homework import (stage 2)**: Admin's School inbox already reads
+   Classroom screenshots and pasted text with Claude (set `ANTHROPIC_API_KEY`
+   in `.env`); stage 2 feeds school emails and their PDFs into the same
+   `app/services/imports.ingest()` and lets approved events reach the calendar.
 5. **Photos**: Google Photos Picker plus a local image cache, replacing the
    "coming soon" card.
