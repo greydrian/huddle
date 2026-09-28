@@ -160,6 +160,10 @@ PIN rules and protection:
   revalidated on every load, so the tablet picks up new CSS/JS without clearing its cache.
 
 ## 6. Out of scope (for now)
+- Access from outside the home. The display is **home network only** (decided 28 Sep 2026): no
+  VPN, no public exposure.
+- Opening the dashboard on family phones or tablets. **The wall display is the only screen**;
+  phones use the Google apps.
 - Voice control.
 - Multiple physical displays or multi-device sync.
 - Phone notifications beyond what Google's own apps provide.
@@ -253,91 +257,199 @@ Polling, not WebSockets:
 
 ---
 
-## 10. Next iteration (v1.1)
+## 10. Next iterations (v1.1 and v1.2)
 
 Chosen themes, 28 September 2026: **widget visibility**, a **notification banner**, and an **idle
-screen with photos**. Each subsection lists the intended behaviour and the decisions still needed
-before building. Suggested build order is 10.3 → 10.1 → 10.2, from smallest to largest; 10.2 also
-needs a Google reconnect.
+screen with photos**. A spec review the same day added improvements to tasks, the calendar,
+meals, the shopping list, avatars, homework and practice, school term dates, and Home Assistant.
+Everything below is **decided** unless it's marked *open*.
+
+**Releases** (decided):
+
+| Release | Contents | Build order |
+|---|---|---|
+| **v1.1**: daily-use wins | 10.3 Widget visibility, 10.6 School term dates, 10.4 Tasks, 10.1 Notification banner, 10.2 Idle screen & Photos | 10.3 → 10.6 → 10.4 → 10.1 → 10.2 |
+| **v1.2**: richer widgets | 10.5 Calendar, 10.7 Meals, 10.8 Shopping, 10.9 Avatars, 10.10 Homework & practice, 10.11 Home Assistant | 10.9 → 10.10 → 10.5 → 10.7 → 10.8 → 10.11 |
+
+10.6 comes before 10.4 and 10.3's "school days" option because both depend on term dates. 10.2
+needs a Google reconnect (the Photos Picker scope).
 
 ### 10.1 Notification banner
 A slim banner under the top bar that tells the family what's coming up without anyone opening a
 widget. It must not cover the grid's drag handles or steal taps.
 
-**Triggers (proposed):**
-- **Calendar events starting soon**, e.g. "Swimming at 16:30 (in 25 min)". Lead time comes from
-  the event's own Google reminder if it has one, otherwise a default (30 min). Only for calendars
-  selected in Admin; all-day events excluded.
-- **Homework due**: "due tomorrow" from 16:00 the day before, and "due today" in the morning.
-- **Today's school events** from approved school-inbox items, e.g. "Non-uniform day".
-- **Chores still open late in the day** (e.g. after 18:00). This is optional and may be too naggy.
+**Triggers.** All four are on by default, and **each can be switched off in Admin**:
+1. **Events starting soon**, e.g. "Swimming at 16:30 (in 25 min)".
+   - Lead time comes from the event's own Google reminder. Without one, it uses an **Admin setting
+     (default 30 min)**.
+   - Only calendars selected in Admin; all-day events are excluded.
+2. **Homework due**: "Due tomorrow" from 16:00 the day before, and "Due today" in the morning.
+3. **Today's school events**, from approved school-inbox dates, e.g. "Non-uniform day".
+4. **Chores left late in the day**, e.g. once the Evening group starts: "3 chores still to do".
 
-**Behaviour:**
-- At most 2 banners shown, with "+N more".
+**Behaviour.**
+- **Every banner shows the person's coloured name pill** (or "Everyone"). All banners are visible
+  to the whole family.
+- **Sound can be switched on or off per trigger in Admin** (default off). Never in night mode.
+- At most 2 banners at once, with "+N more".
 - Tapping one dismisses it for that occurrence.
 - They clear themselves once the event starts or the item is done.
-- Quiet overnight: no banners in night mode, or on a configurable schedule.
+- Quiet in night mode.
 - Uses the existing 30 s refresh; no push.
 
-**Decisions needed:**
-1. Which triggers, and their lead times?
-2. Should the banner **play a sound**? Fully Kiosk can; the default proposal is no.
-3. Per-person filtering (e.g. only the children's homework), or everything for everyone?
-4. Should Admin let each trigger be turned on or off? Proposed: yes, one toggle each.
-
 ### 10.2 Idle screen and Google Photos
-When nobody has touched the tablet for a while, show something calm. Admin chooses the behaviour
-(spec'd since v0.9):
+**Built into the app.** Huddle draws the idle overlay and handles waking. Fully Kiosk is used only
+for screen brightness and the overnight screen-off schedule.
 
-- **(a) Photo slideshow:** full-screen family photos with a small clock and date, plus the next
-  event and today's weather.
-- **(b) Stay on the dashboard:** today's behaviour.
-- **(c) Dim:** lower the brightness, or use a dark overlay if Fully Kiosk's brightness control
-  isn't available.
+**Modes and timing.** All of these are Admin settings:
+- the idle delay (default 5 min)
+- what happens when idle: **photo slideshow**, **stay on the dashboard**, or **dim**
+- what happens at night (e.g. dim instead of the slideshow)
+- the overnight screen-off times, passed to Fully Kiosk
 
-**Behaviour:**
-- Starts after N minutes idle (default 5).
-- **The first tap only wakes the screen.** It never ticks a task or presses a button.
-- The idle screen is never shown while the on-screen keyboard is open or during a drag.
-- A night schedule can force (c), or screen-off via Fully Kiosk's own scheduler.
+**Waking.** The first tap only wakes the screen; it never ticks a task or presses a button. The
+display never goes idle while the on-screen keyboard is open, during a drag, or while a banner
+has just appeared.
 
-**Photos:**
-- Google Photos' old library API is closed, so photos come through the **Photos Picker API**:
-  1. A parent taps "Choose photos" in Admin, on a phone or PC.
-  2. They pick photos or albums in Google's picker.
-  3. Huddle **downloads resized copies into `data/`**, because picker links expire.
-  4. Re-picking replaces or extends the set.
-- The Photos widget, now a placeholder, becomes a small rotating photo.
+**The slideshow** shows full-screen photos with a readable overlay:
+- the **clock and date**
+- the **next event** today
+- the **weather**
 
-**Decisions needed:**
-1. Build the idle screen in the app (works on any browser; our own wake handling), or use Fully
-   Kiosk's built-in screensaver pointed at an idle URL (less code; tied to Fully Kiosk)?
-   Proposed: **in the app**, reusing Fully Kiosk only for the brightness and screen-off schedule.
-2. How long before going idle, and how many photos to keep? Proposed: 5 min, and up to 300 photos
-   at about 1600 px, roughly 100 MB.
-3. What does the slideshow overlay show: clock, next event, weather?
-4. A photo storage cap, and whether backups include photos (proposed: no; they can be re-picked).
-5. Needs a Google reconnect for the Photos Picker scope, and enabling the Photos Picker API in
-   Cloud Console.
+Banners stay visible over it.
+
+**Photos.**
+- They come from the **Google Photos picker** as a snapshot. In Admin, a parent opens Google's
+  picker (on a phone or PC), browses into an album and picks photos.
+- Huddle downloads resized copies (about 1600 px) into `data/`, because picker links expire.
+  Re-pick to change the set.
+- **At most 30 photos are kept.** The slideshow **reshuffles its order weekly**.
+- Photos are **not included in backups**; they can be re-picked.
+- Needs the Photos Picker API enabled in Cloud Console and a Google reconnect.
+- Live album sync, like a Nest Hub, isn't available to third-party apps: Google removed album
+  access for other apps in March 2025. A Google Drive folder was considered as a live alternative
+  and not chosen.
+
+**The Photos widget is removed from the dashboard.** Photos appear on the idle screen only.
 
 ### 10.3 Choosing which widgets are shown
-Admin → **Widgets**: a list of every widget, each with a Show/Hide switch. It sets
+Admin → **Widgets**: every widget listed with a **Show/Hide** switch. It sets
 `layout_state.is_visible`, which the dashboard already respects.
 
-**Behaviour:**
 - **Admin only.** The unauthenticated hide endpoint was removed on purpose.
-- A hidden widget keeps its saved position. Showing it again puts it back there, or in the next
-  free space if that's taken.
-- The Photos placeholder is hidden by default until 10.2 ships.
-- A hidden widget is excluded from `/api/rev` polling and its data isn't loaded.
+- **Hiding a widget closes the gap**: the rest move up and keep their order. Showing it again puts
+  it back in its saved position, or the nearest free space.
+- **"School days only"** per widget: an optional switch that shows the widget only on school days,
+  using the term dates (10.6). Useful for Homework and Practice words.
+- A hidden widget is excluded from `/api/rev` polling, and its data isn't loaded.
 
-**Decisions needed:**
-1. Should the rest of the grid close the gap when a widget is hidden (Gridstack float off), or
-   leave the gap as it is? Proposed: close it; widgets keep their order.
-2. A time-based schedule (e.g. show Homework only on school days, Meals only after 15:00)? Proposed:
-   not in v1.1; keep a simple on/off.
+### 10.4 Tasks (decided in the spec review, 28 Sep 2026)
+- **Where a task lives.** Tasks synced to Google show no marker. **Local-only tasks** (a person
+  with no linked Google Tasks list) get a small "on this display only" icon, because they won't
+  appear on phones.
+- **Adding tasks.** Google Tasks stays the main place. The Tasks widget gains a PIN-free
+  **"+ Add"** for quick one-offs. The task syncs if that person has a linked list, and is
+  local-only otherwise.
+- **Time of day.** Each task can be set to **Morning**, **After school** or **Evening** (default:
+  no group). This is stored locally, like repeat days, because Google Tasks can't hold it.
+  - The widget shows all groups, with **the current group first and highlighted**. Earlier groups'
+    unfinished tasks stay visible.
+  - Group boundaries are an Admin setting (proposed: Morning until 12:00, After school
+    12:00–18:00, Evening after 18:00).
+- **Missed one-offs.** A one-off not done by the end of its day **carries over, marked late**
+  ("from yesterday", or "from Mon"), until it's done or deleted.
+- **School days.** A new repeat option alongside the Mon–Sun chips. "School days" follows the
+  school's term dates, so school-morning chores skip holidays and INSET days. Term dates are
+  described in 10.6.
 
-### 10.4 Carried over (smaller)
+### 10.5 Calendar (decided in the spec review)
+- **Adding events.** A PIN-free "+" on the calendar adds a simple event: title, day, optional
+  start and end time. It always goes into **one designated shared calendar** (for example,
+  "Family"), chosen in Admin, and never into personal or work calendars. Editing and deleting
+  stay in Google Calendar.
+- **More views.** A **week view** (7 columns with times) and a **today/agenda list** join the
+  month grid and day view. **Admin picks the default view**, and the widget returns to it after
+  a few minutes idle.
+- **Filter by person.** Tap a person's name pill to show only their events.
+  - Ownership is decided by **calendar first**: Admin links each Google calendar to a family
+    member, and a shared calendar counts for everyone.
+  - If no calendar is linked, the fallback is the **person's name appearing in the event title**.
+
+### 10.6 School term dates
+- The school inbox learns a new item type, **term dates**: term start and end, half-terms and
+  INSET days. Claude extracts them from the school's term-dates letter, and a parent approves them.
+- Admin can add or edit term dates by hand too.
+- They drive the "school days" repeat option (10.4) and each widget's "school days only" option
+  (10.3).
+- **They appear on the Huddle calendar** as subtle all-day bars for holidays, half-terms and INSET
+  days. These are local only, **not written to Google**.
+
+### 10.7 Meals
+- **Favourites.** Past meals are remembered. When planning, pick from favourites (most used first)
+  instead of typing. A meal can be starred or removed from favourites.
+- **Recipe link.** Each meal can have a link or short notes. The widget shows a small icon.
+  - Tapping it on the tablet shows the notes with **both options**: a **QR code** to open the recipe
+    on a phone, and **"Open here"** to show the page full-screen on the tablet with a large Back
+    button.
+  - Some recipe sites refuse to open inside another page. For those, "Open here" falls back to
+    the QR code.
+
+### 10.8 Shopping list
+- **Quantities**, e.g. "Milk ×2". Stored in the Google Tasks item (title suffix or notes, *open:*
+  pick whichever phones display best) so phones see it too.
+- **Admin display options.** Choose between a **simple list** (today's) and a **grouped by
+  category/aisle** layout, e.g. fruit & veg, dairy, bakery, frozen, household.
+  - Categories are assigned automatically from a built-in word list, can be corrected per item,
+    and are remembered for next time.
+  - **The order of the groups is set in Admin**: drag the categories into the order of your usual
+    supermarket.
+
+### 10.9 Family members and avatars
+- Each person's avatar can be **a coloured initial** (today's), **an emoji**, or **a photo**,
+  chosen per person in Admin → Family Members.
+- Photos are uploaded in Admin. They're cropped round and resized small, stored in `data/`, and
+  included in backups because they're tiny.
+- The avatar appears wherever the name pill does: tasks, homework, practice words and banners.
+  The contrast rules from 4.5 still apply.
+
+### 10.10 Homework and handwriting practice
+- **Subject icons and colours.** Maths, English, Reading, Science, Topic and Other each get an icon
+  and a colour tint, so children can spot them quickly. The subject is picked in Admin or by the
+  school inbox, and "Other" is the fallback.
+- **Children can tick homework done** on the tablet, with no PIN. Admin shows when it was ticked.
+  A mis-tap can be undone, like tasks.
+- **Reading log.** A per-child "Read tonight ✓" daily tick, like "Practised today". Admin shows a
+  simple history, e.g. the last 4 weeks, to help with the school reading record. No points.
+- **Write-on area for practice words.** Tapping a word opens a large handwriting area:
+  - lined, like school paper, with the word shown above in Playwrite GB
+  - the child writes it freehand with a finger or stylus
+  - Clear, and Next word
+  - no marking or scoring, and nothing is saved
+  - It must not trigger Gridstack drags; it opens as a full-screen overlay.
+  - *Open:* stylus palm rejection on the Tab A9+.
+
+### 10.11 Home Assistant
+Home Assistant already runs on the G10.
+- **Huddle status to HA.** A token-protected `GET /api/ha/status` returns JSON:
+  - sync state
+  - chores left per person
+  - homework due today or tomorrow
+  - school inbox items awaiting approval
+  - last backup age
+
+  HA reads it as REST sensors (about every minute) for its own automations, e.g. flash a light when
+  sync needs attention. The token is generated in Admin and can be regenerated.
+- **Home Assistant widget on the display.** Admin chooses the entities, using an HA long-lived
+  access token stored encrypted like the Google tokens:
+  - **Lights and scenes:** tap to toggle a light or run a scene (e.g. "Bedtime").
+  - **Heating:** current temperature, plus boost or up/down on chosen thermostats.
+  - **Status tiles, read-only:** doors or windows open, bin day, washing machine done, and so on.
+  - **Locks and the alarm are not included.** If they're ever added, each action needs the Admin
+    PIN.
+  - If HA is unreachable, the widget shows an offline state and never an error page. Tiles update
+    on the normal refresh; HA's websocket push is *open* as a later improvement.
+
+### 10.12 Carried over (smaller)
 - Deploy Caddy with a hostname and HTTPS (8.3).
 - Add Docker log rotation to `docker-compose.yml` (json-file, `max-size: 10m`, `max-file: 3`).
 - Ask the school about Classroom (8.1).
