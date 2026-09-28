@@ -5,7 +5,9 @@ Measures every visible interactive element on the dashboard (with the
 on-screen keyboard open) and on each Admin tab, at 1280x800. A checkbox or
 radio inside a <label> is measured by its label, which is what a finger
 hits. A control that sets --hit-x/--hit-y has its tappable box grown by an
-invisible ::after ("Hit areas" in style.css), which a bounding box misses.
+invisible ::after ("Hit areas" in style.css), which a bounding box misses:
+that ::after is measured itself (its computed size, placed from the padding
+box), and a tap 1px inside each of its corners must land on the control.
 """
 
 import pytest
@@ -38,16 +40,31 @@ MEASURE = """
     const r = el.getBoundingClientRect();
     if (r.width === 0 && r.height === 0) continue;  // inside a closed <details>, etc.
     let w = r.width, h = r.height;
+    let note = '';
+    const label = (el.getAttribute('aria-label') || el.textContent || el.value || el.name || '').trim().slice(0, 40);
     if (style.getPropertyValue('--hit-x').trim()) {
+      // The hit area is the ::after's own box. It's positioned from the
+      // padding box, i.e. offset by the border (clientLeft/clientTop).
       const a = getComputedStyle(el, '::after');
       if (a.content !== 'none' && a.position === 'absolute') {
-        w = Math.max(w, r.width - parseFloat(a.left) - parseFloat(a.right));
-        h = Math.max(h, r.height - parseFloat(a.top) - parseFloat(a.bottom));
+        el.scrollIntoView({ block: 'center', inline: 'center' });
+        const b = el.getBoundingClientRect();
+        const aw = parseFloat(a.width), ah = parseFloat(a.height);
+        const left = b.left + el.clientLeft + parseFloat(a.left);
+        const top = b.top + el.clientTop + parseFloat(a.top);
+        w = Math.max(w, aw);
+        h = Math.max(h, ah);
+        // And a tap 1px inside each corner of that box really lands on it.
+        const corners = [[left + 1, top + 1], [left + aw - 1, top + 1],
+                         [left + 1, top + ah - 1], [left + aw - 1, top + ah - 1]];
+        for (const [x, y] of corners) {
+          const hit = document.elementFromPoint(x, y);
+          if (!hit || !el.contains(hit)) { note = ` (a tap at ${Math.round(x)},${Math.round(y)} misses it)`; break; }
+        }
       }
     }
-    if (w < 48 || h < 48) {
-      const label = (el.getAttribute('aria-label') || el.textContent || el.value || el.name || '').trim().slice(0, 40);
-      out.push(`${el.tagName.toLowerCase()}.${[...el.classList].join('.')} "${label}" ${Math.round(w)}x${Math.round(h)}`);
+    if (w < 48 || h < 48 || note) {
+      out.push(`${el.tagName.toLowerCase()}.${[...el.classList].join('.')} "${label}" ${Math.round(w)}x${Math.round(h)}${note}`);
     }
   }
   return out;

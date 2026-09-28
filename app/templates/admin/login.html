@@ -10,6 +10,11 @@
     <p class="admin-hint">Enter the PIN to manage family members and tasks.</p>
     <form class="pin-pad-form" method="post" action="/admin/login">
       <input type="password" name="pin" aria-label="PIN" inputmode="numeric" pattern="[0-9]*" maxlength="8" autofocus autocomplete="off"{% if onscreen_keyboard %} data-osk="numeric"{% endif %}>
+      {#- Where to go after the PIN (validated server-side, admin_tabs.login_return):
+          the Admin tab that asked, and its #section, which the script below copies
+          from this page's address (the browser keeps it across the redirect here). -#}
+      {% if next_url %}<input type="hidden" name="next" value="{{ next_url }}">{% endif %}
+      <input type="hidden" name="section" value="{{ section }}">
       {% if error %}<div class="pin-error" role="alert">{{ error }}</div>{% endif %}
       <button type="submit" class="btn">Unlock</button>
     </form>
@@ -17,4 +22,11 @@
   <a href="/" class="btn btn-quiet pin-back">{{ icon("arrow-left", 20) }}Back to dashboard</a>
 </div>
 {% endblock %}
-{% block scripts %}{% with part = "scripts" %}{% include "_keyboard_assets.html" %}{% endwith %}{% endblock %}
+{% block scripts %}{% with part = "scripts" %}{% include "_keyboard_assets.html" %}{% endwith %}
+<script>
+  (function () {
+    var field = document.querySelector('input[name=section]');
+    if (field && !field.value && location.hash) field.value = location.hash.slice(1);
+  })();
+</script>
+{% endblock %}

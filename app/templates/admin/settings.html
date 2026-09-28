@@ -565,7 +565,9 @@
     var sections = {{ admin_sections | tojson }};
     var current = {{ admin_tab | tojson }};
     function follow() {
-      var tab = sections[location.hash.slice(1)];
+      var hash = location.hash.slice(1);
+      // Own keys only: #constructor or #__proto__ must not find a "tab".
+      var tab = Object.prototype.hasOwnProperty.call(sections, hash) ? sections[hash] : null;
       if (tab && tab !== current) location.replace('/admin?tab=' + tab + location.hash);
     }
     if (!new URLSearchParams(location.search).has('tab')) follow();

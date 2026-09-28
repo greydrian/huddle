@@ -7,7 +7,7 @@ Old links without a tab (/admin#sync, bookmarks) are sent to the right tab by
 a small script in settings.html, which reads SECTIONS too.
 """
 
-from urllib.parse import urlencode
+from urllib.parse import parse_qsl, urlencode, urlsplit
 
 TABS = {
     "family": "Family",
@@ -48,3 +48,30 @@ def admin_url(section: str, **params: str) -> str:
     section, so a typo fails its test rather than landing on the wrong tab."""
     query = urlencode({"tab": SECTIONS[section], **params})
     return f"/admin?{query}#{section}"
+
+
+def login_next(path: str, tab: str | None) -> str | None:
+    """The `next` the login page carries for a signed-out visit to Admin:
+    only /admin, with its tab if it's a known one."""
+    if path != "/admin":
+        return None
+    return f"/admin?tab={tab}" if tab in TABS else "/admin"
+
+
+def login_return(next_url: str | None, section: str | None = None) -> str:
+    """Where a successful login goes. `next` counts only as /admin with at
+    most ?tab=<known tab>; `section` (the page's #hash, which the login form
+    posts) only if it's a known section on that tab. Anything else, such as
+    another host or path, falls back to /admin: never an open redirect."""
+    tab = None
+    if next_url:
+        parts = urlsplit(next_url)
+        query = parse_qsl(parts.query, keep_blank_values=True)
+        valid = (not parts.scheme and not parts.netloc and parts.path == "/admin" and not parts.fragment
+                 and len(query) <= 1 and all(k == "tab" and v in TABS for k, v in query))
+        if not valid:
+            return "/admin"
+        tab = query[0][1] if query else None
+    if section and section in SECTIONS and (tab is None or SECTIONS[section] == tab):
+        return admin_url(section)
+    return f"/admin?tab={tab}" if tab else "/admin"

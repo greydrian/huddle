@@ -704,15 +704,17 @@ body:has(> .dashboard-scroll) > .topbar { flex-shrink: 0; }
 }
 
 /* Hit areas: a small visual with a 48px tappable box (see the header).
-   Each sets --hit-x/--hit-y (how far the box reaches past each side; the
-   touch-target test reads them) and must be position: relative, with room
+   Each sets --hit-x/--hit-y: how far the box reaches past each side of the
+   PADDING box (an absolute ::after sits inside the border, so a bordered
+   control needs its border width extra; the touch-target test measures the
+   ::after itself). The control must be position: relative, with room
    around it so the boxes of neighbours don't overlap. */
 .task-check::after, .shopping-check::after, .shopping-delete::after {
   content: ""; position: absolute; inset: var(--hit-y) var(--hit-x);
 }
-.task-check { --hit-x: -6px; --hit-y: -6px; }                /* 36 -> 48 */
-.shopping-check { --hit-x: -9px; --hit-y: -9px; }            /* 30 -> 48 */
-.shopping-delete { --hit-x: -9px; --hit-y: -6px; }           /* 30x36 -> 48 */
+.task-check { --hit-x: -8px; --hit-y: -8px; }      /* 36 with a 2px border: 32 + 16 = 48 */
+.shopping-check { --hit-x: -11px; --hit-y: -11px; } /* 30 with a 2px border: 26 + 22 = 48 */
+.shopping-delete { --hit-x: -9px; --hit-y: -6px; }  /* 30x36, no border -> 48x48 */
 
 /* --- Admin --- */
 /* The kiosk locks html/body scrolling (above) for the dashboard; Admin and

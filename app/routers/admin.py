@@ -59,9 +59,11 @@ __all__ = ["SESSION_COOKIE", "require_admin", "router"]
 router = APIRouter(prefix="/admin")
 
 MAX_SCHOOL_YEAR = 30  # "Year 4", "Reception", "Year 6 (Oak Class)"
-# A parent's email: one plain address (no name, no list), checked loosely.
+# A parent's email: one plain address (no name, no list, no control
+# characters), checked loosely.
 MAX_EMAIL = 254
-EMAIL_PATTERN = re.compile(r"[^@\s,;:<>()\[\]\"']+@[^@\s,;:<>()\[\]\"'.]+(?:\.[^@\s,;:<>()\[\]\"'.]+)*\.[A-Za-z]{2,}")
+_NOT_IN_EMAIL = r"@\s,;:<>()\[\]\"'\x00-\x1f\x7f"  # a regex character class's contents
+EMAIL_PATTERN = re.compile(rf"[^{_NOT_IN_EMAIL}]+@[^{_NOT_IN_EMAIL}.]+(?:\.[^{_NOT_IN_EMAIL}.]+)*\.[A-Za-z]{{2,}}")
 
 # A form that can't be saved redirects back to its Admin section with
 # ?error=<code> (like ?weather_error=), and the page shows that section's
@@ -185,36 +187,46 @@ def _failures_have_decayed(lockout: dict, now: datetime) -> bool:
     return (now - _parse_utc(last)).total_seconds() >= FAILURE_DECAY_SECONDS
 
 
-async def _login_page(request: Request, error: str | None, status_code: int = 200):
+async def _login_page(
+    request: Request, error: str | None, status_code: int = 200, next_url: str = "", section: str = ""
+):
+    """The PIN page. `next_url` / `section` (where to go after the PIN, see
+    admin_tabs.login_return) are only ever re-shown after validation."""
     async with get_db() as db:
         mode = await appearance.current_mode(db)
+    back_to = admin_tabs.login_return(next_url)
     return templates.TemplateResponse(
-        request, "admin/login.html", {"error": error, "appearance": mode}, status_code=status_code
+        request, "admin/login.html",
+        {"error": error, "appearance": mode, "next_url": "" if back_to == "/admin" else back_to,
+         "section": section if section in admin_tabs.SECTIONS else ""},
+        status_code=status_code,
     )
 
 
 @router.get("/login", response_class=HTMLResponse)
-async def login_page(request: Request):
+async def login_page(request: Request, next: str = ""):
     async with get_db() as db:
         lockout, wait = await _active_lockout(db)
     error = _lockout_message(lockout.get("failed_attempts", 0), wait) if wait else None
-    return await _login_page(request, error)
+    return await _login_page(request, error, next_url=next)
 
 
 @router.post("/login")
-async def login_submit(request: Request, pin: str = Form(...)):
+async def login_submit(request: Request, pin: str = Form(...), next: str = Form(""), section: str = Form("")):
     async with _login_lock(), get_db() as db:
         lockout, wait = await _active_lockout(db)
         failed_attempts = lockout.get("failed_attempts", 0)
         if wait:
             # Refused by the lockout: doesn't count as another failure.
-            return await _login_page(request, _lockout_message(failed_attempts, wait), 429)
+            return await _login_page(request, _lockout_message(failed_attempts, wait), 429, next, section)
 
         stored_hash = await get_setting(db, "pin_hash")
         if stored_hash and verify_pin(pin, stored_hash):
             await set_setting(db, "pin_lockout", json.dumps({}))
             await db.commit()
-            response = RedirectResponse(url="/admin", status_code=303)
+            # Back to the tab + section that asked for the PIN. A default PIN
+            # still goes to "Choose a new PIN" first (require_admin sends it).
+            response = RedirectResponse(url=admin_tabs.login_return(next, section), status_code=303)
             start_session(response, request, await session_generation(db))
             return response
 
@@ -242,7 +254,7 @@ async def login_submit(request: Request, pin: str = Form(...)):
         message = f"Incorrect PIN. {_lockout_message(failed_attempts, wait)}"
     else:
         message = f"Incorrect PIN. Try again in {_format_wait(wait)}." if wait else "Incorrect PIN."
-    return await _login_page(request, message, 401)
+    return await _login_page(request, message, 401, next, section)
 
 
 @router.post("/logout")
@@ -265,9 +277,9 @@ async def admin_home(
     return await _render_admin(request, tab=tab, weather_error=weather_error, error=error)
 
 
-async def _google_lists(db, google_account: str | None) -> dict:
+async def _google_lists(db, google_account: str | None, tasklists: bool = True) -> dict:
     """The Google account's calendars and task lists, for the Google & Sync
-    tab (and the School tab's calendar picker). Never raises on a Google
+    tab (the School tab's calendar picker skips the task lists). Never raises on a Google
     error: google_offline / tasklists_error say what went wrong."""
     found: dict = {"available_calendars": [], "available_tasklists": [], "tasklists_error": False,
                    "google_offline": False}
@@ -283,6 +295,8 @@ async def _google_lists(db, google_account: str | None) -> dict:
         found["available_calendars"] = await google_oauth.fetch_calendar_list(access_token)
     except httpx.HTTPError:
         found["google_offline"] = True
+    if not tasklists:
+        return found
     try:
         found["available_tasklists"] = await google_tasks.fetch_tasklists(access_token)
     except httpx.HTTPStatusError as exc:
@@ -365,7 +379,7 @@ async def _render_admin(
                 "handwriting_styles": homework.HANDWRITING_STYLES,
             })
         elif tab == "school":
-            lists = await _google_lists(db, google_account)
+            lists = await _google_lists(db, google_account, tasklists=False)  # calendars only
             context.update({
                 "inbox": await imports.get_inbox(db),
                 "inbox_form": inbox_form,

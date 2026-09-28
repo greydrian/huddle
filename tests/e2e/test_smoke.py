@@ -139,3 +139,21 @@ async def test_admin_login_and_scroll(start_server, page):
     await page.goto(server.url + "/admin#sync")
     await page.wait_for_selector("#sync")
     assert "tab=google" in page.url and page.url.endswith("#sync")
+
+
+async def test_signed_out_sync_dot_link_returns_to_sync_after_the_pin(start_server, page):
+    server = start_server()
+    await page.goto(server.url + "/admin?tab=google#sync")  # the sync dot's link
+    await page.wait_for_selector("input[name=pin]")
+    assert await page.input_value("input[name=section]") == "sync"
+    await page.fill("input[name=pin]", "1234")
+    await page.click("button[type=submit]")
+    await page.wait_for_selector("#sync")
+    assert page.url.endswith("/admin?tab=google#sync")
+
+    # Only real sections switch tabs: #constructor / #__proto__ are not "tabs".
+    for junk in ("constructor", "__proto__", "toString"):
+        await page.goto(f"{server.url}/admin#{junk}")
+        await page.wait_for_selector("h2:has-text('Family Members')")
+        await asyncio.sleep(0.3)  # time for a (wrong) redirect to happen
+        assert page.url == f"{server.url}/admin#{junk}"

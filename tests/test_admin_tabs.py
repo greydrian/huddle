@@ -3,14 +3,17 @@ email fields (migration 2)."""
 
 import re
 import sqlite3
+import time
 from pathlib import Path
 
 import pytest
 
-from app import admin_tabs, database, google_oauth, migrations
+from app import admin_tabs, backup, database, google_oauth, migrations, school_email
 from app.admin_tabs import SECTIONS, TABS, admin_url
+from app.main import app
 from app.routers import admin
 from app.security import create_session_token
+from app.services import weather
 
 APP = Path(__file__).resolve().parents[1] / "app"
 TASKLISTS_URL = "https://tasks.googleapis.com/tasks/v1/users/@me/lists"
@@ -25,6 +28,16 @@ def admin_client(client):
 @pytest.fixture
 def google_lists(google, connected):
     """A connected account whose lists load, so every section (calendar picker, Task Sync) renders."""
+    google.get(google_oauth.CALENDAR_LIST_ENDPOINT).respond(
+        200, json={"items": [{"id": "family@example.com", "summary": "Family", "primary": True, "accessRole": "owner"}]}
+    )
+    google.get(TASKLISTS_URL).respond(200, json={"items": [{"id": "list-shop", "title": "Groceries"}]})
+    return google
+
+
+@pytest.fixture
+def google_lists_unconnected(google):
+    """The same lists, for a test that connects part-way through."""
     google.get(google_oauth.CALENDAR_LIST_ENDPOINT).respond(
         200, json={"items": [{"id": "family@example.com", "summary": "Family", "primary": True, "accessRole": "owner"}]}
     )
@@ -58,37 +71,129 @@ async def test_no_or_unknown_tab_opens_family(admin_client):
         assert 'id="family"' in html and 'id="backups"' not in html
 
 
-def _redirect_sections() -> set[str]:
-    """Every section a router sends Admin back to: admin_url("...") calls
-    and the ADMIN_ERRORS sections (via _admin_error)."""
-    found = {section for section, _ in admin.ADMIN_ERRORS.values()}
-    for path in (APP / "routers").glob("*.py"):
-        source = path.read_text(encoding="utf-8")
-        found |= set(re.findall(r'admin_url\(\s*"([a-z-]+)"', source))
-        # Nothing builds an Admin section link by hand any more.
-        assert not re.search(r'["\']/admin[?#]', source), path.name
-    return found
+NO_ROW = "999999"  # an id nothing has: routes then take their "missing" redirect
+TAB = "tab"
+
+# Every Admin route. "tab" routes are called (as signed-in Admin, with the
+# data given) and must answer 303 to an Admin tab: ?tab= plus a #section on
+# that tab. The rest say why they don't. A new route fails
+# test_every_admin_route_is_classified until it's added here.
+ROUTES: dict[tuple[str, str], tuple[str, dict | str]] = {
+    ("POST", "/admin/profiles"): (TAB, {"name": "Nan", "colour_hex": "#123456"}),
+    ("POST", "/admin/profiles/{profile_id}/details"): (TAB, {"email": "not an email"}),
+    ("POST", "/admin/profiles/{profile_id}/delete"): (TAB, {}),
+    ("POST", "/admin/tasks/{task_id}/edit"): (TAB, {"profile_id": "1"}),
+    ("POST", "/admin/homework"): (TAB, {"profile_id": "1", "title": "Fractions"}),
+    ("POST", "/admin/homework/{homework_id}/edit"): (TAB, {}),
+    ("POST", "/admin/homework/{homework_id}/archive"): (TAB, {}),
+    ("POST", "/admin/homework/{homework_id}/delete"): (TAB, {}),
+    ("POST", "/admin/practice-words"): (TAB, {"profile_id": "1", "title": "Week 1", "words": "because"}),
+    ("POST", "/admin/practice-words/{list_id}/edit"): (TAB, {}),
+    ("POST", "/admin/practice-words/{list_id}/archive"): (TAB, {}),
+    ("POST", "/admin/practice-words/{list_id}/delete"): (TAB, {}),
+    ("POST", "/admin/handwriting-style"): (TAB, {"style": "nope"}),
+    ("POST", "/admin/inbox/add"): (TAB, {"text": ""}),
+    ("POST", "/admin/inbox/candidates/{candidate_id}/approve"): (TAB, {}),
+    ("POST", "/admin/inbox/candidates/{candidate_id}/discard"): (TAB, {}),
+    ("POST", "/admin/inbox/sources/{source_id}/approve-all"): (TAB, {}),
+    ("POST", "/admin/inbox/sources/{source_id}/retry"): (TAB, {}),
+    ("POST", "/admin/inbox/sources/{source_id}/delete"): (TAB, {}),
+    ("POST", "/admin/school-email/schedule"): (TAB, {"mode": "nope", "time": "18:00"}),
+    ("POST", "/admin/school-email/senders"): (TAB, {"senders": "", "exclusions": ""}),
+    ("POST", "/admin/school-email/calendar"): (TAB, {"calendar_id": ""}),
+    ("POST", "/admin/school-email/check"): (TAB, {}),
+    ("POST", "/admin/google/shopping-list"): (TAB, {"tasklist_id": "list-shop"}),
+    ("POST", "/admin/google/task-lists"): (TAB, {}),
+    ("POST", "/admin/google/calendars"): (TAB, {}),
+    ("POST", "/admin/google/disconnect"): (TAB, {}),
+    ("GET", "/admin/google/callback"): (TAB, {}),
+    ("POST", "/admin/weather-location"): (TAB, {"place": "Nowhere"}),
+    ("POST", "/admin/onscreen-keyboard"): (TAB, {}),
+    ("POST", "/admin/appearance"): (TAB, {"value": "nope"}),
+    ("POST", "/admin/change-pin"): (TAB, {"new_pin": "2580", "confirm_pin": "2580"}),
+    ("POST", "/admin/backups/run"): (TAB, {}),
+    ("POST", "/admin/sync"): (TAB, {}),
+    ("GET", "/admin"): ("exempt", "the Admin page itself"),
+    ("GET", "/admin/login"): ("exempt", "the PIN page"),
+    ("POST", "/admin/login"): ("exempt", "goes back to where the PIN was asked for (login_return, tested below)"),
+    ("POST", "/admin/logout"): ("exempt", "back to the PIN page"),
+    ("GET", "/admin/new-pin"): ("exempt", "the forced 'Choose a new PIN' page"),
+    ("POST", "/admin/new-pin"): ("exempt", "opens Admin after the forced PIN change"),
+    ("GET", "/admin/google/connect"): ("exempt", "off to Google's consent screen"),
+    ("GET", "/admin/inbox/sources/{source_id}"): ("exempt", "an HTMX fragment"),
+    ("GET", "/admin/school-email/status"): ("exempt", "an HTMX fragment"),
+}
 
 
-def test_redirects_and_links_only_use_known_sections():
-    assert _redirect_sections() <= set(SECTIONS)
+def _admin_routes() -> set[tuple[str, str]]:
+    return {
+        (method.upper(), path)
+        for path, operations in app.openapi()["paths"].items() if path.startswith("/admin")
+        for method in operations
+    }
+
+
+def test_every_admin_route_is_classified():
+    assert _admin_routes() == set(ROUTES)
+
+
+@pytest.fixture
+def quiet_side_effects(monkeypatch):
+    """What the walk's routes would otherwise start: a backup, a school
+    email check, a geocoder call."""
+    async def backup_done():
+        return Path("backup.db")
+
+    async def nowhere(place):
+        return None
+
+    monkeypatch.setattr(backup, "create_backup", backup_done)
+    monkeypatch.setattr(school_email, "start_check", lambda: False)
+    monkeypatch.setattr(weather, "geocode", nowhere)
+
+
+async def _walk(admin_client) -> list[tuple[str, str]]:
+    """Calls every "tab" route; returns (route, Location) pairs."""
+    locations = []
+    for (method, path), (kind, data) in ROUTES.items():
+        if kind != TAB:
+            continue
+        url = re.sub(r"\{[a-z_]+\}", NO_ROW, path)
+        if method == "GET":
+            resp = await admin_client.get(url)
+        elif path == "/admin/inbox/add":
+            resp = await admin_client.post(url, files={"text": (None, "")})
+        else:
+            resp = await admin_client.post(url, data=data)
+        assert resp.status_code == 303, (path, resp.status_code)
+        locations.append((path, resp.headers["location"]))
+    return locations
+
+
+async def test_every_admin_redirect_opens_the_tab_with_its_anchor(
+    admin_client, db, google_lists_unconnected, quiet_side_effects
+):
+    targets = await _walk(admin_client)
+    targets += [(f"error {code}", admin_url(section, error=code)) for code, (section, _) in admin.ADMIN_ERRORS.items()]
+    targets += [("status", admin_url("sync", sync="done")), ("status", admin_url("school-email", school_email="started")),
+                ("status", admin_url("weather", weather_error="offline"))]
+    # Rendered connected, so every Google & Sync anchor (calendar picker, Task Sync) exists.
+    await google_oauth.store_tokens(
+        db, {"access_token": "tok", "refresh_token": "refresh", "expires_at": time.time() + 3600}, "family@example.com"
+    )
+    for route, location in targets:
+        path, _, anchor = location.partition("#")
+        assert path.startswith("/admin?tab=") and anchor in SECTIONS, (route, location)
+        resp = await admin_client.get(path)
+        assert resp.status_code == 200, (route, location)
+        assert f'id="{anchor}"' in resp.text, (route, location)
+        assert _current_tab(resp.text) == SECTIONS[anchor], (route, location)
+
+
+def test_template_links_use_known_sections():
     for path in (APP / "templates").rglob("*.html"):
         for tab, section in re.findall(r'href="/admin\?tab=([a-z]+)#([a-z-]+)"', path.read_text(encoding="utf-8")):
             assert SECTIONS[section] == tab, (path.name, section)
-
-
-async def test_every_redirect_target_opens_the_tab_with_its_anchor(admin_client, google_lists):
-    targets = {admin_url(s) for s in _redirect_sections()}
-    targets |= {admin_url(section, error=code) for code, (section, _) in admin.ADMIN_ERRORS.items()}
-    targets.add(admin_url("sync", sync="done"))
-    targets.add(admin_url("school-email", school_email="started"))
-    targets.add(admin_url("weather", weather_error="offline"))
-    for url in sorted(targets):
-        path, _, anchor = url.partition("#")
-        resp = await admin_client.get(path)
-        assert resp.status_code == 200, url
-        assert f'id="{anchor}"' in resp.text, url
-        assert _current_tab(resp.text) == SECTIONS[anchor], url
 
 
 async def test_error_messages_show_on_their_tab(admin_client):
@@ -176,7 +281,10 @@ async def test_parent_and_email_save_and_show(db, admin_client):
 
 @pytest.mark.parametrize("bad", ["mum", "mum@", "@example.com", "mum@example", "a b@example.com",
                                  "mum@example.com, dad@example.com", "Mum <mum@example.com>",
-                                 "x" * 250 + "@example.com"])
+                                 "x" * 250 + "@example.com",
+                                 # control characters, anywhere
+                                 "mu\x00m@example.com", "mum@exa\x01mple.com", "mum@example.com\x7f",
+                                 "mu\x1bm@example.com"])
 async def test_a_bad_email_changes_nothing(db, admin_client, bad):
     mum = await _profile(db, "Mum")
     r = await admin_client.post(
@@ -197,3 +305,62 @@ async def test_profile_details_need_admin(client, db):
 
 def test_tab_labels_match_the_spec():
     assert list(admin_tabs.TABS.values()) == ["Family", "School", "Display", "Google & Sync", "Assistant", "System"]
+
+
+# --- Signing in goes back to the tab that asked ---
+
+async def test_signed_out_tab_link_comes_back_to_its_tab_and_section(client, db):
+    # The sync dot's link, signed out: the tab rides along as ?next= (the
+    # browser keeps #sync on the login page, whose script posts it).
+    resp = await client.get("/admin?tab=google")
+    assert (resp.status_code, resp.headers["location"]) == (303, "/admin/login?next=%2Fadmin%3Ftab%3Dgoogle")
+    page = (await client.get(resp.headers["location"])).text
+    assert '<input type="hidden" name="next" value="/admin?tab=google">' in page
+
+    wrong = await client.post("/admin/login", data={"pin": "0000", "next": "/admin?tab=google", "section": "sync"})
+    assert wrong.status_code == 401  # a typo keeps both for the next try
+    assert 'name="next" value="/admin?tab=google"' in wrong.text and 'name="section" value="sync"' in wrong.text
+    await database.set_setting(db, "pin_lockout", "{}")  # skip the backoff the typo started
+    await db.commit()
+
+    resp = await client.post("/admin/login", data={"pin": "1234", "next": "/admin?tab=google", "section": "sync"})
+    assert (resp.status_code, resp.headers["location"]) == (303, "/admin?tab=google#sync")
+
+
+async def test_plain_admin_needs_no_next(client):
+    assert (await client.get("/admin")).headers["location"] == "/admin/login"
+    assert (await client.get("/admin?tab=nope")).headers["location"] == "/admin/login"
+    resp = await client.post("/admin/login", data={"pin": "1234", "section": "backups"})
+    assert resp.headers["location"] == "/admin?tab=system#backups"  # an old /admin#backups link
+
+
+@pytest.mark.parametrize("next_url", [
+    "https://evil.example/admin", "//evil.example/admin", "/\\evil.example", "/admin/../x", "/adminx",
+    "/admin/login", "/admin?tab=evil", "/admin?tab=google&x=1", "/admin?tab=google&tab=system",
+    "/admin?tab=google#sync", "javascript:alert(1)", "http:/admin",
+])
+async def test_login_never_redirects_off_admin(client, next_url):
+    resp = await client.post("/admin/login", data={"pin": "1234", "next": next_url, "section": "sync"})
+    assert resp.headers["location"] == "/admin"
+    page = (await client.get("/admin/login", params={"next": next_url})).text
+    assert 'name="next"' not in page
+
+
+@pytest.mark.parametrize(("next_url", "section", "expected"), [
+    ("/admin?tab=google", "", "/admin?tab=google"),
+    ("/admin?tab=google", "backups", "/admin?tab=google"),  # not a section on that tab
+    ("/admin?tab=google", "constructor", "/admin?tab=google"),
+    ("", "__proto__", "/admin"),
+    ("", "sync", "/admin?tab=google#sync"),
+    ("/admin", "pin", "/admin?tab=system#pin"),
+])
+def test_login_return(next_url, section, expected):
+    assert admin_tabs.login_return(next_url, section) == expected
+
+
+async def test_the_forced_new_pin_screen_still_comes_first(client, db):
+    await database.set_setting(db, "pin_is_default", "1")
+    await db.commit()
+    resp = await client.post("/admin/login", data={"pin": "1234", "next": "/admin?tab=google", "section": "sync"})
+    assert resp.headers["location"] == "/admin?tab=google#sync"
+    assert (await client.get("/admin?tab=google")).headers["location"] == "/admin/new-pin"
