@@ -1,5 +1,6 @@
 {% from "widgets/_widget.html" import widget_header %}
-<div class="widget-card" id="widget-meals">
+{#- Re-fetched by static/js/fresh.js when /api/rev says it changed. -#}
+<div class="widget-card" id="widget-meals" data-refresh="/widgets/meals" data-rev-key="meals">
   {{ widget_header("utensils", "Meal Plan") }}
   <div class="widget-body">
     {% for day in days %}

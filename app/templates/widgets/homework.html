@@ -1,6 +1,7 @@
 {% from "_icons.html" import icon, person_pill %}
 {% from "widgets/_widget.html" import widget_header, stub_empty, tick_button %}
-<div class="widget-card" id="widget-homework">
+{#- Re-fetched by static/js/fresh.js when /api/rev says it changed. -#}
+<div class="widget-card" id="widget-homework" data-refresh="/widgets/homework" data-rev-key="homework">
   {{ widget_header("book-open", "Homework") }}
   <div class="widget-body hw-body">
     {% for child in homework_groups %}

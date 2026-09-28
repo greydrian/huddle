@@ -10,7 +10,8 @@
   <span class="task-title">{{ task.title }}</span>
 </div>
 {% endmacro %}
-<div class="widget-card" id="widget-tasks">
+{#- Re-fetched by static/js/fresh.js when /api/rev says it changed. -#}
+<div class="widget-card" id="widget-tasks" data-refresh="/widgets/tasks" data-rev-key="tasks">
   {{ widget_header("list-checks", "Today's Tasks") }}
   <div class="widget-body">
     {% for profile in profiles %}

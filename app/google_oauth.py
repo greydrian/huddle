@@ -26,7 +26,7 @@ import time
 
 import httpx
 
-from app import http_client
+from app import calendar_cache, http_client
 from app.database import get_setting, set_setting
 from app.security import decrypt_token_json, encrypt_token_json
 
@@ -152,6 +152,8 @@ async def get_selected_calendars(db) -> list[dict]:
 
 async def set_selected_calendars(db, calendars: list[dict]):
     await set_setting(db, SELECTED_CALENDARS_SETTING, json.dumps(calendars))
+    # Cached events carry the old selection's calendars and colours.
+    await calendar_cache.clear(db)
     await db.commit()
 
 
@@ -167,6 +169,10 @@ async def _load_stored_tokens(db) -> dict | None:
 
 async def store_tokens(db, tokens: dict, account_email: str | None = None):
     encrypted = encrypt_token_json(tokens)
+    if account_email is not None:
+        # A (re)connect — maybe a different account: drop the old one's
+        # cached events. Token refreshes pass no email and keep the cache.
+        await calendar_cache.clear(db)
     await db.execute(
         """INSERT INTO auth_tokens (service_name, account_email, encrypted_token_json)
            VALUES ('google', ?, ?)
@@ -223,6 +229,7 @@ async def get_valid_access_token(db) -> str | None:
         # expiry) — treat as disconnected; Admin shows "Connect" again.
         logger.warning("Google refresh token was revoked or expired (invalid_grant); disconnecting")
         await db.execute("DELETE FROM auth_tokens WHERE service_name = 'google'")
+        await calendar_cache.clear(db)
         await db.commit()
         return None
 
@@ -261,4 +268,5 @@ async def revoke_and_clear(db):
             # Best-effort — still clear the local row either way.
             logger.warning("Couldn't revoke the Google token: %s", http_client.describe(exc))
     await db.execute("DELETE FROM auth_tokens WHERE service_name = 'google'")
+    await calendar_cache.clear(db)
     await db.commit()

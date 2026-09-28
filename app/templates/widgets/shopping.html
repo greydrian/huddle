@@ -1,6 +1,7 @@
 {% from "_icons.html" import icon %}
 {% from "widgets/_widget.html" import widget_header %}
-<div class="widget-card" id="widget-shopping">
+{#- Re-fetched by static/js/fresh.js when /api/rev says it changed. -#}
+<div class="widget-card" id="widget-shopping" data-refresh="/widgets/shopping" data-rev-key="shopping">
   {{ widget_header("shopping-basket", "Shopping List") }}
   <div class="widget-body">
     {% for item in items %}

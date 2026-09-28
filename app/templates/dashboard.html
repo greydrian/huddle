@@ -8,7 +8,8 @@
 <div class="topbar">
   <div class="today">
     <span class="signature">Today</span>
-    <span id="today-date" data-iso="{{ today }}"></span>
+    {#- The family's date; static/js/fresh.js renders it and rolls it over at midnight. #}
+    <span id="today-date" data-iso="{{ today }}" data-next-change="{{ today_next_change }}"></span>
   </div>
   <div class="topbar-actions">
     {#- Sync status dot: loads, then polls itself (_sync_dot.html). -#}
@@ -20,7 +21,8 @@
 {# The scroller is its own element: Gridstack sizes #dashboard-grid with an
    inline height, so the grid can't be what scrolls. #}
 <div id="dashboard-scroll" class="dashboard-scroll">
-<div id="dashboard-grid" class="grid-stack">
+{#- data-revs: what each self-refreshing widget shows (app/freshness.py). #}
+<div id="dashboard-grid" class="grid-stack" data-revs='{{ widget_revs | tojson }}'>
   {% for widget in layout %}
   <div class="grid-stack-item"
        gs-id="{{ widget.widget_id }}"
@@ -40,14 +42,8 @@
 
 {% block scripts %}{% with part = "scripts" %}{% include "_keyboard_assets.html" %}{% endwith %}
 <script src="/static/vendor/gridstack/gridstack-all.js"></script>
+<script src="/static/js/fresh.js"></script>
 <script>
-  // Render today's date in the person's locale without a server round-trip.
-  const dateEl = document.getElementById('today-date');
-  const iso = dateEl.dataset.iso;
-  dateEl.textContent = new Date(iso + 'T00:00:00').toLocaleDateString(undefined, {
-    weekday: 'long', month: 'long', day: 'numeric'
-  });
-
   // Gridstack: anyone can drag/resize, no PIN required (Section 4.6).
   const grid = GridStack.init({
     cellHeight: 90,
