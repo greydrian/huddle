@@ -14,7 +14,7 @@ import httpx
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from app import appearance, backup, google_oauth, google_tasks, recurrence, task_sync
+from app import appearance, backup, google_oauth, google_tasks, recurrence, sync_status, task_sync
 from app.auth import (
     NEW_PIN_PATH,
     PIN_IS_DEFAULT_SETTING,
@@ -243,6 +243,7 @@ async def _render_admin(
         current_appearance = await appearance.get_appearance(db)
         mode = await appearance.current_mode(db)
         backup_status = backup.status(await family_timezone(db))
+        sync = await sync_status.summary(db)
 
         available_calendars = []
         selected_calendar_ids = []
@@ -305,6 +306,7 @@ async def _render_admin(
             "appearances": appearance.APPEARANCES,
             "weekdays": recurrence.WEEKDAYS,
             "backup_status": backup_status,
+            "sync": sync,
         },
         status_code=status_code,
     )

@@ -277,6 +277,28 @@ async def init_db():
             await set_setting(db, "pin_is_default", "1" if verify_pin(DEFAULT_PIN, stored) else "0")
 
         await db.commit()
+
+        # Migration: sync health (app/sync_status.py). One row, written by
+        # task_sync.run_sync every cycle; read by Admin's Sync panel, the
+        # dashboard's status dot and /health. Log-safe codes only
+        # ("offline", "HTTP 403", "not connected") — never tokens or URLs.
+        await db.execute(
+            """CREATE TABLE IF NOT EXISTS sync_status (
+                   id INTEGER PRIMARY KEY CHECK (id = 1),
+                   connected INTEGER NOT NULL DEFAULT 0,
+                   last_cycle_at TEXT,           -- *_at: tz-aware UTC ISO 8601
+                   last_success_at TEXT,
+                   last_failure_at TEXT,
+                   failing_since TEXT,           -- first failure of the current streak
+                   last_error TEXT,
+                   consecutive_failures INTEGER NOT NULL DEFAULT 0,
+                   auth_failures INTEGER NOT NULL DEFAULT 0,  -- same 401/403 cycles in a row
+                   queue_depth INTEGER NOT NULL DEFAULT 0
+               )"""
+        )
+        await db.execute("INSERT OR IGNORE INTO sync_status (id) VALUES (1)")
+        await db.commit()
+
         await load_onscreen_keyboard(db)
 
 

@@ -30,11 +30,13 @@ def client(timeout: httpx.Timeout = DEFAULT_TIMEOUT) -> httpx.AsyncClient:
 _failing: set[str] = set()
 
 
-def report_failure(logger: logging.Logger, key: str, message: str, *args) -> None:
-    """WARNING the first time `key` fails; silent while it stays failing."""
+def report_failure(logger: logging.Logger, key: str, message: str, *args, exc_info=None) -> None:
+    """WARNING the first time `key` fails; silent while it stays failing.
+    exc_info adds the traceback — only for unexpected (non-HTTP) errors: an
+    httpx traceback can include the request URL."""
     if key not in _failing:
         _failing.add(key)
-        logger.warning(message, *args)
+        logger.warning(message, *args, exc_info=exc_info)
 
 
 def report_success(logger: logging.Logger, key: str) -> None:

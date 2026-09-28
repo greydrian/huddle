@@ -1,0 +1,34 @@
+{#- Admin → Sync (app/sync_status.py). `sync` is sync_status.summary();
+    ?sync=done|busy is set by POST /admin/sync ("Sync now"). Only these
+    fixed messages are shown, never text from the URL. -#}
+{% set sync_result = request.query_params.get("sync") %}
+<div class="admin-panel" id="sync">
+  <div class="sync-panel-head">
+    <h2>Sync</h2>
+    <span class="sync-state sync-state-{{ sync.level or 'ok' }}" data-state="{{ sync.state }}">
+      <span class="sync-dot-mark" aria-hidden="true"></span>{{ sync.headline }}
+    </span>
+  </div>
+  <p class="admin-hint sync-detail">{{ sync.detail }}</p>
+  {% if sync_result == "done" %}
+  <p class="admin-meta" role="status">Sync ran just now — the status above is up to date.</p>
+  {% elif sync_result == "busy" %}
+  <p class="admin-meta" role="status">A sync was already running; the status above shows its result.</p>
+  {% endif %}
+  {% if sync.state != "off" %}
+  <dl class="sync-facts">
+    <dt>Last successful sync</dt>
+    <dd>{% if sync.last_success_at %}{{ sync.last_success_ago }}
+      <span class="admin-meta">({{ sync.last_success_at.strftime("%a %d %b, %H:%M") }})</span>{% else %}Never{% endif %}</dd>
+    <dt>Waiting to sync</dt>
+    <dd>{{ sync.queue_depth }} change{{ '' if sync.queue_depth == 1 else 's' }}</dd>
+    <dt>Last error</dt>
+    <dd>{% if sync.last_error %}{{ sync.last_error }}{% if sync.last_failure_at %}
+      <span class="admin-meta">({{ sync.last_failure_ago }}{% if sync.consecutive_failures > 1 %},
+        {{ sync.consecutive_failures }} failed syncs in a row{% endif %})</span>{% endif %}{% else %}None{% endif %}</dd>
+  </dl>
+  <form method="post" action="/admin/sync">
+    <button type="submit" class="btn btn-small">Sync now</button>
+  </form>
+  {% endif %}
+</div>

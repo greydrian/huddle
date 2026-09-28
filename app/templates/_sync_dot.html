@@ -1,0 +1,15 @@
+{#- Top-bar sync status (app/sync_status.py), rendered by GET /sync-status.
+    Re-fetches itself every minute and swaps itself out (outerHTML), so it
+    touches nothing else on the page. Nothing visible while sync is healthy
+    or just blipping; amber = failing for a while or offline, red = needs a
+    person (reconnect). Tapping it opens Admin's Sync panel. -#}
+{% if sync.level %}
+<a id="sync-dot" href="/admin#sync" class="sync-dot sync-dot-{{ sync.level }}"
+   hx-get="/sync-status" hx-trigger="every 60s" hx-swap="outerHTML"
+   title="{{ sync.detail }}" data-state="{{ sync.state }}">
+  <span class="sync-dot-mark" aria-hidden="true"></span>{{ sync.headline }}
+</a>
+{% else %}
+<span id="sync-dot" class="sync-dot" hx-get="/sync-status" hx-trigger="every 60s" hx-swap="outerHTML"
+      data-state="{{ sync.state }}"></span>
+{% endif %}

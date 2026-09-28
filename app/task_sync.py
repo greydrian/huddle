@@ -16,18 +16,21 @@ local changes are still pending would let Google's stale view overwrite
 them (e.g. resurrect an item deleted offline).
 """
 
+import asyncio
 import json
 import logging
 from datetime import datetime, timezone
 
 import httpx
 
-from app import google_oauth, google_tasks, http_client
+from app import google_oauth, google_tasks, http_client, sync_status
 from app.database import get_setting, set_setting
 
 SHOPPING_TASKLIST_SETTING = "google_shopping_tasklist"
 MAX_RETRY = 5
 SYNC_OUTAGE_KEY = "Google Tasks sync"
+SYNC_ATTENTION_KEY = "Google Tasks sync access"
+SYNC_ERROR_KEY = "Google Tasks sync (unexpected error)"
 
 logger = logging.getLogger(__name__)
 
@@ -316,20 +319,59 @@ async def reconcile_profile_tasks(db, access_token: str, profile):
 
 # --- Orchestration ---------------------------------------------------------
 
-async def run_sync(db):
+# Held for a whole cycle. The scheduler's max_instances=1 only stops two
+# scheduled runs overlapping; Admin's "Sync now" is a second caller, and two
+# cycles pushing the same queue rows would create duplicate Google tasks.
+_sync_lock = asyncio.Lock()
+
+
+def sync_in_progress() -> bool:
+    return _sync_lock.locked()
+
+
+async def run_sync(db) -> bool:
+    """One sync cycle. False (and nothing done) when a cycle is already
+    running — that cycle covers whatever this one would have done."""
+    if _sync_lock.locked():
+        return False
+    async with _sync_lock:
+        await _run_cycle(db)
+    return True
+
+
+async def _record_status(record, db, *args) -> bool:
+    """Writes the cycle's sync_status row. The sync work itself is already
+    committed, so a failure here (e.g. "database is locked") must not turn
+    the cycle into an error: a WARNING, and the next cycle writes it again."""
+    try:
+        return bool(await record(db, *args))
+    except Exception as exc:
+        logger.warning("Couldn't save the sync status: %s", type(exc).__name__)
+        return False
+
+
+async def _rollback(db):
+    """Nothing half-done from a failed step is kept."""
+    try:
+        await db.rollback()
+    except Exception as exc:
+        logger.warning("Rollback after a failed sync cycle failed: %s", type(exc).__name__)
+
+
+async def _run_cycle(db):
+    """Never raises (short of cancellation): the scheduler job and Admin's
+    "Sync now" both just want the cycle done and its outcome recorded."""
     try:
         access_token = await google_oauth.get_valid_access_token(db)
-        if not access_token:
-            return
+        if access_token:
+            await push_pending_changes(db, access_token)
 
-        await push_pending_changes(db, access_token)
-
-        await reconcile_shopping(db, access_token)
-        profiles = await (await db.execute(
-            "SELECT * FROM profiles WHERE google_tasklist_id IS NOT NULL"
-        )).fetchall()
-        for profile in profiles:
-            await reconcile_profile_tasks(db, access_token, profile)
+            await reconcile_shopping(db, access_token)
+            profiles = await (await db.execute(
+                "SELECT * FROM profiles WHERE google_tasklist_id IS NOT NULL"
+            )).fetchall()
+            for profile in profiles:
+                await reconcile_profile_tasks(db, access_token, profile)
     except (_StopCycle, httpx.HTTPError) as exc:
         # Offline, rate-limited, or the token lacks the `tasks` scope (needs
         # a reconnect) — skip this cycle; the next one retries. Logged once
@@ -339,5 +381,34 @@ async def run_sync(db):
             logger, SYNC_OUTAGE_KEY, "Google Tasks sync failing; retrying every cycle: %s",
             http_client.describe(cause),
         )
+        await _rollback(db)
+        if await _record_status(sync_status.record_failure, db, cause):
+            # The same 401/403 for ATTENTION_AFTER cycles: not a blip any
+            # more. Still never drops queue rows — they push once reconnected.
+            http_client.report_failure(
+                logger, SYNC_ATTENTION_KEY,
+                "Google Tasks sync needs attention: Google refused access (%s) for %d cycles "
+                "in a row; reconnect in Admin",
+                http_client.describe(cause), sync_status.ATTENTION_AFTER,
+            )
+    except Exception as exc:
+        # Not Google: a bug (e.g. a KeyError on an odd task) or SQLite
+        # ("database is locked"). Swallowed rather than raised, so neither the
+        # scheduler nor Sync now errors out, but recorded as "error" (never
+        # towards needs-attention) so the dot turns amber if it persists.
+        # Traceback logged once per outage; it's not an httpx error, so it
+        # carries no request URL.
+        http_client.report_failure(
+            logger, SYNC_ERROR_KEY, "Google Tasks sync failing with an unexpected error: %s",
+            type(exc).__name__, exc_info=exc,
+        )
+        await _rollback(db)
+        await _record_status(sync_status.record_failure, db, exc)
     else:
+        if not access_token:
+            await _record_status(sync_status.record_not_connected, db)
+            return
         http_client.report_success(logger, SYNC_OUTAGE_KEY)
+        http_client.report_success(logger, SYNC_ATTENTION_KEY)
+        http_client.report_success(logger, SYNC_ERROR_KEY)
+        await _record_status(sync_status.record_success, db)

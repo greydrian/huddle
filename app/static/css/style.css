@@ -55,6 +55,8 @@
   --on-accent: #FFFFFF;     /* text/icons on a solid accent fill */
   --danger: #B3372B;
   --danger-soft: #FBEDEA;
+  --warn: #A86A00;          /* sync-delayed dot (3:1+ on --warn-soft) */
+  --warn-soft: #FDF3E1;
   --pill-light: #FFFFFF;    /* person-pill ink on dark person colours */
   --pill-dark: #1D2127;     /* person-pill ink on light person colours */
   --event-tint: 16%;        /* how much of a calendar colour tints its chip */
@@ -84,6 +86,8 @@
   --on-accent: #1A1407;
   --danger: #E57A6E;
   --danger-soft: #34201F;
+  --warn: #F0B45A;
+  --warn-soft: #332A1A;
   --pill-light: #F4F1EA;
   --pill-dark: #14171C;
   --event-tint: 30%;
@@ -153,6 +157,44 @@ input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-
   letter-spacing: 0.02em;
   color: var(--accent);
 }
+
+/* Top-bar sync status (templates/_sync_dot.html): an empty span while sync
+   is healthy; a small tinted pill with a coloured dot when it isn't — amber
+   = delayed/offline, red = needs a person. Label text stays --ink (AA);
+   the dot is 3:1+ on its tint in both palettes. It sits in .topbar-actions
+   with the Admin button, a right-hand group of its own, so it appearing or
+   going never moves anything else in the bar. Also used by Admin's Sync
+   panel (.sync-state). */
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+.sync-dot:empty { display: none; }
+.sync-dot-amber, .sync-dot-red, .sync-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-radius: 999px;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--ink);
+  text-decoration: none;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.sync-dot-mark {
+  width: 12px; height: 12px;
+  border-radius: 50%;
+  background: var(--sync-colour, var(--accent));
+  flex-shrink: 0;
+}
+.sync-dot-amber, .sync-state-amber { --sync-colour: var(--warn); background: var(--warn-soft); border: 1px solid var(--warn); }
+.sync-dot-red, .sync-state-red { --sync-colour: var(--danger); background: var(--danger-soft); border: 1px solid var(--danger); }
+.sync-state-ok { background: var(--accent-soft); }
 
 /* The page stays locked (above); the area under the top bar scrolls.
    Gridstack gives #dashboard-grid an inline height as tall as its rows,
@@ -692,6 +734,18 @@ html:has(.admin-shell), html:has(.admin-shell) body { height: auto; overflow-y: 
 .shopping-list-picker { margin-bottom: 16px; }
 .tasklist-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
 .tasklist-person { min-width: 130px; }
+
+/* Admin → Sync panel (admin/_sync_panel.html): state pill beside the
+   heading (pill styles are with the top-bar .sync-dot), then a compact
+   two-column list of facts. */
+.sync-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.sync-panel-head h2 { margin: 0; }
+.sync-panel-head .sync-state { padding: 6px 14px; font-size: 0.95rem; }
+.sync-detail { margin-top: 10px; }
+.sync-facts { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 12px 0 14px; }
+.sync-facts dt { color: var(--ink-soft); }
+.sync-facts dd { margin: 0; font-weight: 600; }
+.sync-facts dd .admin-meta { font-weight: 400; }
 
 /* Admin task-schedule day picker — touch-sized toggle chips (checkbox hidden,
    its label is the tap target). */

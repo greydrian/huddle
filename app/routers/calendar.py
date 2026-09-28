@@ -15,7 +15,7 @@ import httpx
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from app import google_calendar, google_oauth, http_client
+from app import google_calendar, google_oauth, http_client, sync_status
 from app.auth import require_admin
 from app.database import get_db
 from app.templating import templates
@@ -68,6 +68,8 @@ async def google_callback(
 
     async with get_db() as db:
         await google_oauth.store_tokens(db, tokens, userinfo.get("email"))
+        # A fresh grant: whatever the old one's sync failures were, they're over.
+        await sync_status.reset(db)
 
     return response
 
@@ -76,6 +78,9 @@ async def google_callback(
 async def google_disconnect():
     async with get_db() as db:
         await google_oauth.revoke_and_clear(db)
+        # A deliberate disconnect isn't a sync fault: forget the history, so
+        # the dashboard dot stays hidden (sync_status.summary, "never connected").
+        await sync_status.reset(db)
     return RedirectResponse(url="/admin", status_code=303)
 
 
