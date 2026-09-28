@@ -1,0 +1,65 @@
+/* Pen test page (templates/pen_test.html). Uses the style.css tokens, so it
+   follows day/night mode. The canvas fills the space beside the readout. */
+
+.pen-test {
+  --pen-ink: var(--accent);
+  --touch-ink: #6A4BC4;
+  --mouse-ink: var(--ink-soft);
+  position: fixed; inset: 0;
+  display: flex; flex-direction: column;
+  background: var(--ground); color: var(--ink);
+  font-family: var(--font-ui);
+}
+:root[data-mode="night"] .pen-test { --touch-ink: #B7A3F5; }
+
+.pt-bar {
+  display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+  padding: 12px 20px;
+}
+.pt-bar h1 { margin: 0; font-size: 1.75rem; font-weight: 700; }
+.pt-hint { margin: 0; flex: 1; min-width: 200px; color: var(--ink-soft); font-size: 1rem; }
+.pt-actions { display: flex; gap: 10px; }
+.pt-actions .btn-quiet { background: var(--card); box-shadow: 0 0 0 1px var(--line); }
+
+.pt-main { flex: 1; min-height: 0; display: flex; gap: 16px; padding: 0 20px 20px; }
+
+#pt-canvas {
+  flex: 1; min-width: 0; height: 100%;
+  background: var(--card); border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card), 0 0 0 1px var(--card-edge);
+  touch-action: none; user-select: none; -webkit-user-select: none;
+  cursor: crosshair;
+}
+
+.pt-panel {
+  width: 360px; flex-shrink: 0; overflow-y: auto;
+  background: var(--card); border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card), 0 0 0 1px var(--card-edge);
+  padding: 16px 20px; font-size: 1.05rem;
+}
+.pt-panel section + section { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
+.pt-panel h2 { margin: 0 0 8px; font-size: 1.15rem; font-weight: 700; }
+.pt-panel p { margin: 0; }
+
+.pt-type { font-size: 2.6rem; font-weight: 700; line-height: 1.1; color: var(--ink-soft); }
+.pt-type[data-type="pen"] { color: var(--pen-ink); }
+.pt-type[data-type="touch"] { color: var(--touch-ink); }
+.pt-type[data-type="mouse"] { color: var(--mouse-ink); }
+
+.pt-facts { display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px; margin: 12px 0 0; }
+.pt-facts dt { color: var(--ink-soft); }
+.pt-facts dd { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+.pt-checks { list-style: none; margin: 0; padding: 0; }
+.pt-checks li {
+  display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; align-items: baseline;
+  padding: 7px 0; border-bottom: 1px solid var(--line);
+}
+.pt-checks li:last-child { border-bottom: none; }
+.pt-checks b { text-align: right; }
+.pt-checks small { grid-column: 1 / -1; color: var(--ink-soft); font-size: 0.85rem; }
+
+@media (max-width: 900px) {
+  .pt-main { flex-direction: column; }
+  .pt-panel { width: auto; max-height: 40%; }
+}

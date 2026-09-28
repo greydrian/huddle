@@ -59,7 +59,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app import appearance, freshness, scheduler
 from app.database import get_db, init_db
-from app.routers import admin, calendar, dashboard, homework, layout, meals, shopping, sync, tasks, weather
+from app.routers import admin, calendar, dashboard, homework, layout, meals, pen_test, shopping, sync, tasks, weather
 from app.services import imports
 from app.upload_guard import UploadGuard
 
@@ -122,3 +122,4 @@ app.include_router(calendar.router)
 app.include_router(weather.router)
 app.include_router(homework.router)
 app.include_router(sync.router)
+app.include_router(pen_test.router)
