@@ -1,8 +1,8 @@
 # Family Management Display ("Huddle"): Specification
 
-**Status:** v1.0, as built, 28 September 2026. Sections 1–9 describe the app as it stands and the
-decisions behind it. **Section 10 is the v1.1 plan** (next iteration) and is still open for
-decisions.
+**Status:** v1.0 as built + v1.1/v1.2 plan, reviewed 28 Sep 2026. Sections 1–9 describe the app
+as it stands and the decisions behind it. **Section 10 is the v1.1/v1.2 plan** (next iterations).
+It was checked against external sources on 28 Sep 2026; they're listed at the end.
 **Target hardware:** GMKtec G10 (Ryzen 5 3500U) as the local Docker server, and a Samsung Galaxy
 Tab A9+ wall-mounted in the kitchen as the display, connected over Wi-Fi.
 
@@ -36,8 +36,15 @@ with a daily reset, handwriting practice, or an approval inbox for school homewo
 | Server | **GMKtec G10** (Ryzen 5 3500U, 16 GB) running the app and Home Assistant in Docker. Can live anywhere on the LAN. |
 | Display | **Samsung Galaxy Tab A9+** (11", about 1280×800 CSS px landscape), wall-mounted in the kitchen, Wi-Fi only. |
 | Display software | **Fully Kiosk Browser**: fullscreen, autostart, pointed at the dashboard URL. Its scheduled dim/sleep and remote cache-clear are relied on. |
+| Fully Kiosk licence | **Fully Kiosk PLUS is required** (€7.90 one-off per device). The JavaScript interface, screensaver, screen-off timer, scheduled wake/sleep and motion detection all need PLUS. |
+| Tablet battery | Turn on Samsung **"Protect battery"** (charge limit about 85%). The tablet is on charge 24/7, and batteries kept at 100% can swell. |
+| Server power | A **small UPS for the G10 is recommended**. No app changes needed. |
 | App type | **Browser-based web app, not a native Android app.** One codebase; no extra UX benefit from native. |
 | Network | Home Wi-Fi; the server and tablet share the LAN. |
+
+**The display tablet is under review (28 Sep 2026).** *Open.* The Tab A9+ has no pen digitiser, so
+handwriting practice (10.10) would be finger-only. A pen tablet (e.g. the Galaxy Tab S FE class,
+with S Pen) is being researched. The decision is pending.
 
 ---
 
@@ -65,7 +72,7 @@ with a daily reset, handwriting practice, or an approval inbox for school homewo
 | Weather | Open-Meteo for the location set in Admin, with illustrated icons. It shows a cached forecast (up to 24 h old) when offline. |
 | Homework | Per-child homework with due, due-today, overdue and done states. |
 | Practice words | Each child's current handwriting word list in Playwrite GB (semi-joined or joined), with a daily "Practised today" toggle. Deliberately no points. |
-| Photos | **Placeholder ("coming soon"); see 10.2.** |
+| Photos | **Placeholder; removed in v1.1** (10.2). |
 
 ### 4.2 Calendar sync
 - Google Calendar (Workspace account). The calendars to show are chosen in Admin, each in its own
@@ -131,8 +138,10 @@ PIN rules and protection:
   reaches the wall or the calendar until a parent approves it. Approved dates are added to a
   chosen Google calendar.
 - Privacy and safety:
-  - `sen@gresham.croydon.sch.uk` (private SENDCo conversations) is **never fetched**, and any
-    email that mentions it is dropped whole.
+  - **The automatic daily school-email check never fetches SENDCo mail**
+    (`sen@gresham.croydon.sch.uk`, private SENDCo conversations), and any email that mentions it
+    is dropped whole. This is as built.
+  - **A parent-labelled "Huddle" email is the only exception**; see `docs/assistant-spec.md`, A1.
   - Quoted reply history is stripped.
   - Senders that fail DMARC/SPF/DKIM are skipped.
   - Documents are treated as untrusted: the model can only suggest inbox items.
@@ -167,7 +176,8 @@ PIN rules and protection:
 - Access from outside the home. The display is **home network only** (decided 28 Sep 2026): no
   VPN, no public exposure.
 - Opening the dashboard on family phones or tablets. **The wall display is the only screen**;
-  phones use the Google apps.
+  phones use the Google apps. The one exception: **paired phones can use a small upload page** on
+  the home network (see `docs/assistant-spec.md`). It's not a dashboard.
 - Voice control.
 - Multiple physical displays or multi-device sync.
 - Phone notifications beyond what Google's own apps provide.
@@ -188,8 +198,18 @@ PIN rules and protection:
   come in via screenshot upload. Two possible upgrades:
   - Classroom guardian email summaries, which give homework titles and due dates only
   - a read-only Classroom API app, which would make spellings fully automatic
-- **Claude for extraction.** The family consented to sending school emails and uploads, and only
-  those, to the Anthropic API. Structured tool output, validated server-side, approval-gated.
+- **Claude for extraction.** Structured tool output, validated server-side, approval-gated.
+- **Consent to the Anthropic API.** The family consents to sending the following to the Anthropic
+  API:
+  - school emails and uploads (built)
+  - later, per assistant capability: typed requests, calendar event titles and times, task titles,
+    homework, children's first names and year groups, and **allergies and dislikes** (health data,
+    for meal ideas)
+
+  **Anthropic keeps API data for 30 days by default**, or up to 2 years if it's flagged by safety
+  systems, and **doesn't train on it**. Zero data retention needs an enterprise contract, so it
+  doesn't apply here. What each capability sends is in the assistant spec's data table
+  (`docs/assistant-spec.md`, section 4).
 - **OAuth app set to "Internal"** (Workspace), so the restricted Gmail scope needs no Google
   verification and there's no 7-day token expiry.
 
@@ -199,6 +219,9 @@ PIN rules and protection:
    not decided.
 3. **HTTPS and hostname via Caddy** (9.7) are not deployed yet. Until they are, reconnecting
    Google must be done from `localhost` on the G10 or through an SSH tunnel.
+   - Google needs HTTPS on a real public domain for OAuth callbacks, so Caddy needs a **real
+     domain with a DNS-01 certificate, pointing at the LAN IP**. A `.lan` name won't work.
+   - Still deferred.
 4. **Checks to do on the tablet:**
    - Does Fully Kiosk suppress the Android keyboard when ours is on?
    - Does a touch tap on the shopping "Add" button work?
@@ -222,7 +245,7 @@ Open-Meteo, and the Anthropic API (the school import, optional).
 
 ### 9.3 Storage (decided)
 SQLite in WAL mode, with `synchronous=NORMAL` on every connection. Migrations are idempotent
-blocks in `init_db()`. It holds:
+blocks in `init_db()` today; v1.1 moves to numbered migrations (9.8). It holds:
 - layout, local task and list mirrors, the sync queue and status
 - a calendar cache
 - homework and word lists
@@ -244,7 +267,8 @@ Polling, not WebSockets:
 - Features check the scopes actually granted, so an older connection keeps working until it's
   reconnected.
 - Tokens are encrypted at rest. Only `invalid_grant` disconnects.
-- Google Photos (v1.1) will need the Photos Picker scope and a reconnect.
+- Google Photos (v1.1) uses its **own separate "Photos account" sign-in** with a second OAuth
+  client (10.2). It needs no reconnect of this connection.
 
 ### 9.6 Layout engine (decided)
 - Gridstack, 12 columns. Every drag or resize persists to `layout_state`, which validates each
@@ -255,9 +279,26 @@ Polling, not WebSockets:
 ### 9.7 Containerisation (decided)
 - The display backend and Home Assistant run in Docker Compose on the G10, with a bind-mounted
   `./data/family-display` and one shared `.env`.
-- **Docker log rotation is not configured yet** (see 10.4).
+- **Docker log rotation is not configured yet** (see 10.12).
 - **Caddy** as the reverse proxy with automatic HTTPS remains the plan, but is not yet deployed
   (see 8.3).
+
+### 9.8 Platform work (v1.1, first)
+Done first in v1.1, as part of 10.0:
+- **Numbered DB migrations.** A `schema_migrations` table; each change is applied once and
+  recorded. The existing idempotent `init_db()` blocks become migration 1.
+- **A dependency lock file with hashes** (uv or pip-tools), plus **Dependabot or Renovate** update
+  PRs.
+- **Playwright browser tests in CI.** A small smoke suite covering drag vs scroll, the on-screen
+  keyboard and tasks folding, and later the banner and idle screen.
+- **Type checking in CI** (pyright or mypy), introduced gradually.
+- New interactive pieces (idle screen, banner, handwriting canvas) are **small plain-JavaScript
+  modules**. Still no build step.
+- **Pin the Docker base image by digest.**
+
+**Stay on Python** (decided). A Go rewrite was considered and rejected: there's no performance
+need, the rewrite and the test suite would be a large cost, and Go's image/HEIC libraries are
+weaker.
 
 ---
 
@@ -266,17 +307,55 @@ Polling, not WebSockets:
 Chosen themes, 28 September 2026: **widget visibility**, a **notification banner**, and an **idle
 screen with photos**. A spec review the same day added improvements to tasks, the calendar,
 meals, the shopping list, avatars, homework and practice, school term dates, and Home Assistant.
-Everything below is **decided** unless it's marked *open*.
+An external-sources review the same day added platform work (10.0) and corrected several details
+below. Everything below is **decided** unless it's marked *open*.
 
 **Releases** (decided):
 
 | Release | Contents | Build order |
 |---|---|---|
-| **v1.1**: daily-use wins | 10.3 Widget visibility, 10.6 School term dates, 10.4 Tasks, 10.1 Notification banner, 10.2 Idle screen & Photos | 10.3 → 10.6 → 10.4 → 10.1 → 10.2 |
+| **v1.1**: daily-use wins | 10.0 Platform work & Admin tabs, 10.6 School term dates, 10.3 Widget visibility, 10.4 Tasks, 10.1 Notification banner, 10.2 Idle screen & Photos | 10.0 → 10.6 → 10.3 → 10.4 → 10.1 → 10.2 |
 | **v1.2**: richer widgets | 10.5 Calendar, 10.7 Meals, 10.8 Shopping, 10.9 Avatars, 10.10 Homework & practice, 10.11 Home Assistant | 10.9 → 10.10 → 10.5 → 10.7 → 10.8 → 10.11 |
 
+**v1.1 build order:**
+1. **10.0 Platform work and Admin tabs**
+2. 10.6 Term dates: manual entry and bank holidays first; Claude extraction second
+3. 10.3 Visibility
+4. 10.4 Tasks
+5. 10.1 Banner
+6. 10.2 Idle + Photos
+
 10.6 comes before 10.4 and 10.3's "school days" option because both depend on term dates. 10.2
-needs a Google reconnect (the Photos Picker scope).
+needs its own Photos sign-in, not a reconnect of the main Google connection.
+
+**Effort and risk:**
+
+| Item | Effort / risk |
+|---|---|
+| Admin tabs | S–M / low |
+| 10.3 | M / med |
+| 10.6 | M / med |
+| 10.4 | L / med |
+| 10.1 | M / med |
+| 10.2 | L / **high** |
+| 10.5 | L / med |
+| 10.7 | M / low |
+| 10.8 | M / low–med |
+| 10.9 | S–M / low |
+| 10.10 | M / med |
+| 10.11 | M–L / med |
+
+**Before building 10.2, confirm or buy Fully PLUS and test waking behaviour on the tablet.**
+
+### 10.0 Platform work and Admin tabs
+- Everything in 9.8.
+- **Admin is split into tabs** before more sections are added: Family · School · Display ·
+  Google & Sync · Assistant · System. `settings.html` is currently about 507 lines with 14
+  sections, and v1.1–v1.2 add about 12 more.
+- Family members gain an **`is_parent` flag and an email address**. They're needed by assistant
+  A1 (parent tasks) and A4 (digest email).
+- **Touch targets are at least 48 px**, with generous spacing, because young children use the
+  display. For reference, WCAG 2.5.8 (AA) asks for 24 px and 2.5.5 (AAA) for 44 px.
 
 ### 10.1 Notification banner
 A slim banner under the top bar that tells the family what's coming up without anyone opening a
@@ -284,8 +363,12 @@ widget. It must not cover the grid's drag handles or steal taps.
 
 **Triggers.** All four are on by default, and **each can be switched off in Admin**:
 1. **Events starting soon**, e.g. "Swimming at 16:30 (in 25 min)".
-   - Lead time comes from the event's own Google reminder. Without one, it uses an **Admin setting
+   - Lead time is the **smallest `popup` reminder override** on the event. If the event uses the
+     calendar's defaults (`useDefault`), Huddle uses the `defaultReminders` returned by
+     `events.list` (readable with `calendar.readonly`). Otherwise it uses an **Admin setting
      (default 30 min)**.
+   - **The lead time is capped at 2 h.** Otherwise a day-before reminder would show a banner for
+     24 h.
    - Only calendars selected in Admin; all-day events are excluded.
 2. **Homework due**: "Due tomorrow" from 16:00 the day before, and "Due today" in the morning.
 3. **Today's school events**, from approved school-inbox dates, e.g. "Non-uniform day".
@@ -298,18 +381,26 @@ widget. It must not cover the grid's drag handles or steal taps.
 - At most 2 banners at once, with "+N more".
 - Tapping one dismisses it for that occurrence.
 - They clear themselves once the event starts or the item is done.
-- **Night mode is quiet:** no banners and no sounds.
+- **Quiet hours:** no banners and no sounds. Quiet hours are **separate from night mode**: default
+  **21:00–07:00**, set in Admin. So a 19:30 club still gets a banner, even though night colours
+  start at 19:00.
 - Uses the existing 30 s refresh; no push.
 
 ### 10.2 Idle screen and Google Photos
-**Built into the app.** Huddle draws the idle overlay and handles waking. Fully Kiosk is used only
-for screen brightness and the overnight screen-off schedule.
+**Huddle owns idle behaviour.** Huddle draws the idle overlay and handles waking.
+- In Fully Kiosk, **turn off its own screensaver and screen-off timer**.
+- Huddle **dims** for idle, using `fully.setScreenBrightness` when `typeof fully` is available, and
+  a dark overlay otherwise.
+- **Overnight screen-off uses Fully's own wake/sleep schedule, set by hand** in Fully (needs
+  PLUS). **A screen Fully has turned off does not wake on a tap**, so screen-off is for overnight
+  only.
 
 **Modes and timing.** All of these are Admin settings:
 - the idle delay (default 5 min)
 - what happens when idle: **photo slideshow**, **stay on the dashboard**, or **dim**
 - what happens at night (e.g. dim instead of the slideshow)
-- the overnight screen-off times, passed to Fully Kiosk
+
+The overnight screen-off times are not a Huddle setting; they're set in Fully (see above).
 
 **Waking.** The first tap only wakes the screen; it never ticks a task or presses a button. The
 display never goes idle while the on-screen keyboard is open, during a drag, or while a banner
@@ -322,32 +413,57 @@ has just appeared.
 
 Banners stay visible over it.
 
+**Photos account (decided).** Photos come from a **separate "Photos account" sign-in**. The
+family's photos are in a **personal Google account**, but the main OAuth app is Internal to the
+Workspace organisation and can't reach personal accounts.
+- A **second OAuth client** in an External/Testing Cloud project, with the personal account added
+  as a test user.
+- Its only scope is `https://www.googleapis.com/auth/photospicker.mediaitems.readonly`.
+- The token is only needed while picking and downloading, so Testing mode's 7-day expiry doesn't
+  matter. Signing in again when re-picking is acceptable.
+- It needs **no reconnect of the main Workspace connection.**
+
+**Picker flow.** In Admin, a parent picks photos:
+1. `sessions.create` with `pickingConfig.maxItemCount=30`.
+2. Admin shows the `pickerUri` as a **QR code or link**, to open on a phone signed in to the
+   personal account. It can't be put in an iframe.
+3. Huddle polls the session using `pollingConfig`.
+4. `mediaItems.list`.
+5. Huddle downloads each item using its `baseUrl` with a Bearer token and **`=w1920-h1200`**,
+   matching the Tab A9+ panel (1920×1200; revisit if the tablet changes). baseUrls expire after
+   60 min. Copies are kept in `data/`.
+6. `sessions.delete`.
+
 **Photos.**
-- They come from the **Google Photos picker** as a snapshot. In Admin, a parent opens Google's
-  picker (on a phone or PC), browses into an album and picks photos.
-- Huddle downloads resized copies (about 1600 px) into `data/`, because picker links expire.
-  Re-pick to change the set.
+- A snapshot, not a live album. Re-pick to change the set.
 - **At most 30 photos are kept.** The slideshow **reshuffles its order weekly**.
 - Photos are **not included in backups**; they can be re-picked.
-- Needs the Photos Picker API enabled in Cloud Console and a Google reconnect.
+- Needs the Photos Picker API enabled in the second Cloud project.
 - Live album sync, like a Nest Hub, isn't available to third-party apps: Google removed album
   access for other apps in March 2025. A Google Drive folder was considered as a live alternative
   and not chosen.
 
-**The Photos widget is removed from the dashboard.** Photos appear on the idle screen only.
+**The Photos widget is removed from the dashboard.** Photos appear on the idle screen only. The
+removal is a migration: delete its `layout_state` row and its registry entry (see 10.3).
 
 ### 10.3 Choosing which widgets are shown
 Admin → **Widgets**: every widget listed with a **Show/Hide** switch. It sets
-`layout_state.is_visible`, which the dashboard already respects.
+`layout_state.is_visible`. The dashboard already leaves hidden widgets out of the grid, but that
+alone doesn't close the gap or skip their data (see below).
 
 - **Admin only.** The unauthenticated hide endpoint was removed on purpose.
 - **Hiding a widget closes the gap**: the widgets below it move up to fill the space and keep their
   order. Showing it again puts it back in its saved position, or the nearest free space.
+  - The grid uses Gridstack `float: true`, so **closing the gap needs custom server-side
+    shifting** of only the widgets below the hidden one.
   - This must only fill the hidden widget's space. It must never rearrange the rest of the
     family's layout. In particular, don't switch Gridstack's `float` for the whole grid.
 - **"School days only"** per widget: an optional switch that shows the widget only on school days,
   using the term dates (10.6). Useful for Homework and Practice words.
-- A hidden widget is excluded from `/api/rev` polling, and its data isn't loaded.
+- A hidden widget is excluded from `/api/rev` polling, and **its loader is skipped**. Today
+  `dashboard.py` loads every widget's data up front.
+- The Photos widget removal (10.2) is a migration here: its `layout_state` row and its registry
+  entry.
 
 ### 10.4 Tasks
 - **Where a task lives.** Tasks synced to Google show no marker. **Local-only tasks** (a person
@@ -367,12 +483,16 @@ Admin → **Widgets**: every widget listed with a **Show/Hide** switch. It sets
 - **School days.** A new repeat option alongside the Mon–Sun chips. "School days" follows the
   school's term dates, so school-morning chores skip holidays and INSET days. Term dates are
   described in 10.6.
+  - **When term dates are missing**, school days are Mon–Fri minus bank holidays, and Admin shows
+    a warning such as "Term dates missing for 2026–27".
 
 ### 10.5 Calendar
 - **Adding events.** A PIN-free "+" on the calendar adds a simple event: title, day, optional
   start and end time. It always goes into **one designated shared calendar** (for example,
   "Family"), chosen in Admin, and never into personal or work calendars. Editing and deleting
   stay in Google Calendar.
+  - **A quick-added event for one person is saved with a name prefix**, e.g. "Alanna: Dentist".
+    It's clear on phones, and the person filter's name matching picks it up.
 - **More views.** A **week view** (7 columns with times) and a **today/agenda list** join the
   month grid and day view. **Admin picks the default view**, and the widget returns to it after
   a few minutes idle.
@@ -380,11 +500,19 @@ Admin → **Widgets**: every widget listed with a **Show/Hide** switch. It sets
   - Ownership is decided by **calendar first**: Admin links each Google calendar to a family
     member, and a shared calendar counts for everyone.
   - If no calendar is linked, the fallback is the **person's name appearing in the event title**.
+    The name-in-title fallback applies inside shared calendars too.
 
 ### 10.6 School term dates
 - The school inbox learns a new item type, **term dates**: term start and end, half-terms and
-  INSET days. Claude extracts them from the school's term-dates letter, and a parent approves them.
-- Admin can add or edit term dates by hand too.
+  INSET days.
+- **Sources, in order:**
+  1. **manual Admin entry** (add or edit by hand)
+  2. the **GOV.UK bank-holidays feed** (`https://www.gov.uk/bank-holidays.json`, England and
+     Wales)
+  3. **Claude extraction from the school's term-dates PDF**, which a parent approves
+- Croydon Council and Gresham publish term dates as **PDF only, with no iCal feed**. Gresham's is
+  a colour-coded grid, so extraction needs vision and a careful parent check. The council's dates
+  don't include INSET days. **Check them once a year** after approving.
 - They drive the "school days" repeat option (10.4) and each widget's "school days only" option
   (10.3).
 - **They appear on the Huddle calendar** as subtle all-day bars for holidays, half-terms and INSET
@@ -394,15 +522,18 @@ Admin → **Widgets**: every widget listed with a **Show/Hide** switch. It sets
 - **Favourites.** Past meals are remembered. When planning, pick from favourites (most used first)
   instead of typing. A meal can be starred or removed from favourites.
 - **Recipe link.** Each meal can have a link or short notes. The widget shows a small icon.
-  - Tapping it on the tablet shows the notes with **both options**: a **QR code** to open the recipe
-    on a phone, and **"Open here"** to show the page full-screen on the tablet with a large Back
-    button.
-  - Some recipe sites refuse to open inside another page. For those, "Open here" falls back to
-    the QR code.
+  - Tapping it on the tablet shows a **recipe card**. Huddle fetches the page server-side and
+    builds a clean card (ingredients, steps, time) from the **schema.org `Recipe` JSON-LD** that
+    most recipe sites publish (checked: BBC Good Food, Jamie Oliver, RecipeTin Eats).
+  - A **QR code** to open the recipe on a phone is the fallback when no recipe data is found.
+  - Why not show the site itself: 9 of 12 major UK recipe sites checked forbid being shown inside
+    another page (X-Frame-Options/CSP), and navigating the kiosk away to the site would be a kiosk
+    escape.
 
 ### 10.8 Shopping list
-- **Quantities**, e.g. "Milk ×2". Stored in the Google Tasks item (title suffix or notes, *open:*
-  pick whichever phones display best) so phones see it too.
+- **Quantities**, e.g. "Milk ×2". **Stored in the Google Tasks title as a suffix**, so phones see
+  it too. Google Tasks notes only show as a truncated preview, so notes weren't chosen. Huddle
+  parses `x2`, `×2` and `2x`.
 - **Admin display options.** Choose between a **simple list** (today's) and a **grouped by
   category/aisle** layout, e.g. fruit & veg, dairy, bakery, frozen, household.
   - Categories are assigned automatically from a built-in word list, can be corrected per item,
@@ -434,7 +565,15 @@ Admin → **Widgets**: every widget listed with a **Show/Hide** switch. It sets
   - Clear, and Next word
   - no marking or scoring, and nothing is saved
   - It must not trigger Gridstack drags; it opens as a full-screen overlay.
-  - *Open:* stylus palm rejection on the Tab A9+.
+- **Stylus on the Tab A9+.** **The Tab A9+ has no pen digitiser.** Passive or "active capacitive"
+  styluses report `pointerType: "touch"`, so palm rejection must be heuristic:
+  - lock to the first pointer
+  - reject contacts with a large `width`/`height`
+  - set `touch-action: none`
+
+  If the tablet is replaced by a pen tablet (see 3), use `pointerType: "pen"` with proper palm
+  rejection.
+  - *Open:* stylus palm rejection, pending the tablet decision (3).
 
 ### 10.11 Home Assistant
 Home Assistant already runs on the G10.
@@ -447,10 +586,16 @@ Home Assistant already runs on the G10.
 
   HA reads it as REST sensors (about every minute) for its own automations, e.g. flash a light when
   sync needs attention. The token is generated in Admin and can be regenerated.
-- **Home Assistant widget on the display.** Admin chooses the entities, using an HA long-lived
-  access token stored encrypted like the Google tokens:
+  - The status feed stays REST: HA's `rest:` integration supports headers and several sensors from
+    one resource. An HA webhook trigger is an optional later addition for instant alerts. MQTT
+    isn't needed.
+- **Home Assistant widget on the display.** Admin chooses the entities. Huddle uses a
+  **non-admin HA user's** long-lived access token, stored encrypted like the Google tokens:
   - **Lights and scenes:** tap to toggle a light or run a scene (e.g. "Bedtime").
-  - **Heating:** current temperature, plus boost or up/down on chosen thermostats.
+  - **Heating:** current temperature, plus boost or up/down on chosen thermostats. The family's
+    heating is **Hive**. There's no generic HA "boost", so boost uses Hive's
+    `hive.boost_heating_on` service, or the widget runs **HA scripts** (`script.turn_on`) that the
+    family sets up. Up/down uses `climate.set_temperature`.
   - **Status tiles, read-only:** doors or windows open, bin day, washing machine done, and so on.
   - **Locks and the alarm are not included.** If they're ever added, each action needs the Admin
     PIN.
@@ -462,3 +607,51 @@ Home Assistant already runs on the G10.
 - Add Docker log rotation to `docker-compose.yml` (json-file, `max-size: 10m`, `max-file: 3`).
 - Ask the school about Classroom (8.1).
 - Do the tablet checks (8.4).
+- **Check Fully PLUS** (Settings → About, or the licence page), and **buy it if missing**.
+
+### 10.13 Cross-cutting requirements for v1.1/v1.2
+- **Offline behaviour, per feature:**
+  - banners work from the calendar cache
+  - the HA widget shows an offline state
+  - the assistant shows "unavailable", and manual forms still work
+  - photos show from the local copies
+- **Tests:** respx mocks for the Photos Picker and HA; frozen clocks for banners and quiet hours;
+  Playwright for idle, wake and the banner.
+- **Performance on the tablet:** slideshow crossfades use CSS opacity only; the handwriting canvas
+  size is capped.
+- **Backups:** new data lives in the DB, including the HA and status tokens (encrypted), avatars
+  and term dates. Photos are excluded.
+- **Photos Picker sessions** are cleaned up with `sessions.delete`.
+- **Migrations** go through 9.8's numbered migrations.
+
+### Things to know up front
+- **Cost:** about £3–5 a month is typical for the assistant. The £10 default cap is approximate,
+  because billing is in USD. Fully PLUS is €7.90 one-off.
+- **Reconnects:** a Workspace reconnect is needed for Gmail send (assistant A4) only. **Photos use
+  their own separate sign-in.**
+- **Privacy:** see 7.
+- **Hardware:** there's no pen on the Tab A9+. A screen Fully has turned off won't wake on a tap.
+- **Workspace admin:** keep Huddle trusted under Security → API controls ("Trust internal apps").
+- **Term dates** come from PDFs; check them once a year.
+
+---
+
+## Sources
+Checked in the external-sources review, 28 Sep 2026.
+- Google Photos Picker: <https://developers.google.com/photos/picker/guides/sessions>;
+  <https://developers.google.com/photos/picker/guides/media-items>;
+  <https://developers.google.com/photos/support/updates>
+- Fully Kiosk: <https://www.fully-kiosk.com/en/#websiteintegration>;
+  <https://license.fully-kiosk.com/license/single>
+- Google Calendar events and reminders:
+  <https://developers.google.com/workspace/calendar/api/v3/reference/events>
+- Google Tasks: <https://developers.google.com/workspace/tasks/reference/rest/v1/tasks>
+- Workspace API controls: <https://support.google.com/a/answer/7281227>
+- Home Assistant: <https://developers.home-assistant.io/docs/api/rest/>;
+  <https://www.home-assistant.io/integrations/rest/>; Hive:
+  <https://www.home-assistant.io/integrations/hive/>
+- WCAG target size: <https://www.w3.org/WAI/WCAG22/Understanding/target-size-minimum.html>
+- Anthropic pricing: <https://platform.claude.com/docs/en/about-claude/pricing>; data retention:
+  <https://platform.claude.com/docs/en/manage-claude/api-and-data-retention>
+- Term dates: <https://www.gresham.croydon.sch.uk/parent-info/term-dates/>;
+  <https://www.gov.uk/bank-holidays.json>
