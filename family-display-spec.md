@@ -290,11 +290,11 @@ widget. It must not cover the grid's drag handles or steal taps.
 **Behaviour.**
 - **Every banner shows the person's coloured name pill** (or "Everyone"). All banners are visible
   to the whole family.
-- **Sound can be switched on or off per trigger in Admin** (default off). Never in night mode.
+- **Sound can be switched on or off per trigger in Admin** (default off).
 - At most 2 banners at once, with "+N more".
 - Tapping one dismisses it for that occurrence.
 - They clear themselves once the event starts or the item is done.
-- Quiet in night mode.
+- **Night mode is quiet:** no banners and no sounds.
 - Uses the existing 30 s refresh; no push.
 
 ### 10.2 Idle screen and Google Photos
@@ -337,13 +337,15 @@ Admin → **Widgets**: every widget listed with a **Show/Hide** switch. It sets
 `layout_state.is_visible`, which the dashboard already respects.
 
 - **Admin only.** The unauthenticated hide endpoint was removed on purpose.
-- **Hiding a widget closes the gap**: the rest move up and keep their order. Showing it again puts
-  it back in its saved position, or the nearest free space.
+- **Hiding a widget closes the gap**: the widgets below it move up to fill the space and keep their
+  order. Showing it again puts it back in its saved position, or the nearest free space.
+  - This must only fill the hidden widget's space. It must never rearrange the rest of the
+    family's layout. In particular, don't switch Gridstack's `float` for the whole grid.
 - **"School days only"** per widget: an optional switch that shows the widget only on school days,
   using the term dates (10.6). Useful for Homework and Practice words.
 - A hidden widget is excluded from `/api/rev` polling, and its data isn't loaded.
 
-### 10.4 Tasks (decided in the spec review, 28 Sep 2026)
+### 10.4 Tasks
 - **Where a task lives.** Tasks synced to Google show no marker. **Local-only tasks** (a person
   with no linked Google Tasks list) get a small "on this display only" icon, because they won't
   appear on phones.
@@ -362,7 +364,7 @@ Admin → **Widgets**: every widget listed with a **Show/Hide** switch. It sets
   school's term dates, so school-morning chores skip holidays and INSET days. Term dates are
   described in 10.6.
 
-### 10.5 Calendar (decided in the spec review)
+### 10.5 Calendar
 - **Adding events.** A PIN-free "+" on the calendar adds a simple event: title, day, optional
   start and end time. It always goes into **one designated shared calendar** (for example,
   "Family"), chosen in Admin, and never into personal or work calendars. Editing and deleting
@@ -407,8 +409,9 @@ Admin → **Widgets**: every widget listed with a **Show/Hide** switch. It sets
 ### 10.9 Family members and avatars
 - Each person's avatar can be **a coloured initial** (today's), **an emoji**, or **a photo**,
   chosen per person in Admin → Family Members.
-- Photos are uploaded in Admin. They're cropped round and resized small, stored in `data/`, and
-  included in backups because they're tiny.
+- Photos are uploaded in Admin, cropped round and resized small (about 256 px). They're **stored
+  in the database**, so the nightly backup includes them: backups only copy the database and the
+  key, not other files in `data/`.
 - The avatar appears wherever the name pill does: tasks, homework, practice words and banners.
   The contrast rules from 4.5 still apply.
 
@@ -416,8 +419,9 @@ Admin → **Widgets**: every widget listed with a **Show/Hide** switch. It sets
 - **Subject icons and colours.** Maths, English, Reading, Science, Topic and Other each get an icon
   and a colour tint, so children can spot them quickly. The subject is picked in Admin or by the
   school inbox, and "Other" is the fallback.
-- **Children can tick homework done** on the tablet, with no PIN. Admin shows when it was ticked.
-  A mis-tap can be undone, like tasks.
+- **Done history.** Children can already tick homework done on the tablet (v1.0). v1.2 adds a
+  record of **when** each item was ticked, shown in Admin, so parents can see what was done and
+  when.
 - **Reading log.** A per-child "Read tonight ✓" daily tick, like "Practised today". Admin shows a
   simple history, e.g. the last 4 weeks, to help with the school reading record. No points.
 - **Write-on area for practice words.** Tapping a word opens a large handwriting area:
