@@ -17,7 +17,9 @@ docker compose exec family-display python -c "..."   # poke the live DB / app mo
 # Production-style run (skips the override file)
 docker compose -f docker-compose.yml up -d --build
 
-# Bare metal (a ./venv already exists; Windows Git Bash shown)
+# Bare metal (./venv is Python 3.14, like Docker and CI; Windows Git Bash shown)
+# Rebuild: py -3.14 -m venv venv && venv/Scripts/pip install -r requirements.txt -r requirements-dev.txt
+#          venv/Scripts/pip install playwright && venv/Scripts/python -m playwright install chromium
 source venv/Scripts/activate && pip install -r requirements.txt
 uvicorn app.main:app --reload --host 127.0.0.1 --port 8010   # 8000 is usually taken by the container
 

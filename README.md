@@ -108,7 +108,7 @@ reset run on an in-process scheduler.
 ## Local development (without Docker)
 
 ```bash
-python3 -m venv venv
+python3.14 -m venv venv     # match the Docker image and CI
 source venv/bin/activate      # Windows: venv\Scripts\activate
 pip install -r requirements.txt -r requirements-dev.txt
 uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
