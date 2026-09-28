@@ -34,7 +34,7 @@ with a daily reset, handwriting practice, or an approval inbox for school homewo
 | Item | Decision |
 |---|---|
 | Server | **GMKtec G10** (Ryzen 5 3500U, 16 GB) running the app and Home Assistant in Docker. Can live anywhere on the LAN. |
-| Display | **Samsung Galaxy Tab A9+** (11", about 1280×800 CSS px landscape), wall-mounted in the kitchen, Wi-Fi only. |
+| Display | **Samsung Galaxy Tab A9+** (11", about 1280×800 CSS px landscape) today, being replaced by a **Lenovo Idea Tab Plus 12.1"** (2560×1600, with pen). See below. Wall-mounted in the kitchen, Wi-Fi only. |
 | Display software | **Fully Kiosk Browser**: fullscreen, autostart, pointed at the dashboard URL. Its scheduled dim/sleep and remote cache-clear are relied on. |
 | Fully Kiosk licence | **Fully Kiosk PLUS is required** (€7.90 one-off per device). The JavaScript interface, screensaver, screen-off timer, scheduled wake/sleep and motion detection all need PLUS. |
 | Tablet battery | Turn on Samsung **"Protect battery"** (charge limit about 85%). The tablet is on charge 24/7, and batteries kept at 100% can swell. |
@@ -42,9 +42,27 @@ with a daily reset, handwriting practice, or an approval inbox for school homewo
 | App type | **Browser-based web app, not a native Android app.** One codebase; no extra UX benefit from native. |
 | Network | Home Wi-Fi; the server and tablet share the LAN. |
 
-**The display tablet is under review (28 Sep 2026).** *Open.* The Tab A9+ has no pen digitiser, so
-handwriting practice (10.10) would be finger-only. A pen tablet (e.g. the Galaxy Tab S FE class,
-with S Pen) is being researched. The decision is pending.
+**New display tablet (decided 28 Sep 2026): Lenovo Idea Tab Plus 12.1"**, with the Lenovo Tab Pen
+in the box. It replaces the Tab A9+.
+- **Budget:** under £350 all-in. That's about £290 for the tablet (Argos), £35 for The 3D Room mount
+  (the current supplier) and about £20 for a USB-C wall socket. Fully PLUS is extra.
+- **Why:** it gives a real active pen for handwriting practice (10.10) and a bigger 12.1" screen
+  (2560×1600) for the calendar. Security updates run to about 2029.
+- **Other options considered:**
+  - a Galaxy Tab S10 FE+: about £600 all-in, too expensive
+  - a refurbished Galaxy Tab S9 FE: about £250–315 with the S Pen, but no bigger than today's screen
+    and updates end in late 2028
+  - keeping the A9+
+- **Test these within the Argos return period, before relying on it:**
+  1. The pen reports `pointerType: "pen"` in Chrome and Fully Kiosk. Check with a pointer-events
+     demo page, or Huddle's pen-test page if it's built first. If it reports `"touch"`, the pen gives
+     no palm rejection, and the choice needs revisiting.
+  2. Pressure is reported, and a resting hand is ignored while the pen is down.
+  3. A **charge limit** exists in Settings (Lenovo "Battery Protection Mode", or similar), for 24/7
+     power. Without one, battery swelling is a long-term risk.
+  4. Fully Kiosk runs, wakes and dims correctly. That needs PLUS, so move the licence or buy one.
+  5. The pen's AAAA battery life is reasonable. Note to replace it occasionally.
+- The Tab A9+ stays in use until the new tablet has passed these checks.
 
 ---
 
@@ -429,8 +447,8 @@ Workspace organisation and can't reach personal accounts.
    personal account. It can't be put in an iframe.
 3. Huddle polls the session using `pollingConfig`.
 4. `mediaItems.list`.
-5. Huddle downloads each item using its `baseUrl` with a Bearer token and **`=w1920-h1200`**,
-   matching the Tab A9+ panel (1920×1200; revisit if the tablet changes). baseUrls expire after
+5. Huddle downloads each item using its `baseUrl` with a Bearer token, sized to the display panel:
+   **`=w2560-h1600`** for the Idea Tab Plus (use `=w1920-h1200` on the Tab A9+). baseUrls expire after
    60 min. Copies are kept in `data/`.
 6. `sessions.delete`.
 
@@ -565,15 +583,13 @@ alone doesn't close the gap or skip their data (see below).
   - Clear, and Next word
   - no marking or scoring, and nothing is saved
   - It must not trigger Gridstack drags; it opens as a full-screen overlay.
-- **Stylus on the Tab A9+.** **The Tab A9+ has no pen digitiser.** Passive or "active capacitive"
-  styluses report `pointerType: "touch"`, so palm rejection must be heuristic:
-  - lock to the first pointer
-  - reject contacts with a large `width`/`height`
-  - set `touch-action: none`
-
-  If the tablet is replaced by a pen tablet (see 3), use `pointerType: "pen"` with proper palm
-  rejection.
-  - *Open:* stylus palm rejection, pending the tablet decision (3).
+- **Pen input.** The target is the **Lenovo Tab Pen on the Idea Tab Plus** (3):
+  - When `pointerType: "pen"` is seen, draw only with the pen and **ignore touch pointers while the
+    pen is down**. This is how a web page does palm rejection; Android doesn't do it for browsers.
+  - Use `touch-action: none` on the canvas, and use pressure for stroke width if it's reported.
+  - **Fallback** for finger or rubber-tip stylus use (the Tab A9+, or if the pen turns out to report
+    `"touch"`): lock to the first pointer and reject contacts with a large `width`/`height`.
+  - *Open:* confirm the pen's browser behaviour on the device (3, test 1).
 
 ### 10.11 Home Assistant
 Home Assistant already runs on the G10.
@@ -630,7 +646,8 @@ Home Assistant already runs on the G10.
 - **Reconnects:** a Workspace reconnect is needed for Gmail send (assistant A4) only. **Photos use
   their own separate sign-in.**
 - **Privacy:** see 7.
-- **Hardware:** there's no pen on the Tab A9+. A screen Fully has turned off won't wake on a tap.
+- **Hardware:** a new Lenovo Idea Tab Plus 12.1" with pen, under £350 all-in. Run the 5 checks in 3
+  within the Argos return period. A screen Fully has turned off won't wake on a tap.
 - **Workspace admin:** keep Huddle trusted under Security → API controls ("Trust internal apps").
 - **Term dates** come from PDFs; check them once a year.
 
