@@ -34,7 +34,7 @@ import re
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
-from app.database import family_today, get_db
+from app.database import family_today, get_db, get_setting
 from app.services import homework
 from app.services.extraction import (
     MAX_ATTACHMENT_BYTES,
@@ -49,6 +49,7 @@ from app.services.extraction import (
     NotConfigured,
     SourceDocument,
     extract,
+    is_configured,
 )
 
 logger = logging.getLogger(__name__)
@@ -65,6 +66,14 @@ PROCESSED_SHOWN = 15
 # A source "Reading…" longer than this can be removed even if its task is
 # somehow still running (it has long outlived the API timeout).
 STUCK_AFTER = timedelta(minutes=10)
+# Cost guard: at most this many documents sent to Claude per family-local
+# day, across every source (uploads, pastes, school email). Past it a source
+# fails with "daily_cap" and can be retried the next day.
+DAILY_CLAUDE_CAP = 60
+CLAUDE_CALLS_SETTING = "claude_calls_today"  # "YYYY-MM-DD:count"
+# Automatic retries (the school email check) give up after this many Claude
+# calls for one source: status 'failed_permanently', with Retry in Admin.
+MAX_ATTEMPTS = 3
 
 # Log-safe error codes stored on import_sources.error_code -> Admin text.
 ERROR_MESSAGES = {
@@ -79,6 +88,11 @@ ERROR_MESSAGES = {
     "rejected": "Claude couldn't read this document. Try a clearer screenshot, or paste the text instead.",
     "no_result": "Claude didn't return anything for this. Try adding it again.",
     "interrupted": "Reading was interrupted (the display restarted). Add it again.",
+    "daily_cap": f"The school inbox has read its limit of {DAILY_CLAUDE_CAP} documents today. "
+                 "School emails are read again tomorrow; add uploads again tomorrow.",
+    "gave_up": f"Claude couldn't read this email after {MAX_ATTEMPTS} tries, so it stopped. "
+               "Retry reads it again at the next check.",
+    "retry": "Waiting to be read again at the next school email check.",
     "error": "Something went wrong reading this. Try adding it again.",
 }
 
@@ -247,10 +261,10 @@ async def claim_source(db, doc: SourceDocument) -> tuple[int, bool, str]:
     received = (doc.received_at or datetime.now(UTC)).isoformat()
     cursor = await db.execute(
         """INSERT OR IGNORE INTO import_sources
-               (kind, source_ref, received_at, subject, excerpt, attachment_count, status)
-           VALUES (?, ?, ?, ?, ?, ?, 'pending')""",
+               (kind, source_ref, received_at, subject, excerpt, attachment_count, status, sender_unverified)
+           VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)""",
         (doc.kind, doc.source_ref, received, (doc.subject or "")[:MAX_SUBJECT_CHARS] or None,
-         _excerpt(doc.text), len(doc.attachments)),
+         _excerpt(doc.text), len(doc.attachments), int(doc.sender_verified is False)),
     )
     if cursor.rowcount:
         await db.commit()
@@ -278,9 +292,46 @@ async def _set_status(db, source_id: int, status: str, error_code: str | None = 
     await db.commit()
 
 
+async def _day_key(db) -> str:
+    return (await family_today(db)).isoformat()
+
+
+async def claude_calls_left(db) -> int:
+    """How many more documents Claude may read today (DAILY_CLAUDE_CAP)."""
+    day, _, count = (await get_setting(db, CLAUDE_CALLS_SETTING) or "").partition(":")
+    used = int(count) if day == await _day_key(db) and count.isdigit() else 0
+    return max(0, DAILY_CLAUDE_CAP - used)
+
+
+async def take_claude_call(db) -> bool:
+    """Counts one Claude call against today's cap; False (nothing counted)
+    once the cap is reached. One conditional UPDATE, so two sources being
+    read at once can't both take the last call."""
+    day = await _day_key(db)
+    await db.execute(
+        """INSERT INTO app_settings (key, value) VALUES (?, ?)
+           ON CONFLICT(key) DO UPDATE SET value = excluded.value
+           WHERE substr(app_settings.value, 1, 10) != substr(excluded.value, 1, 10)""",
+        (CLAUDE_CALLS_SETTING, f"{day}:0"),
+    )
+    cursor = await db.execute(
+        """UPDATE app_settings SET value = substr(value, 1, 11) || (CAST(substr(value, 12) AS INTEGER) + 1)
+           WHERE key = ? AND CAST(substr(value, 12) AS INTEGER) < ?""",
+        (CLAUDE_CALLS_SETTING, DAILY_CLAUDE_CAP),
+    )
+    await db.commit()
+    return cursor.rowcount == 1
+
+
 async def _extract_into(db, source_id: int, doc: SourceDocument) -> IngestResult:
     """Runs the extractor for a claimed source and stores its candidates."""
     try:
+        if is_configured():
+            if not await take_claude_call(db):
+                await _set_status(db, source_id, "failed", "daily_cap")
+                return IngestResult(source_id, "failed")
+            await db.execute("UPDATE import_sources SET attempts = attempts + 1 WHERE id = ?", (source_id,))
+            await db.commit()
         try:
             candidates = await extract(doc, await get_children(db), await family_today(db))
         except NotConfigured:
@@ -359,10 +410,17 @@ async def wait_for_background():
 
 async def fail_interrupted(db):
     """At startup: a source still "pending" was being read when the app
-    stopped, and its bytes are gone — mark it failed so it can be re-added."""
+    stopped, and its bytes are gone — mark it failed so it can be re-added
+    (a Gmail one is read again by the next school email check)."""
     await db.execute(
         """UPDATE import_sources SET status = 'failed', error_code = 'interrupted', updated_at = datetime('now')
            WHERE status = 'pending'"""
+    )
+    # An event mid-approval when the app stopped goes back to pending; its
+    # Calendar event id is deterministic, so approving it again can't make
+    # a second event (see services/school_events.py).
+    await db.execute(
+        "UPDATE import_candidates SET status = 'pending' WHERE status = 'approving'"
     )
     await db.commit()
 
@@ -481,6 +539,11 @@ def _decorate(source: dict, candidates: list[dict]):
     source["approved_count"] = sum(c["status"] == "approved" for c in candidates)
     source["discarded_count"] = sum(c["status"] == "discarded" for c in candidates)
     source["error_message"] = ERROR_MESSAGES.get(source["error_code"] or "", ERROR_MESSAGES["error"])
+    if source["status"] == "failed_permanently":
+        source["error_message"] = ERROR_MESSAGES["gave_up"]
+    # A school email can be fetched again; an upload's bytes are gone.
+    source["retryable"] = source["kind"] == "gmail" and source["status"] in ("failed", "failed_permanently") \
+        and source["error_code"] != "retry"
     source["processed"] = source["status"] == "extracted" and not source["candidates"]
     source["removable"] = source["status"] != "pending" or _is_stuck(source)
     source["approvable"] = sum(
@@ -518,8 +581,8 @@ async def _pending_candidate(db, candidate_id: int) -> dict:
 async def approve_candidate(db, candidate_id: int, form: dict) -> tuple[str, int]:
     """Creates the word list or homework from the (possibly edited) form,
     validated exactly like Admin's own forms. Returns (table, row id).
-    Raises CandidateError or homework.ValidationError. Events can't be
-    approved yet (they arrive with the Gmail import)."""
+    Raises CandidateError or homework.ValidationError. Events go to Google
+    Calendar instead (services/school_events.approve_event)."""
     candidate = await _pending_candidate(db, candidate_id)
     source = f"import:{candidate['source_kind']}"
     # Validate first (reads only), then claim + insert in one transaction.
@@ -617,6 +680,20 @@ async def delete_source(db, source_id: int):
         raise CandidateError("import-busy")
     await db.execute("DELETE FROM import_sources WHERE id = ?", (source_id,))
     await db.commit()
+
+
+async def retry_source(db, source_id: int):
+    """Admin's Retry on a school email that failed: the next check fetches
+    and reads it again, with a fresh set of attempts."""
+    cursor = await db.execute(
+        """UPDATE import_sources SET status = 'failed', error_code = 'retry', attempts = 0,
+               updated_at = datetime('now')
+           WHERE id = ? AND kind = 'gmail' AND status IN ('failed', 'failed_permanently')""",
+        (source_id,),
+    )
+    await db.commit()
+    if cursor.rowcount != 1:
+        raise CandidateError("import-missing")
 
 
 def is_reading(source_id: int) -> bool:

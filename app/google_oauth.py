@@ -11,12 +11,18 @@ matches the project's minimal-dependency approach. The Calendar reads
 module's OAuth plumbing — get_valid_access_token() is generic across
 whatever's in SCOPES.
 
-Scope is calendar.readonly (read-only — editing events from the screen per
-spec 4.2 needs the broader `calendar` write scope and its own consent round,
-later) plus the full `tasks` scope (read/write — shopping list and
-per-person task list sync need to push local changes) and openid/email for
-the account label in Admin. Accounts connected before `tasks` was added
-need to disconnect and reconnect once to grant it.
+Scopes: calendar.readonly (the month grid and the calendar picker), the
+full `tasks` scope (read/write — shopping list and per-person task list sync
+push local changes), openid/email for the account label in Admin, and for
+the school email import (app/school_email.py) gmail.readonly plus
+calendar.events (approved school events are added to a calendar; it can't
+read the calendar list, so calendar.readonly stays).
+
+Which scopes the account actually granted is kept with the tokens (the
+token response's `scope` field) and each feature checks its own scope
+(has_scope): an account connected before a scope was added keeps working
+for everything else and Admin asks for a reconnect. A refresh never asks
+for new scopes, it returns the ones originally granted.
 """
 
 import json
@@ -48,7 +54,14 @@ DEFAULT_EVENT_COLOR = "#D6A02C"
 SELECTED_CALENDARS_SETTING = "google_selected_calendars"
 DEFAULT_SELECTED_CALENDARS = [{"id": "primary", "summary": "Calendar", "color": DEFAULT_EVENT_COLOR}]
 
-SCOPES = "https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/tasks openid email"
+CALENDAR_READ_SCOPE = "https://www.googleapis.com/auth/calendar.readonly"
+TASKS_SCOPE = "https://www.googleapis.com/auth/tasks"
+GMAIL_READ_SCOPE = "https://www.googleapis.com/auth/gmail.readonly"
+CALENDAR_EVENTS_SCOPE = "https://www.googleapis.com/auth/calendar.events"
+SCOPES = " ".join((CALENDAR_READ_SCOPE, TASKS_SCOPE, GMAIL_READ_SCOPE, CALENDAR_EVENTS_SCOPE, "openid", "email"))
+# What an account connected before the `scope` field was kept is assumed to
+# have: the scopes this app asked for back then.
+LEGACY_SCOPES = frozenset((CALENDAR_READ_SCOPE, TASKS_SCOPE))
 TOKEN_REFRESH_BUFFER_SECONDS = 60
 DEFAULT_TOKEN_LIFETIME_SECONDS = 3600  # when a token response omits expires_in
 
@@ -107,10 +120,14 @@ async def fetch_userinfo(access_token: str) -> dict:
         return resp.json()
 
 
-async def get_all_pages(url: str, access_token: str, params: dict | None = None) -> list[dict]:
+async def get_all_pages(
+    url: str, access_token: str, params: dict | None = None, items_key: str = "items", limit: int | None = None,
+) -> list[dict]:
     """GET every page of a Google list endpoint (items + nextPageToken).
     Stopping at the first page silently truncates results — and the Tasks
-    reconcile treats "missing from Google" as "deleted on Google"."""
+    reconcile treats "missing from Google" as "deleted on Google". Gmail
+    names its list "messages" (items_key). `limit` stops once that many
+    items are in (for callers that only take so many anyway)."""
     params = dict(params or {})
     items: list[dict] = []
     async with http_client.client() as client:
@@ -118,10 +135,10 @@ async def get_all_pages(url: str, access_token: str, params: dict | None = None)
             resp = await client.get(url, headers={"Authorization": f"Bearer {access_token}"}, params=params)
             resp.raise_for_status()
             body = resp.json()
-            items.extend(body.get("items", []))
+            items.extend(body.get(items_key) or [])
             token = body.get("nextPageToken")
-            if not token:
-                return items
+            if not token or (limit is not None and len(items) >= limit):
+                return items if limit is None else items[:limit]
             params["pageToken"] = token
 
 
@@ -134,6 +151,8 @@ async def fetch_calendar_list(access_token: str) -> list[dict]:
             "summary": item.get("summaryOverride") or item.get("summary", item["id"]),
             "color": item.get("backgroundColor", DEFAULT_EVENT_COLOR),
             "primary": bool(item.get("primary")),
+            # School events can only be added to a calendar the account can edit.
+            "writable": item.get("accessRole") in ("owner", "writer"),
         }
         for item in items
     ]
@@ -235,9 +254,33 @@ async def get_valid_access_token(db) -> str | None:
 
     tokens["access_token"] = refreshed["access_token"]
     tokens["expires_at"] = expires_at(refreshed)
+    if refreshed.get("scope"):
+        # Tokens stored before the granted scopes were kept learn them here.
+        tokens["scope"] = refreshed["scope"]
     # Google doesn't re-send refresh_token on a refresh call — keep the one we have.
     await store_tokens(db, tokens)
     return tokens["access_token"]
+
+
+def scopes_of(tokens: dict | None) -> frozenset[str]:
+    """The scopes a stored grant covers: the token response's own `scope`
+    (space-separated), else LEGACY_SCOPES for a grant stored before it was
+    kept. Empty when not connected."""
+    if not tokens:
+        return frozenset()
+    scope = tokens.get("scope")
+    if isinstance(scope, str) and scope.strip():
+        return frozenset(scope.split())
+    return LEGACY_SCOPES
+
+
+async def granted_scopes(db) -> frozenset[str]:
+    return scopes_of(await _load_stored_tokens(db))
+
+
+async def has_scope(db, scope: str) -> bool:
+    """Whether the connected account granted `scope` (False if not connected)."""
+    return scope in await granted_scopes(db)
 
 
 async def connect(db) -> tuple[str | None, bool]:

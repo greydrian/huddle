@@ -88,6 +88,8 @@ class SourceDocument:
     kind:        "upload" | "paste" | "gmail"
     source_ref:  unique per kind; re-ingesting the same ref is a no-op
     child_hint:  optional profile id the parent picked ("this is for Riley")
+    sender_verified: False when a Gmail message's sender couldn't be
+                 verified (no SPF/DKIM/DMARC result); the inbox says so
     """
 
     kind: str
@@ -98,6 +100,7 @@ class SourceDocument:
     sender: str | None = None
     received_at: datetime | None = None
     child_hint: int | None = None
+    sender_verified: bool | None = None
 
 
 @dataclass(frozen=True)

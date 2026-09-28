@@ -6,13 +6,15 @@ Background jobs, started/stopped from app/main.py's lifespan:
 - the nightly database backup (~03:30 family time; catches up at startup
   if there's none since the last 03:30), checked every 10 minutes — see app/backup.py
 - the calendar outage cache refresh every 5 minutes (app/calendar_cache.py)
+- the school email check (daily at 18:00 family time by default, set in
+  Admin; catches up at startup), checked every 10 minutes — see app/school_email.py
 """
 
 from datetime import datetime, timezone
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-from app import backup, google_calendar, task_sync
+from app import backup, google_calendar, school_email, task_sync
 from app.database import get_db
 from app.services import tasks
 
@@ -56,6 +58,11 @@ def start():
         backup.run_backup_if_due, "interval", seconds=BACKUP_CHECK_SECONDS,
         id="nightly_backup", replace_existing=True, max_instances=1,
         next_run_time=datetime.now(timezone.utc),  # startup catch-up if stale
+    )
+    scheduler.add_job(
+        school_email.run_if_due, "interval", seconds=school_email.CHECK_SECONDS,
+        id="school_email", replace_existing=True, max_instances=1,
+        next_run_time=datetime.now(timezone.utc),  # startup catch-up if a check was missed
     )
     scheduler.add_job(
         _calendar_cache_job, "interval", seconds=CALENDAR_CACHE_SECONDS,

@@ -264,7 +264,7 @@ async def test_screenshot_upload_becomes_candidates(db, admin_client, api, confi
     assert await _rows(db, "SELECT * FROM practice_word_lists") == []
     assert await _rows(db, "SELECT * FROM homework") == []
     page = (await admin_client.get("/admin")).text
-    assert "Spellings week 1" in page and "Adding to the calendar arrives with the Gmail import" in page
+    assert "Spellings week 1" in page and "Connect a Google account to add school events" in page
     assert "because\nbusy\nthough" in page
 
 

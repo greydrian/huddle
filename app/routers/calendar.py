@@ -97,7 +97,8 @@ async def save_selected_calendars(calendar_id: list[str] = Form(default=[])):
             logger.warning("Couldn't load the calendar list to save a selection: %s", http_client.describe(exc))
             available = []
         by_id = {cal["id"]: cal for cal in available}
-        selected = [by_id[cid] for cid in calendar_id if cid in by_id]
+        # "writable" is only for the School email picker; the selection keeps its old shape.
+        selected = [{k: v for k, v in by_id[cid].items() if k != "writable"} for cid in calendar_id if cid in by_id]
         if selected:
             await google_oauth.set_selected_calendars(db, selected)
     return RedirectResponse(url="/admin", status_code=303)
