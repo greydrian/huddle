@@ -11,8 +11,10 @@ import re
 from datetime import datetime, timedelta, timezone
 
 import httpx
-from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
+from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
+from starlette.datastructures import UploadFile as StarletteUploadFile
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app import appearance, backup, google_oauth, google_tasks, recurrence, sync_status, task_sync
 from app.auth import (
@@ -78,6 +80,8 @@ ADMIN_ERRORS = {
     "import-event": ("inbox", "Adding events to the calendar arrives with the Gmail import. "
                               "Discard this one for now."),
     "import-busy": ("inbox", "That's still being read. Try again in a moment."),
+    "import-pdf-pages": ("classroom", f"That PDF has more than {extraction.MAX_PDF_PAGES} pages. "
+                                      "Try just the pages you need."),
 }
 
 # The login form only takes digits (inputmode=numeric, maxlength=8), so a PIN
@@ -585,28 +589,39 @@ async def save_handwriting_style(style: str = Form("")):
 
 
 # --- School inbox (app/services/imports.py): nothing reaches the wall unapproved ---
+# /admin/inbox/add is also guarded by app/upload_guard.py (session and size
+# checked before the body is read). The inbox's own buttons post via HTMX and
+# get back just their source's block, so unsaved edits elsewhere survive;
+# without HTMX they fall back to a redirect.
+
+MAX_FORM_FIELDS = 10
+
 
 @router.post("/inbox/add", dependencies=[Depends(require_admin)])
-async def inbox_add(
-    files: list[UploadFile] = File(default=[]),
-    text: str = Form(""),
-    child_id: str = Form(""),
-):
-    # An empty file input still posts one nameless, empty part.
-    uploads = [f for f in files if f.filename or f.size]
-    text = text.strip()
-    if not uploads and not text:
-        return _admin_error("import-empty")
-    blobs = []
+async def inbox_add(request: Request):
+    # Parsed here rather than via File()/Form() params, to cap the part count.
     try:
-        imports.check_attachment_limits(len(uploads), 0)
-        for upload in uploads:
-            # Read one byte past the cap, so an oversized file is refused
-            # without reading all of it.
-            data = await upload.read(extraction.MAX_ATTACHMENT_BYTES + 1)
-            if len(data) > extraction.MAX_ATTACHMENT_BYTES:
-                raise imports.UploadRejected("import-too-big")
-            blobs.append((upload.filename or "", data))
+        async with request.form(max_files=extraction.MAX_ATTACHMENTS, max_fields=MAX_FORM_FIELDS) as form:
+            uploads = [f for f in form.getlist("files")
+                       if isinstance(f, StarletteUploadFile) and (f.filename or f.size)]
+            text = str(form.get("text") or "").strip()
+            child_id = str(form.get("child_id") or "")
+            blobs = []
+            imports.check_attachment_limits(len(uploads), 0)
+            for upload in uploads:
+                # Read one byte past the cap, so an oversized file is refused
+                # without reading all of it.
+                data = await upload.read(extraction.MAX_ATTACHMENT_BYTES + 1)
+                if len(data) > extraction.MAX_ATTACHMENT_BYTES:
+                    raise imports.UploadRejected("import-too-big")
+                blobs.append((upload.filename or "", data))
+    except StarletteHTTPException:  # more parts than max_files / max_fields
+        return _admin_error("import-too-many")
+    except imports.UploadRejected as exc:
+        return _admin_error(exc.code)
+    if not blobs and not text:
+        return _admin_error("import-empty")
+    try:
         imports.check_attachment_limits(len(blobs), sum(len(d) for _, d in blobs))
         attachments = [await asyncio.to_thread(imports.prepare_attachment, name, data) for name, data in blobs]
     except imports.UploadRejected as exc:
@@ -628,9 +643,13 @@ async def inbox_add(
     return RedirectResponse(url="/admin#inbox", status_code=303)
 
 
-@router.get("/inbox/sources/{source_id}", response_class=HTMLResponse, dependencies=[Depends(require_admin)])
-async def inbox_source(request: Request, source_id: int):
-    """One source's inbox block: polled while it says "Reading…"."""
+def _is_htmx(request: Request) -> bool:
+    return request.headers.get("hx-request") == "true"
+
+
+async def _source_fragment(request: Request, source_id: int, **extra) -> HTMLResponse:
+    """One source's inbox block (empty once it's gone). `extra` carries
+    inbox_form / inbox_error / source_error after a failed action."""
     async with get_db() as db:
         source = await imports.get_source(db, source_id)
         profiles = [dict(r) for r in await (await db.execute(
@@ -639,8 +658,30 @@ async def inbox_source(request: Request, source_id: int):
     if source is None:
         return HTMLResponse("")
     return templates.TemplateResponse(
-        request, "admin/_inbox_source.html", {"source": source, "profiles": profiles}
+        request, "admin/_inbox_source.html", {"source": source, "profiles": profiles, **extra}
     )
+
+
+async def _inbox_done(request: Request, source_id: int | None, error: str | None = None):
+    """The response to an inbox action: the source's block for HTMX (with
+    the ADMIN_ERRORS message, if any), else a redirect back to Admin."""
+    if _is_htmx(request) and source_id is not None:
+        return await _source_fragment(request, source_id, source_error=ADMIN_ERRORS[error][1] if error else None)
+    return _admin_error(error) if error else RedirectResponse(url="/admin#inbox", status_code=303)
+
+
+async def _candidate_source(candidate_id: int) -> int | None:
+    async with get_db() as db:
+        row = await (await db.execute(
+            "SELECT source_id FROM import_candidates WHERE id = ?", (candidate_id,)
+        )).fetchone()
+    return row["source_id"] if row else None
+
+
+@router.get("/inbox/sources/{source_id}", response_class=HTMLResponse, dependencies=[Depends(require_admin)])
+async def inbox_source(request: Request, source_id: int):
+    """One source's inbox block: polled while it says "Reading…"."""
+    return await _source_fragment(request, source_id)
 
 
 @router.post("/inbox/candidates/{candidate_id}/approve", dependencies=[Depends(require_admin)])
@@ -660,46 +701,49 @@ async def inbox_approve(
         "profile_id": profile_id, "title": title, "subject": subject, "details": details,
         "due_date": due_date, "words": words, "starts_on": starts_on, "ends_on": ends_on,
     }
+    source_id = await _candidate_source(candidate_id)
     async with get_db() as db:
         try:
             await imports.approve_candidate(db, candidate_id, form)
         except imports.CandidateError as exc:
-            return _admin_error(exc.code)
+            return await _inbox_done(request, source_id, exc.code)
         except homework.ValidationError as exc:
-            return await _render_admin(
-                request, inbox_error=str(exc), inbox_form={"id": candidate_id, **form}, status_code=400
-            )
-    return RedirectResponse(url="/admin#inbox", status_code=303)
+            inbox_form = {"id": candidate_id, **form}
+            if _is_htmx(request):
+                return await _source_fragment(request, source_id, inbox_form=inbox_form, inbox_error=str(exc))
+            return await _render_admin(request, inbox_error=str(exc), inbox_form=inbox_form, status_code=400)
+    return await _inbox_done(request, source_id)
 
 
 @router.post("/inbox/candidates/{candidate_id}/discard", dependencies=[Depends(require_admin)])
-async def inbox_discard(candidate_id: int):
+async def inbox_discard(request: Request, candidate_id: int):
+    source_id = await _candidate_source(candidate_id)
     async with get_db() as db:
         try:
             await imports.discard_candidate(db, candidate_id)
         except imports.CandidateError as exc:
-            return _admin_error(exc.code)
-    return RedirectResponse(url="/admin#inbox", status_code=303)
+            return await _inbox_done(request, source_id, exc.code)
+    return await _inbox_done(request, source_id)
 
 
 @router.post("/inbox/sources/{source_id}/approve-all", dependencies=[Depends(require_admin)])
-async def inbox_approve_all(source_id: int):
+async def inbox_approve_all(request: Request, source_id: int):
     async with get_db() as db:
         try:
             await imports.approve_all(db, source_id)
         except imports.CandidateError as exc:
-            return _admin_error(exc.code)
-    return RedirectResponse(url="/admin#inbox", status_code=303)
+            return await _inbox_done(request, source_id, exc.code)
+    return await _inbox_done(request, source_id)
 
 
 @router.post("/inbox/sources/{source_id}/delete", dependencies=[Depends(require_admin)])
-async def inbox_delete_source(source_id: int):
+async def inbox_delete_source(request: Request, source_id: int):
     async with get_db() as db:
         try:
             await imports.delete_source(db, source_id)
         except imports.CandidateError as exc:
-            return _admin_error(exc.code)
-    return RedirectResponse(url="/admin#inbox", status_code=303)
+            return await _inbox_done(request, source_id, exc.code)
+    return await _inbox_done(request, source_id)
 
 
 # --- Google Tasks sync ---

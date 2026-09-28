@@ -9,7 +9,7 @@ cryptography==50.0.1
 python-dotenv==1.2.3
 tzdata==2026.3
 apscheduler==3.11.3
-# School inbox. anthropic stays on 0.x: it is httpx-based, so respx mocks it in tests (1.x moved to httpx2).
-anthropic==0.125.0
+# School inbox (Claude extractor + HEIC/image handling).
+anthropic==1.8.0
 pillow==12.3.0
 pillow-heif==1.8.0

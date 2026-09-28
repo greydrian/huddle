@@ -26,20 +26,22 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 
 import anthropic
-import httpx
 from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
 
 from app import http_client
 from app.services.homework import MAX_DETAILS, MAX_SUBJECT, MAX_TITLE, normalise_words
 
 logger = logging.getLogger(__name__)
+# The SDK's DEBUG log dumps whole request options (the document included),
+# even when ANTHROPIC_LOG asks for it. Keep it to warnings.
+logging.getLogger("anthropic").setLevel(logging.WARNING)
 
 API_BASE_URL = "https://api.anthropic.com"  # explicit, so a stray ANTHROPIC_BASE_URL can't redirect documents
 DEFAULT_MODEL = "claude-sonnet-5"
 # Generous: a multi-page PDF can take a while. Extraction never runs on a
 # kiosk request path (see imports.start_ingest), so this only bounds a
 # background task.
-REQUEST_TIMEOUT = httpx.Timeout(120.0, connect=10.0)
+REQUEST_TIMEOUT = anthropic.Timeout(120.0, connect=10.0)
 MAX_RETRIES = 1  # the SDK retries 429/5xx/connection errors once, honouring retry-after
 MAX_OUTPUT_TOKENS = 16000
 OUTAGE_KEY = "Anthropic (school inbox)"
@@ -50,6 +52,7 @@ MAX_ATTACHMENTS = 3
 MAX_ATTACHMENT_BYTES = 15 * 1024 * 1024
 MAX_TOTAL_BYTES = 22 * 1024 * 1024
 MAX_TEXT_CHARS = 30_000
+MAX_PDF_PAGES = 100  # the API's limit for a PDF
 IMAGE_TYPES = ("image/png", "image/jpeg", "image/webp", "image/gif")
 PDF_TYPE = "application/pdf"
 
@@ -318,7 +321,20 @@ def _describe(exc: BaseException) -> str:
     return type(exc).__name__
 
 
-def _failure_code(exc: anthropic.APIError) -> str:
+def make_client(api_key: str, **extra) -> anthropic.AsyncAnthropic:
+    """The configured client: explicit key and base URL (so no other
+    credential source or ANTHROPIC_BASE_URL is picked up), a timeout, and a
+    single SDK retry on 429/5xx/connection errors, honouring retry-after."""
+    return anthropic.AsyncAnthropic(
+        api_key=api_key, base_url=API_BASE_URL, timeout=REQUEST_TIMEOUT, max_retries=MAX_RETRIES, **extra
+    )
+
+
+# Tests swap this for a fake (see tests/conftest.py); nothing else should.
+client_factory = make_client
+
+
+def _failure_code(exc: anthropic.APIError, doc: SourceDocument) -> str:
     if isinstance(exc, anthropic.APIConnectionError):  # includes timeouts
         return "offline"
     if isinstance(exc, anthropic.APIStatusError):
@@ -331,6 +347,10 @@ def _failure_code(exc: anthropic.APIError) -> str:
             return "server_error"
         if status == 413:
             return "too_large"
+        # The API names the page limit in its message; only the code is kept.
+        if (status == 400 and any(a.mime_type == PDF_TYPE for a in doc.attachments)
+                and "page" in str(getattr(exc, "message", "")).lower()):
+            return "pdf_too_long"
         return "rejected"
     return "error"
 
@@ -343,15 +363,13 @@ async def extract(doc: SourceDocument, children: list[Child], today: date) -> li
     if key is None:
         raise NotConfigured()
     request = build_request(doc, children, today)
-    client = anthropic.AsyncAnthropic(
-        api_key=key, base_url=API_BASE_URL, timeout=REQUEST_TIMEOUT, max_retries=MAX_RETRIES
-    )
+    client = client_factory(key)
     try:
         async with client:
             message = await client.messages.create(**request)
     except anthropic.APIError as exc:
         http_client.report_failure(logger, OUTAGE_KEY, "School inbox extraction failed: %s", _describe(exc))
-        raise ExtractionFailed(_failure_code(exc)) from None
+        raise ExtractionFailed(_failure_code(exc, doc)) from None
     http_client.report_success(logger, OUTAGE_KEY)
 
     tool_input = next(

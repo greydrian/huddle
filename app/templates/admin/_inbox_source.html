@@ -2,26 +2,29 @@
     settings.html for each source, and returned alone by /admin/inbox/sources/{id},
     which a source polls while it's still being read. Needs `source` and `profiles`;
     after a failed approve, `inbox_form` (with the candidate's "id") and `inbox_error`
-    bring back what was typed. -#}
+    bring back what was typed, and `source_error` is an ADMIN_ERRORS message for it.
+    Its buttons post via HTMX and swap only this block (hx-target="this" is inherited),
+    so unsaved edits elsewhere in the inbox survive. -#}
 {% set kind_labels = {"word_list": "Spellings", "homework": "Homework", "event": "Event"} %}
-<div class="inbox-source{{ ' is-processed' if source.processed else '' }}" id="inbox-source-{{ source.id }}"
-     {%- if source.status == 'pending' %} hx-get="/admin/inbox/sources/{{ source.id }}" hx-trigger="every 3s" hx-swap="outerHTML"{% endif %}>
+<div class="inbox-source{{ ' is-processed' if source.processed else '' }}" id="inbox-source-{{ source.id }}" hx-target="this" hx-swap="outerHTML"
+     {%- if source.status == 'pending' %} hx-get="/admin/inbox/sources/{{ source.id }}" hx-trigger="every 3s"{% endif %}>
   <div class="inbox-source-head">
     <span class="inbox-source-label">{{ source.label }}</span>
     <span class="admin-meta">· added {{ source.created_at[:10] }}</span>
     <span class="inbox-source-actions">
       {% if source.approvable > 1 %}
-      <form method="post" action="/admin/inbox/sources/{{ source.id }}/approve-all">
+      <form method="post" action="/admin/inbox/sources/{{ source.id }}/approve-all" hx-post="/admin/inbox/sources/{{ source.id }}/approve-all">
         <button type="submit" class="btn btn-small">Approve all ({{ source.approvable }})</button>
       </form>
       {% endif %}
-      {% if source.status != 'pending' %}
-      <form method="post" action="/admin/inbox/sources/{{ source.id }}/delete">
+      {% if source.removable %}
+      <form method="post" action="/admin/inbox/sources/{{ source.id }}/delete" hx-post="/admin/inbox/sources/{{ source.id }}/delete">
         <button type="submit" class="btn btn-quiet btn-small">Remove</button>
       </form>
       {% endif %}
     </span>
   </div>
+  {% if source_error %}<p class="admin-error" role="alert">{{ source_error }}</p>{% endif %}
   {% if source.excerpt %}<p class="inbox-excerpt">{{ source.excerpt }}</p>{% endif %}
 
   {% if source.status == 'pending' %}
@@ -50,11 +53,11 @@
     <p class="inbox-event"><strong>{{ p.title }}</strong> · {{ p.date }}{% if p.start_time %} · {{ p.start_time }}{% if p.end_time %}–{{ p.end_time }}{% endif %}{% endif %}</p>
     {% if p.notes %}<p class="admin-meta">{{ p.notes }}</p>{% endif %}
     <p class="admin-hint">Adding to the calendar arrives with the Gmail import.</p>
-    <form method="post" action="/admin/inbox/candidates/{{ c.id }}/discard">
+    <form method="post" action="/admin/inbox/candidates/{{ c.id }}/discard" hx-post="/admin/inbox/candidates/{{ c.id }}/discard">
       <button type="submit" class="btn btn-quiet btn-small">Discard</button>
     </form>
     {% else %}
-    <form class="admin-form" method="post" action="/admin/inbox/candidates/{{ c.id }}/approve">
+    <form class="admin-form" method="post" action="/admin/inbox/candidates/{{ c.id }}/approve" hx-post="/admin/inbox/candidates/{{ c.id }}/approve">
       <select name="profile_id" aria-label="Child">
         <option value="">Which child?</option>
         {% for pr in profiles %}<option value="{{ pr.id }}" {{ 'selected' if pr.id|string == f.profile_id|string else '' }}>{{ pr.name }}</option>{% endfor %}
@@ -72,7 +75,7 @@
       {% endif %}
       <span class="inbox-buttons">
         <button type="submit" class="btn">Approve</button>
-        <button type="submit" class="btn btn-quiet" formaction="/admin/inbox/candidates/{{ c.id }}/discard" formnovalidate>Discard</button>
+        <button type="submit" class="btn btn-quiet" formaction="/admin/inbox/candidates/{{ c.id }}/discard" hx-post="/admin/inbox/candidates/{{ c.id }}/discard" formnovalidate>Discard</button>
       </span>
     </form>
     {% endif %}

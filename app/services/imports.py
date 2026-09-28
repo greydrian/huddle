@@ -30,14 +30,16 @@ import hashlib
 import io
 import json
 import logging
+import re
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from app.database import family_today, get_db
 from app.services import homework
 from app.services.extraction import (
     MAX_ATTACHMENT_BYTES,
     MAX_ATTACHMENTS,
+    MAX_PDF_PAGES,
     MAX_TOTAL_BYTES,
     PDF_TYPE,
     Attachment,
@@ -60,6 +62,9 @@ KINDS = ("upload", "paste", "gmail")
 EXCERPT_CHARS = 300
 MAX_SUBJECT_CHARS = 200
 PROCESSED_SHOWN = 15
+# A source "Reading…" longer than this can be removed even if its task is
+# somehow still running (it has long outlived the API timeout).
+STUCK_AFTER = timedelta(minutes=10)
 
 # Log-safe error codes stored on import_sources.error_code -> Admin text.
 ERROR_MESSAGES = {
@@ -70,6 +75,7 @@ ERROR_MESSAGES = {
     "server_error": "Claude had a problem reading this. Try adding it again in a few minutes.",
     "auth": "Claude refused the API key. Check ANTHROPIC_API_KEY, then add it again.",
     "too_large": "That was too big for Claude to read. Try a smaller screenshot or fewer pages.",
+    "pdf_too_long": "That PDF has too many pages for Claude to read (100 at most). Try just the pages you need.",
     "rejected": "Claude couldn't read this document. Try a clearer screenshot, or paste the text instead.",
     "no_result": "Claude didn't return anything for this. Try adding it again.",
     "interrupted": "Reading was interrupted (the display restarted). Add it again.",
@@ -125,34 +131,60 @@ def _sniff(data: bytes) -> str | None:
     return None
 
 
-# Claude takes images up to about 5 MB and 8000 px; bigger ones are shrunk.
-_IMAGE_MAX_BYTES = 4_500_000
+# Claude takes images up to 5 MB *base64* (about 3.75 MB raw) and 8000 px;
+# bigger ones are re-encoded smaller.
+_IMAGE_MAX_BYTES = 3_700_000
 _IMAGE_MAX_SIDE = 7_900
 _IMAGE_SHRINK_TO = 3_000
+# Pixel-bomb guard: a small PNG can declare a huge canvas. Checked from the
+# header before anything is decoded (a phone photo is 12-50 MP).
+MAX_IMAGE_PIXELS = 60_000_000
 
 
 def _normalise_image(data: bytes, mime_type: str) -> tuple[bytes, str]:
     """Verify the image decodes; convert HEIC to JPEG; shrink if too big."""
     from PIL import Image
 
+    # Pillow's own limit (it errors at twice this) backs up the check below.
+    Image.MAX_IMAGE_PIXELS = MAX_IMAGE_PIXELS
     if mime_type == "image/heic":
         import pillow_heif
 
         pillow_heif.register_heif_opener()
     try:
         with Image.open(io.BytesIO(data)) as image:
+            width, height = image.size  # from the header: nothing decoded yet
+            if width * height > MAX_IMAGE_PIXELS:
+                raise UploadRejected("import-too-big")
             image.load()
             too_big = len(data) > _IMAGE_MAX_BYTES or max(image.size) > _IMAGE_MAX_SIDE
             if mime_type != "image/heic" and not too_big:
                 return data, mime_type
             converted = image.convert("RGB")
-            if max(converted.size) > _IMAGE_SHRINK_TO:
-                converted.thumbnail((_IMAGE_SHRINK_TO, _IMAGE_SHRINK_TO))
-            out = io.BytesIO()
-            converted.save(out, format="JPEG", quality=85)
-            return out.getvalue(), "image/jpeg"
-    except (OSError, ValueError, Image.DecompressionBombError, SyntaxError):
+            limit = _IMAGE_SHRINK_TO
+            while True:
+                if max(converted.size) > limit:
+                    converted.thumbnail((limit, limit))
+                out = io.BytesIO()
+                converted.save(out, format="JPEG", quality=85)
+                if out.tell() <= _IMAGE_MAX_BYTES or limit < 500:
+                    return out.getvalue(), "image/jpeg"
+                limit = int(limit * 0.75)
+    except UploadRejected:
+        raise
+    except Image.DecompressionBombError:  # Pillow's own check, at twice the limit
+        raise UploadRejected("import-too-big") from None
+    except (OSError, ValueError, SyntaxError):
         raise UploadRejected("import-bad-type") from None
+
+
+# A page object: "/Type /Page" but not "/Type /Pages". Cheap and approximate
+# (object streams can hide pages); the API's own 400 is mapped too.
+_PDF_PAGE = re.compile(rb"/Type\s*/Page(?![a-zA-Z])")
+
+
+def _pdf_page_count(data: bytes) -> int:
+    return len(_PDF_PAGE.findall(data))
 
 
 def prepare_attachment(filename: str, data: bytes) -> Attachment:
@@ -165,7 +197,10 @@ def prepare_attachment(filename: str, data: bytes) -> Attachment:
     mime_type = _sniff(data)
     if mime_type is None:
         raise UploadRejected("import-bad-type")
-    if mime_type != PDF_TYPE:
+    if mime_type == PDF_TYPE:
+        if _pdf_page_count(data) > MAX_PDF_PAGES:
+            raise UploadRejected("import-pdf-pages")
+    else:
         data, mime_type = _normalise_image(data, mime_type)
     return Attachment(filename=(filename or "file")[:120], mime_type=mime_type, data=data)
 
@@ -246,22 +281,28 @@ async def _set_status(db, source_id: int, status: str, error_code: str | None = 
 async def _extract_into(db, source_id: int, doc: SourceDocument) -> IngestResult:
     """Runs the extractor for a claimed source and stores its candidates."""
     try:
-        candidates = await extract(doc, await get_children(db), await family_today(db))
-    except NotConfigured:
-        await _set_status(db, source_id, "not_configured", "not_configured")
-        return IngestResult(source_id, "not_configured")
-    except ExtractionFailed as exc:
-        await _set_status(db, source_id, "failed", exc.code)
+        try:
+            candidates = await extract(doc, await get_children(db), await family_today(db))
+        except NotConfigured:
+            await _set_status(db, source_id, "not_configured", "not_configured")
+            return IngestResult(source_id, "not_configured")
+        except ExtractionFailed as exc:
+            await _set_status(db, source_id, "failed", exc.code)
+            return IngestResult(source_id, "failed")
+        for candidate in candidates:
+            await _store_candidate(db, source_id, candidate)
+        await _set_status(db, source_id, "extracted")
+    except Exception as exc:
+        # Never leave a source stuck on "Reading…" (a crash, or the database
+        # busy while storing). Only the exception type is logged: a
+        # traceback could carry document text.
+        logger.error("School inbox extraction crashed: %s", type(exc).__name__)
+        await db.rollback()
+        try:
+            await _set_status(db, source_id, "failed", "error")
+        except Exception:  # still busy: fail_interrupted / Remove will tidy it
+            logger.error("Couldn't mark school inbox source %s failed", source_id)
         return IngestResult(source_id, "failed")
-    except Exception:
-        # Never leave a source stuck on "Reading…". No exc_info: a traceback
-        # could carry document text.
-        logger.error("School inbox extraction crashed")
-        await _set_status(db, source_id, "failed", "error")
-        return IngestResult(source_id, "failed")
-    for candidate in candidates:
-        await _store_candidate(db, source_id, candidate)
-    await _set_status(db, source_id, "extracted")
     return IngestResult(source_id, "extracted", candidate_count=len(candidates))
 
 
@@ -335,7 +376,10 @@ def _word_key(words) -> frozenset:
 async def _is_duplicate(db, source_id: int, candidate: Candidate) -> bool:
     """Whether this candidate is already on the wall (or already waiting in
     the inbox from another source): the same words for the same child and
-    week, or the same homework title and due date for the same child."""
+    week, or the same homework title for the same child when the due dates
+    match or the existing one is still open on the wall. Recurring homework
+    ("Read 20 minutes", no due date) isn't a duplicate of last week's done
+    or archived copy."""
     if candidate.profile_id is None or candidate.kind == "event":
         return False
     payload = candidate.payload
@@ -355,12 +399,17 @@ async def _is_duplicate(db, source_id: int, candidate: Candidate) -> bool:
                                               or p.get("starts_on") == payload["starts_on"])
             for p in pending
         )
-    title = payload["title"].casefold()
+    title, due = payload["title"].casefold(), payload["due_date"]
     rows = await (await db.execute(
-        "SELECT title, due_date FROM homework WHERE profile_id = ? AND archived = 0", (candidate.profile_id,)
+        "SELECT title, due_date, done, archived FROM homework WHERE profile_id = ?", (candidate.profile_id,)
     )).fetchall()
-    if any(r["title"].casefold() == title and r["due_date"] == payload["due_date"] for r in rows):
-        return True
+    for row in rows:
+        if row["title"].casefold() != title:
+            continue
+        if due and row["due_date"] == due:
+            return True
+        if not row["done"] and not row["archived"] and row["due_date"] == due:
+            return True
     pending = await _pending_payloads(db, source_id, "homework", candidate.profile_id)
     return any(p["title"].casefold() == title and p.get("due_date") == payload["due_date"] for p in pending)
 
@@ -433,6 +482,7 @@ def _decorate(source: dict, candidates: list[dict]):
     source["discarded_count"] = sum(c["status"] == "discarded" for c in candidates)
     source["error_message"] = ERROR_MESSAGES.get(source["error_code"] or "", ERROR_MESSAGES["error"])
     source["processed"] = source["status"] == "extracted" and not source["candidates"]
+    source["removable"] = source["status"] != "pending" or _is_stuck(source)
     source["approvable"] = sum(
         1 for c in source["candidates"] if c["kind"] != "event" and c["profile_id"] and not c["duplicate"]
     )
@@ -440,6 +490,18 @@ def _decorate(source: dict, candidates: list[dict]):
         source["label"] = source["subject"]
     else:
         source["label"] = {"paste": "Pasted text", "gmail": "School email"}.get(source["kind"], "Upload")
+
+
+def _is_stuck(source: dict) -> bool:
+    """Pending but not being read by this process, or "Reading…" for far
+    longer than any API call can take."""
+    if source["id"] not in _running:
+        return True
+    try:
+        updated = datetime.fromisoformat(source["updated_at"]).replace(tzinfo=UTC)
+    except (TypeError, ValueError):
+        return True
+    return datetime.now(UTC) - updated > STUCK_AFTER
 
 
 async def _pending_candidate(db, candidate_id: int) -> dict:
@@ -460,38 +522,47 @@ async def approve_candidate(db, candidate_id: int, form: dict) -> tuple[str, int
     approved yet (they arrive with the Gmail import)."""
     candidate = await _pending_candidate(db, candidate_id)
     source = f"import:{candidate['source_kind']}"
+    # Validate first (reads only), then claim + insert in one transaction.
     if candidate["kind"] == "word_list":
         fields = await homework.word_list_fields(
             db, form.get("profile_id"), form.get("title"), form.get("words"),
             form.get("starts_on"), form.get("ends_on"),
         )
-        cursor = await db.execute(
-            """INSERT INTO practice_word_lists (profile_id, title, words, starts_on, ends_on, source)
-               VALUES (?, ?, ?, ?, ?, ?)""",
-            (*fields, source),
-        )
         table = "practice_word_lists"
+        insert = """INSERT INTO practice_word_lists (profile_id, title, words, starts_on, ends_on, source)
+                    VALUES (?, ?, ?, ?, ?, ?)"""
         payload = {"title": fields[1], "words": fields[2].split("\n"), "starts_on": fields[3], "ends_on": fields[4]}
     elif candidate["kind"] == "homework":
         fields = await homework.homework_fields(
             db, form.get("profile_id"), form.get("subject"), form.get("title"),
             form.get("details"), form.get("due_date"),
         )
-        cursor = await db.execute(
-            """INSERT INTO homework (profile_id, subject, title, details, due_date, source)
-               VALUES (?, ?, ?, ?, ?, ?)""",
-            (*fields, source),
-        )
         table = "homework"
+        insert = """INSERT INTO homework (profile_id, subject, title, details, due_date, source)
+                    VALUES (?, ?, ?, ?, ?, ?)"""
         payload = {"subject": fields[1], "title": fields[2], "details": fields[3] or "", "due_date": fields[4]}
     else:
         raise CandidateError("import-event")
-    await db.execute(
-        """UPDATE import_candidates SET status = 'approved', profile_id = ?, payload_json = ?,
-               created_table = ?, created_id = ?, updated_at = datetime('now') WHERE id = ?""",
-        (fields[0], json.dumps(payload), table, cursor.lastrowid, candidate_id),
-    )
-    await db.commit()
+    try:
+        # The conditional claim is the lock: of two approvals racing (two
+        # taps, or Approve all against a single Approve), only one gets
+        # rowcount 1; the other waits on SQLite's write lock, then sees 0.
+        claimed = await db.execute(
+            """UPDATE import_candidates SET status = 'approved', profile_id = ?, payload_json = ?,
+                   updated_at = datetime('now') WHERE id = ? AND status = 'pending'""",
+            (fields[0], json.dumps(payload), candidate_id),
+        )
+        if claimed.rowcount != 1:
+            raise CandidateError("import-missing")
+        cursor = await db.execute(insert, (*fields, source))
+        await db.execute(
+            "UPDATE import_candidates SET created_table = ?, created_id = ? WHERE id = ?",
+            (table, cursor.lastrowid, candidate_id),
+        )
+        await db.commit()
+    except BaseException:
+        await db.rollback()
+        raise
     return table, cursor.lastrowid
 
 
@@ -525,18 +596,24 @@ async def approve_all(db, source_id: int) -> int:
 
 
 async def discard_candidate(db, candidate_id: int):
-    await _pending_candidate(db, candidate_id)
-    await db.execute(
-        "UPDATE import_candidates SET status = 'discarded', updated_at = datetime('now') WHERE id = ?",
+    cursor = await db.execute(
+        """UPDATE import_candidates SET status = 'discarded', updated_at = datetime('now')
+           WHERE id = ? AND status = 'pending'""",
         (candidate_id,),
     )
     await db.commit()
+    if cursor.rowcount != 1:
+        raise CandidateError("import-missing")
 
 
 async def delete_source(db, source_id: int):
     """Removes a source and its candidates from the inbox. Rows already
-    approved onto the wall stay."""
-    if source_id in _running:
+    approved onto the wall stay. A source still being read can't be removed
+    unless it's stuck."""
+    source = await get_source(db, source_id)
+    if source is None:
+        return
+    if not source["removable"]:
         raise CandidateError("import-busy")
     await db.execute("DELETE FROM import_sources WHERE id = ?", (source_id,))
     await db.commit()
