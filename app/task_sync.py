@@ -16,18 +16,20 @@ local changes are still pending would let Google's stale view overwrite
 them (e.g. resurrect an item deleted offline).
 """
 
+import asyncio
 import json
 import logging
 from datetime import datetime, timezone
 
 import httpx
 
-from app import google_oauth, google_tasks, http_client
+from app import google_oauth, google_tasks, http_client, sync_status
 from app.database import get_setting, set_setting
 
 SHOPPING_TASKLIST_SETTING = "google_shopping_tasklist"
 MAX_RETRY = 5
 SYNC_OUTAGE_KEY = "Google Tasks sync"
+SYNC_ATTENTION_KEY = "Google Tasks sync access"
 
 logger = logging.getLogger(__name__)
 
@@ -316,10 +318,31 @@ async def reconcile_profile_tasks(db, access_token: str, profile):
 
 # --- Orchestration ---------------------------------------------------------
 
-async def run_sync(db):
+# Held for a whole cycle. The scheduler's max_instances=1 only stops two
+# scheduled runs overlapping; Admin's "Sync now" is a second caller, and two
+# cycles pushing the same queue rows would create duplicate Google tasks.
+_sync_lock = asyncio.Lock()
+
+
+def sync_in_progress() -> bool:
+    return _sync_lock.locked()
+
+
+async def run_sync(db) -> bool:
+    """One sync cycle. False (and nothing done) when a cycle is already
+    running — that cycle covers whatever this one would have done."""
+    if _sync_lock.locked():
+        return False
+    async with _sync_lock:
+        await _run_cycle(db)
+    return True
+
+
+async def _run_cycle(db):
     try:
         access_token = await google_oauth.get_valid_access_token(db)
         if not access_token:
+            await sync_status.record_not_connected(db)
             return
 
         await push_pending_changes(db, access_token)
@@ -339,5 +362,17 @@ async def run_sync(db):
             logger, SYNC_OUTAGE_KEY, "Google Tasks sync failing; retrying every cycle: %s",
             http_client.describe(cause),
         )
+        await db.rollback()  # nothing half-done from the failed step is kept
+        if await sync_status.record_failure(db, cause):
+            # The same 401/403 for ATTENTION_AFTER cycles: not a blip any
+            # more. Still never drops queue rows — they push once reconnected.
+            http_client.report_failure(
+                logger, SYNC_ATTENTION_KEY,
+                "Google Tasks sync needs attention: Google refused access (%s) for %d cycles "
+                "in a row; reconnect in Admin",
+                http_client.describe(cause), sync_status.ATTENTION_AFTER,
+            )
     else:
         http_client.report_success(logger, SYNC_OUTAGE_KEY)
+        http_client.report_success(logger, SYNC_ATTENTION_KEY)
+        await sync_status.record_success(db)
