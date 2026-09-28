@@ -6,7 +6,8 @@ decisions.
 **Target hardware:** GMKtec G10 (Ryzen 5 3500U) as the local Docker server, and a Samsung Galaxy
 Tab A9+ wall-mounted in the kitchen as the display, connected over Wi-Fi.
 
-This document is the product source of truth. `CLAUDE.md` covers how the code is organised, and
+This document is the product source of truth. AI-assisted features have their own companion spec,
+`docs/assistant-spec.md`. `CLAUDE.md` covers how the code is organised, and
 `README.md` covers running, deploying and restoring it. Check this document before adding or
 changing a feature.
 
@@ -138,6 +139,9 @@ PIN rules and protection:
   - No email content is logged.
   - Caps: 25 emails per check, and 60 Claude reads a day across the whole inbox.
 - Setup steps: `docs/school-import-setup.md`.
+- The school import is the first **assistant** capability. What the assistant does next (letters
+  and photos, quick add, questions, weekly digest, meal ideas) and the rules they all follow are in
+  **`docs/assistant-spec.md`**.
 
 ## 5. Non-functional requirements (all met in v1.0)
 - **Runs unattended 24/7.** A single uvicorn process with an in-process scheduler (sync every
