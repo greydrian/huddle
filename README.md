@@ -281,6 +281,9 @@ disconnect and reconnect.
 
 ## School email import
 
+**Setting it up?** Follow the step-by-step checklist in
+[docs/school-import-setup.md](docs/school-import-setup.md).
+
 Once a day (18:00 family time by default) the display reads the school's
 emails from the connected Gmail account and puts what Claude finds in them
 (spellings, homework, events) in Admin's **School inbox** to approve. Only
