@@ -1,6 +1,6 @@
 [tool.ruff]
 line-length = 120
-target-version = "py310"  # local venv is 3.10; the Docker image runs 3.14
+target-version = "py314"  # matches the Docker image, CI and the local venv
 
 [tool.ruff.lint]
 # E/F: pyflakes + real errors. I: import order. B: bugbear.
