@@ -1,7 +1,9 @@
 # Python 3.14 (current stable series as of 2026) — targets the GMKtec G10
 # deployment server (x86_64 Ubuntu/Debian), same as your dev machine, so
 # there's no cross-architecture wheel concern here.
-FROM python:3.14-slim
+# Pinned by digest so a rebuild gets the exact same base; the tag is kept for
+# readability. Dependabot (docker ecosystem, monthly) bumps the digest.
+FROM python:3.14-slim@sha256:51dafde81dbdb6ebde285137a295cf18a47ca95234fe388a343719cb97305b3d
 
 WORKDIR /app
 
@@ -12,8 +14,10 @@ ENV PYTHONUNBUFFERED=1 \
     DATA_DIR=/data
 
 # Install dependencies first so this layer is cached across code-only rebuilds.
+# requirements.txt is generated from requirements.in with every package pinned
+# and hashed, so --require-hashes refuses anything that doesn't match.
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --require-hashes -r requirements.txt
 
 COPY app/ ./app/
 

@@ -1,0 +1,13 @@
+# Dev/CI tools: the human-edited input for requirements-dev.txt (generated,
+# pinned, with hashes). See "Dependencies" in the README.
+-r requirements.in
+# Keep the shared packages on exactly the versions the image ships.
+-c requirements.txt
+pytest==9.1.1
+pytest-asyncio==1.4.0
+respx==0.23.1
+ruff==0.16.9
+# Browser smoke tests: tests/e2e, run with `pytest -m e2e`.
+playwright==1.63.0
+# Type checking (the CI `typecheck` job).
+mypy

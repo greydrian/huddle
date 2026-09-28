@@ -501,7 +501,7 @@ def _event(raw: dict, children, today) -> Candidate | None:
         "title": title,
         "date": day,
         "start_time": None if all_day else start,
-        "end_time": None if all_day or not end or end <= start else end,
+        "end_time": None if all_day or start is None or not end or end <= start else end,
         "all_day": all_day,
         "notes": str(item.notes or "").strip()[:MAX_EVENT_NOTES],
         "whole_school": whole_school,

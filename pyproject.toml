@@ -15,3 +15,20 @@ ignore = [
 "tests/*" = ["DTZ"]
 "app/main.py" = ["E402"]  # load_dotenv() must run before the app imports read env vars
 "tests/conftest.py" = ["E402"]  # env vars must be set before importing app modules
+
+# Type checking, introduced gradually (spec 9.8). CI's `typecheck` job runs
+# plain `mypy`, which reads `files` below. mypy's defaults are the lenient
+# "basic" level: only annotated functions have their bodies checked, so
+# un-annotated code is left alone until someone adds hints. app/ started clean
+# (a handful of trivial fixes, no baseline file), so any new error fails CI.
+# Tighten in steps: add tests/ to `files`, then turn on check_untyped_defs.
+[tool.mypy]
+files = ["app"]
+python_version = "3.14"
+warn_unused_ignores = true
+warn_redundant_casts = true
+disable_error_code = ["annotation-unchecked"]  # just the "bodies aren't checked" reminder
+
+[[tool.mypy.overrides]]
+module = ["apscheduler.*"]  # ships no type information
+ignore_missing_imports = true

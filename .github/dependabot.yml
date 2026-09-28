@@ -1,0 +1,45 @@
+# Update PRs for the Python lock files, the GitHub Actions and the Docker
+# base image. Minor and patch bumps are grouped, so each ecosystem opens at
+# most one routine PR per run; majors still come one at a time for review.
+version: 2
+updates:
+  # requirements*.txt are compiled from requirements*.in by `uv pip compile
+  # --universal --generate-hashes`. Dependabot's "pip" ecosystem only knows
+  # how to re-run pip-tools, which would drop the Linux-only wheels/hashes
+  # (uvloop) when it re-resolved. The "uv" ecosystem reads the compile
+  # options back from the file header and re-runs `uv pip compile`, so the
+  # .txt files keep their universal hashes.
+  - package-ecosystem: "uv"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    groups:
+      python-minor-and-patch:
+        update-types: ["minor", "patch"]
+    commit-message:
+      prefix: "deps"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    groups:
+      actions-minor-and-patch:
+        update-types: ["minor", "patch"]
+    commit-message:
+      prefix: "ci"
+
+  # Bumps the python:3.14-slim@sha256 digest in the Dockerfile.
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    ignore:
+      # Stay on 3.14 until we move deliberately (CI, ruff target and the
+      # lock files all assume it); digest refreshes still come through.
+      - dependency-name: "python"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+    commit-message:
+      prefix: "docker"

@@ -10,7 +10,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 # Dev (preferred) — docker-compose.override.yml auto-applies: --reload + ./app bind-mounted
-docker compose up -d --build          # rebuild needed whenever requirements.txt changes
+docker compose up -d --build          # rebuild needed whenever the requirements change
 docker compose logs --tail 50 family-display
 docker compose exec family-display python -c "..."   # poke the live DB / app modules
 
@@ -20,15 +20,22 @@ docker compose -f docker-compose.yml up -d --build
 # Bare metal (./venv is Python 3.14, like Docker and CI; Windows Git Bash shown)
 # Rebuild: py -3.14 -m venv venv && venv/Scripts/pip install -r requirements.txt -r requirements-dev.txt
 #          venv/Scripts/pip install playwright && venv/Scripts/python -m playwright install chromium
-source venv/Scripts/activate && pip install -r requirements.txt
+source venv/Scripts/activate && pip install --require-hashes -r requirements-dev.txt
 uvicorn app.main:app --reload --host 127.0.0.1 --port 8010   # 8000 is usually taken by the container
 
 python -c "import app.main"   # fastest syntax/import check
 
-# Tests + lint (pip install -r requirements-dev.txt) — CI runs both plus `docker build`
+# Tests, lint, types — CI runs all of these plus a lock-file check and `docker build`
 ruff check app tests          # config in pyproject.toml; DTZ rules flag naive dates on purpose
-python -m pytest -q
+mypy                          # app/ only, lenient; [tool.mypy] in pyproject.toml — keep it at zero errors
+python -m pytest -q           # skips tests/e2e (pytest.ini: -m "not e2e")
 python -m pytest tests/test_task_sync.py::test_outage_keeps_queue_and_does_not_burn_retries
+python -m pytest -m e2e       # Playwright smoke tests: own uvicorn + temp DATA_DIR, 1280x800
+
+# Dependencies: edit requirements.in / requirements-dev.in, never the .txt files, then
+# recompile both (universal = hashes for Linux and Windows wheels) and commit .in + .txt together.
+uv pip compile requirements.in --universal --python-version 3.14 --generate-hashes -o requirements.txt
+uv pip compile requirements-dev.in --universal --python-version 3.14 --generate-hashes -o requirements-dev.txt
 ```
 
 Tests use a fresh temp SQLite DB per test (`tests/conftest.py`) and `respx` to mock every Google call — an unmocked outbound request fails the test. They go through `httpx.ASGITransport`, which skips the lifespan, so the scheduler never starts. For UI changes, also run the app and drive it with Playwright (installed in `./venv`). Admin PIN defaults to `1234`.

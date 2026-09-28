@@ -90,7 +90,9 @@ class Envelope:
 async def get_envelope(access_token: str, message_id: str) -> Envelope:
     """Who a message is from and to, and when Gmail got it, fetched as
     metadata only (no subject, no body)."""
-    params = [("format", "metadata"), *(("metadataHeaders", h) for h in CHECK_HEADERS)]
+    params: list[tuple[str, str | int | float | bool | None]] = [
+        ("format", "metadata"), *(("metadataHeaders", h) for h in CHECK_HEADERS)
+    ]
     async with http_client.client() as client:
         resp = await client.get(_message_url(message_id), headers=_auth(access_token), params=params)
         resp.raise_for_status()
