@@ -44,6 +44,11 @@ async def _prime(db, events_route):
     return grid
 
 
+async def _load(db, start, end, calendar_id="primary"):
+    _, selection = await google_calendar._selection(db)
+    return await calendar_cache.load(db, selection, start, end, calendar_id)
+
+
 async def _cached_row_count(db):
     return (await (await db.execute("SELECT COUNT(*) FROM calendar_cache")).fetchone())[0]
 
@@ -51,7 +56,7 @@ async def _cached_row_count(db):
 async def test_successful_fetch_is_saved_for_its_range(db, events_route):
     await _prime(db, events_route)
 
-    cached = await calendar_cache.load(db, *AUG_GRID)
+    cached = await _load(db, *AUG_GRID)
     assert cached is not None
     events, fetched_at = cached
     assert sorted(e["title"] for e in events) == ["Camping", "Dentist"]
@@ -111,21 +116,88 @@ async def test_token_refresh_outage_serves_the_cache(db, events_route, google):
     assert grid["updated_label"] and _titles(grid) == ["Camping", "Dentist"]
 
 
-async def test_partial_fetch_prefers_the_complete_cached_copy(db, events_route):
-    await google_oauth.set_selected_calendars(db, [
-        {"id": "family", "summary": "Family", "color": "#123456"},
-        {"id": "school", "summary": "School", "color": "#654321"},
-    ])
-    await _prime(db, events_route)
-    events_route.mock(side_effect=lambda request: (
-        httpx.Response(200, json={"items": [DENTIST]}) if "family" in str(request.url)
-        else httpx.Response(503)
-    ))
+TWO_CALENDARS = [
+    {"id": "family", "summary": "Family", "color": "#123456"},
+    {"id": "school", "summary": "School", "color": "#654321"},
+]
+SPORTS_DAY = {"summary": "Sports day", "start": {"date": "2026-08-20"}, "end": {"date": "2026-08-21"}}
+PARTY = {"summary": "Party", "start": {"date": "2026-08-22"}, "end": {"date": "2026-08-23"}}
+
+
+def _per_calendar(family, school):
+    """Serve each calendar its own items; None = that calendar 404s."""
+    def serve(request):
+        items = family if "/family/" in str(request.url) else school
+        return httpx.Response(404) if items is None else httpx.Response(200, json={"items": items})
+    return serve
+
+
+async def test_persistently_failing_calendar_does_not_freeze_the_healthy_ones(db, events_route):
+    await google_oauth.set_selected_calendars(db, TWO_CALENDARS)
+    events_route.mock(side_effect=_per_calendar([DENTIST], [SPORTS_DAY]))
+    await google_calendar.get_month_grid(db, 2026, 8)
+
+    # School becomes unshared (404 every time); Family gains an event.
+    events_route.mock(side_effect=_per_calendar([DENTIST, PARTY], None))
+    grid = await google_calendar.get_month_grid(db, 2026, 8)
+
+    assert _titles(grid) == ["Dentist", "Party", "Sports day"]  # live + School's cached copy
+    assert grid["updated_label"] and not grid["offline"]  # the stale part is flagged
+    school = next(b["event"] for w in grid["weeks"] for b in w["bars"] if b["event"]["title"] == "Sports day")
+    assert school["color"] == "#654321"
+
+    # The healthy calendar's cache kept up, from the widget and the scheduler.
+    assert [e["title"] for e in (await _load(db, *AUG_GRID, "family"))[0]] == ["Dentist", "Party"]
+    assert [e["title"] for e in (await _load(db, *AUG_GRID, "school"))[0]] == ["Sports day"]
+    assert await google_calendar.refresh_cache(db) is True
+
+
+async def test_failing_calendar_with_no_copy_keeps_the_offline_banner(db, events_route):
+    await google_oauth.set_selected_calendars(db, TWO_CALENDARS)
+    events_route.mock(side_effect=_per_calendar([DENTIST], None))
 
     grid = await google_calendar.get_month_grid(db, 2026, 8)
 
-    assert grid["updated_label"] and not grid["offline"]
-    assert _titles(grid) == ["Camping", "Dentist"]
+    assert grid["offline"] is True and grid["updated_label"] is None
+    assert _titles(grid) == ["Dentist"]
+
+
+async def test_fetch_racing_a_selection_change_is_not_cached(db, events_route):
+    async def change_selection_mid_fetch(request):
+        async with database.get_db() as other:
+            await google_oauth.set_selected_calendars(other, TWO_CALENDARS)
+        return httpx.Response(200, json={"items": [DENTIST]})
+
+    events_route.mock(side_effect=change_selection_mid_fetch)
+    grid = await google_calendar.get_month_grid(db, 2026, 8)
+
+    assert _titles(grid) == ["Dentist"]  # still shown live
+    assert await _cached_row_count(db) == 0
+
+
+async def test_last_updated_note_names_the_day_when_the_copy_is_old(db, events_route, client):
+    await _prime(db, events_route)
+    await db.execute("UPDATE calendar_cache SET fetched_at = '2026-08-04T13:05:00+00:00'")
+    await db.commit()
+    events_route.mock(side_effect=httpx.ConnectError("offline"))
+
+    grid = await google_calendar.get_month_grid(db, 2026, 8)
+
+    assert grid["updated_label"] == "Tue 4 Aug, 14:05"  # London time (BST)
+    assert "Last updated Tue 4 Aug, 14:05" in (await client.get("/widgets/calendar?year=2026&month=8")).text
+
+
+def test_last_updated_label_is_just_the_time_for_today():
+    from zoneinfo import ZoneInfo
+
+    london = ZoneInfo("Europe/London")
+    now = datetime(2026, 9, 28, 18, 0, tzinfo=london)
+    assert google_calendar._updated_label(datetime(2026, 9, 28, 8, 30, tzinfo=ZoneInfo("UTC")), now) == "09:30"
+    # 23:30 UTC on the 27th is already the 28th in London.
+    assert google_calendar._updated_label(datetime(2026, 9, 27, 23, 30, tzinfo=ZoneInfo("UTC")), now) == "00:30"
+    assert google_calendar._updated_label(datetime(2026, 9, 27, 22, 30, tzinfo=ZoneInfo("UTC")), now) == (
+        "Sun 27 Sep, 23:30"
+    )
 
 
 async def test_no_cache_shows_the_offline_state(db, events_route):
@@ -152,7 +224,7 @@ async def test_failed_fetch_never_overwrites_the_cache(db, events_route):
     events_route.mock(side_effect=httpx.ConnectError("offline"))
     await google_calendar.get_month_grid(db, 2026, 8)
 
-    events, _ = await calendar_cache.load(db, *AUG_GRID)
+    events, _ = await _load(db, *AUG_GRID)
     assert len(events) == 2
 
 
@@ -202,7 +274,7 @@ async def test_scheduler_refresh_fills_the_cache(db, events_route):
     today = await database.family_today(db)
     grid_range = google_calendar._grid_span(datetime.now(tz))
     assert grid_range[0] <= today < grid_range[1]
-    assert await calendar_cache.load(db, *grid_range) is not None
+    assert await _load(db, *grid_range) is not None
 
 
 async def test_scheduler_refresh_during_an_outage_changes_nothing(db, events_route):
@@ -218,8 +290,8 @@ async def test_scheduler_refresh_when_not_connected_does_nothing(db, google):
 async def test_old_ranges_are_pruned(db):
     for month in range(1, 13 + calendar_cache.KEEP_RANGES):
         start = date(2020 + month // 12, month % 12 + 1, 1)
-        await calendar_cache.store(db, start, start.replace(day=28), [])
-    assert await _cached_row_count(db) == calendar_cache.KEEP_RANGES
+        await calendar_cache.store(db, "sel", start, start.replace(day=28), {"primary": [], "school": []})
+    assert await _cached_row_count(db) == 2 * calendar_cache.KEEP_RANGES
 
 
 async def test_cache_holds_event_data_only_never_tokens(db, events_route):
@@ -275,12 +347,13 @@ async def test_reconnect_clears_but_token_refresh_keeps_the_cache(db, events_rou
 # --- Migration ---
 
 async def test_migration_is_idempotent_and_keeps_cached_rows(db):
-    await calendar_cache.store(db, *AUG_GRID, [{"title": "Kept", "date": "2026-08-01", "end_date": "2026-08-01"}])
+    kept = [{"title": "Kept", "date": "2026-08-01", "end_date": "2026-08-01"}]
+    await calendar_cache.store(db, "sel", *AUG_GRID, {"primary": kept})
 
     await database.init_db()
     await database.init_db()
 
-    events, _ = await calendar_cache.load(db, *AUG_GRID)
+    events, _ = await calendar_cache.load(db, "sel", *AUG_GRID, "primary")
     assert [e["title"] for e in events] == ["Kept"]
     columns = [r["name"] for r in await (await db.execute("PRAGMA table_info(calendar_cache)")).fetchall()]
-    assert columns == ["range_start", "range_end", "events_json", "fetched_at"]
+    assert columns == ["selection", "range_start", "range_end", "calendar_id", "events_json", "fetched_at"]

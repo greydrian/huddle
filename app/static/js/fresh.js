@@ -15,6 +15,7 @@
  *   - a request of its own is in flight or a tick's 450ms reveal is pending;
  *   - a finger/mouse is down, or a Gridstack drag/resize is in progress.
  * The check runs again just before the swap, since the fetch takes time.
+ * A re-fetch that fails isn't retried until /api/rev answers again.
  *
  * Date: the top bar shows the family's date (#today-date). The server says
  * how many seconds until it next changes and only elapsed time is measured
@@ -30,6 +31,13 @@
   var ABANDONED_MS = 120000;
   var DATE_RECHECK_MS = 600000;
   var PRESS_TIMEOUT_MS = 60000;  // a lost pointerup must not block refreshes for long
+  var FETCH_TIMEOUT_MS = 10000;
+
+  function fetchOptions() {
+    var opts = { cache: 'no-store' };
+    if (window.AbortSignal && AbortSignal.timeout) opts.signal = AbortSignal.timeout(FETCH_TIMEOUT_MS);
+    return opts;
+  }
 
   var grid = document.getElementById('dashboard-grid');
   var scroller = document.getElementById('dashboard-scroll');
@@ -70,6 +78,8 @@
   var known = {};    // rev key -> revision the page shows
   var wanted = {};   // rev key -> newer revision the server has
   var inFlight = {};
+  var outcome = {};  // rev key -> 'swapped' | 'deferred', for the refresh in flight
+  var failed = {};   // rev key -> its last re-fetch failed: wait for the next good poll
   var lastPoll = Date.now();
   var polling = false;
   try { known = JSON.parse((grid && grid.dataset.revs) || '{}'); } catch (err) { known = {}; }
@@ -82,10 +92,11 @@
     if (polling) return;
     polling = true;
     lastPoll = Date.now();
-    fetch('/api/rev', { cache: 'no-store' })
+    fetch('/api/rev', fetchOptions())
       .then(function (r) { if (!r.ok) throw r; return r.json(); })
       .then(function (data) {
         var revs = data.widgets || {};
+        failed = {};
         Object.keys(revs).forEach(function (key) {
           if (revs[key] !== known[key]) wanted[key] = revs[key];
           else delete wanted[key];
@@ -100,12 +111,18 @@
     Object.keys(wanted).forEach(function (key) {
       var card = cardFor(key);
       if (!card) { delete wanted[key]; return; }
-      if (inFlight[key] || busy(card)) return;  // retried on the next RETRY_MS tick
+      if (inFlight[key] || failed[key] || busy(card)) return;  // retried on the next RETRY_MS tick
       inFlight[key] = wanted[key];
+      delete outcome[key];
       htmx.ajax('GET', card.dataset.refresh, {
         source: card, target: card, swap: 'outerHTML',
         headers: { 'X-Huddle-Refresh': key },
-      }).catch(function () {}).then(function () { delete inFlight[key]; });
+      }).catch(function () {}).then(function () {
+        // Neither swapped nor held back for someone using it: the server or
+        // network failed. Don't hammer it every RETRY_MS.
+        if (!outcome[key]) failed[key] = true;
+        delete inFlight[key];
+      });
     });
   }
 
@@ -117,12 +134,13 @@
   var savedScroll = null;
   document.body.addEventListener('htmx:beforeSwap', function (evt) {
     var key = refreshKey(evt);
-    if (!key) return;
+    if (!key || evt.detail.isError) return;  // an error response isn't swapped
     var card = cardFor(key);
     // Someone started using it while the fetch was out: keep their DOM and
     // try again later (the revision stays wanted).
     if (!card || card !== evt.detail.target || busy(card, true)) {
       evt.detail.shouldSwap = false;
+      outcome[key] = 'deferred';
       return;
     }
     savedScroll = {
@@ -135,6 +153,7 @@
   document.body.addEventListener('htmx:afterSwap', function (evt) {
     var key = refreshKey(evt);
     if (!key) return;
+    outcome[key] = 'swapped';
     if (inFlight[key]) {
       known[key] = inFlight[key];
       if (wanted[key] === known[key]) delete wanted[key];
@@ -150,6 +169,23 @@
       if (scroller) scroller.scrollTop = savedScroll.page;
       savedScroll = null;
     }
+  });
+
+  // A kiosk tap whose request failed (e.g. a tick while the server was
+  // down) leaves its optimistic .just-ticked/done look behind, which would
+  // also keep the widget "in use" forever: drop it and re-fetch the widget
+  // once idle, so it shows the truth again.
+  ['htmx:responseError', 'htmx:sendError', 'htmx:timeout'].forEach(function (name) {
+    document.body.addEventListener(name, function (evt) {
+      if (refreshKey(evt)) return;
+      var elt = evt.detail && evt.detail.elt;
+      var card = elt && elt.closest && elt.closest('[data-rev-key]');
+      if (!card) return;
+      card.querySelectorAll('.just-ticked').forEach(function (el) { el.classList.remove('just-ticked'); });
+      var key = card.dataset.revKey;
+      known[key] = null;
+      wanted[key] = wanted[key] || 'unknown';
+    });
   });
 
   // --- Date ---
@@ -182,7 +218,7 @@
     if (dateChecking) return;
     dateChecking = true;
     lastDateCheck = Date.now();
-    fetch('/api/today', { cache: 'no-store' })
+    fetch('/api/today', fetchOptions())
       .then(function (r) { if (!r.ok) throw r; return r.json(); })
       .then(function (t) {
         if (typeof t.next_change_in !== 'number') throw t;
