@@ -426,9 +426,17 @@ async def m0001_baseline(db):
     )
 
 
+async def m0002_profile_parents(db):
+    """Spec 10.0: which family members are parents, and their email
+    addresses (for assistant A1's parent tasks and A4's digest)."""
+    await database._add_column_if_missing(db, "profiles", "is_parent", "INTEGER NOT NULL DEFAULT 0")
+    await database._add_column_if_missing(db, "profiles", "email", "TEXT")
+
+
 # Append only: see the module docstring.
 MIGRATIONS: list[Migration] = [
     Migration(1, "baseline", m0001_baseline),
+    Migration(2, "profile_parents", m0002_profile_parents),
 ]
 
 

@@ -47,7 +47,7 @@ async def _queued(db):
 # --- Listing ---
 
 async def test_admin_lists_calendars_and_tasklists_from_google(admin_client, google_lists):
-    resp = await admin_client.get("/admin")
+    resp = await admin_client.get("/admin?tab=google")
 
     assert resp.status_code == 200
     html = resp.text
@@ -65,7 +65,7 @@ async def test_calendar_list_follows_every_page(admin_client, google, connected)
     google.get(CALENDAR_LIST_URL).respond(200, json={"items": [CALENDARS[0]], "nextPageToken": "p2"})
     google.get(TASKLISTS_URL).respond(200, json={"items": TASKLISTS})
 
-    html = (await admin_client.get("/admin")).text
+    html = (await admin_client.get("/admin?tab=google")).text
 
     assert 'value="family@example.com"' in html
     assert 'value="school#holidays"' in html
@@ -82,7 +82,7 @@ async def test_saving_calendars_persists_googles_details_not_the_forms(admin_cli
     assert await google_oauth.get_selected_calendars(db) == [
         {"id": "school#holidays", "summary": "School holidays", "color": "#D6A02C", "primary": False},
     ]
-    html = (await admin_client.get("/admin")).text
+    html = (await admin_client.get("/admin?tab=google")).text
     assert re.search(r'value="school#holidays"\s+checked', html)
     assert not re.search(r'value="family@example.com"\s+checked', html)
 
@@ -178,7 +178,7 @@ async def test_admin_renders_when_google_is_unreachable(admin_client, google, co
     google.get(CALENDAR_LIST_URL).mock(side_effect=httpx.ConnectError("offline"))
     google.get(TASKLISTS_URL).mock(side_effect=httpx.ConnectError("offline"))
 
-    resp = await admin_client.get("/admin")
+    resp = await admin_client.get("/admin?tab=google")
 
     assert resp.status_code == 200
     assert "reach Google just now" in resp.text
@@ -191,7 +191,7 @@ async def test_admin_renders_when_token_refresh_is_unreachable(admin_client, db,
     )
     google.post(google_oauth.TOKEN_ENDPOINT).respond(503)
 
-    resp = await admin_client.get("/admin")
+    resp = await admin_client.get("/admin?tab=google")
 
     assert resp.status_code == 200
     assert "reach Google just now" in resp.text
@@ -202,7 +202,7 @@ async def test_tasklists_403_prompts_a_reconnect(admin_client, google, connected
     google.get(CALENDAR_LIST_URL).respond(200, json={"items": CALENDARS})
     google.get(TASKLISTS_URL).respond(403)
 
-    resp = await admin_client.get("/admin")
+    resp = await admin_client.get("/admin?tab=google")
 
     assert resp.status_code == 200
     assert "Disconnect and reconnect above" in resp.text
@@ -221,6 +221,6 @@ async def test_picker_saves_while_offline_change_nothing(admin_client, db, googl
     resp = await admin_client.post(path, data=data)
 
     assert resp.status_code == 303
-    assert resp.headers["location"] == "/admin"
+    assert resp.headers["location"] in ("/admin?tab=google#calendars", "/admin?tab=google#task-lists")
     assert await google_oauth.get_selected_calendars(db) == before
     assert await task_sync.get_shopping_tasklist(db) is None

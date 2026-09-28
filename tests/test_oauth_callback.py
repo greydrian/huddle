@@ -27,7 +27,7 @@ async def _raw_token_row(db):
 
 def _assert_bounced_to_admin(resp):
     assert resp.status_code == 303
-    assert resp.headers["location"] == "/admin"
+    assert resp.headers["location"] == "/admin?tab=google#google"
     # The one-shot state cookie is always cleared, success or not.
     assert f"{calendar.STATE_COOKIE}=" in resp.headers["set-cookie"]
     assert "max-age=0" in resp.headers["set-cookie"].lower()

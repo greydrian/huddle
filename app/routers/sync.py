@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app import sync_status, task_sync
+from app.admin_tabs import admin_url
 from app.auth import require_admin
 from app.database import get_db
 from app.templating import templates
@@ -28,4 +29,4 @@ async def sync_now():
     start a second one (run_sync's lock) — Admin says so instead."""
     async with get_db() as db:
         ran = await task_sync.run_sync(db)
-    return RedirectResponse(url=f"/admin?sync={'done' if ran else 'busy'}#sync", status_code=303)
+    return RedirectResponse(url=admin_url("sync", sync="done" if ran else "busy"), status_code=303)

@@ -84,9 +84,9 @@ async def test_admin_saves_appearance(db, client):
     resp = await client.post("/admin/appearance", data={"value": "light"})
     assert resp.status_code == 303
     assert await appearance.get_appearance(db) == "light"
-    assert 'name="value" value="light" checked' in (await client.get("/admin")).text
+    assert 'name="value" value="light" checked' in (await client.get("/admin?tab=display")).text
     bad = await client.post("/admin/appearance", data={"value": "sepia"})
-    assert bad.headers["location"] == "/admin?error=appearance#display"
+    assert bad.headers["location"] == "/admin?tab=display&error=appearance#display"
     assert await appearance.get_appearance(db) == "light"
 
 

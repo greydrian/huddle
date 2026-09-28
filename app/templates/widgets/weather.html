@@ -37,7 +37,7 @@
     {% if weather %}
     {% call stub_empty(caption="Couldn't reach the forecast — trying again soon.") %}{{ weather_icon('partly', 44) }}{% endcall %}
     {% else %}
-    {% call stub_empty(cta_href="/admin", cta_label="Set your location in Admin →") %}{{ weather_icon('partly', 44) }}{% endcall %}
+    {% call stub_empty(cta_href="/admin?tab=display#weather", cta_label="Set your location in Admin →") %}{{ weather_icon('partly', 44) }}{% endcall %}
     {% endif %}
     {% endif %}
   </div>

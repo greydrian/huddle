@@ -256,13 +256,13 @@ async def test_admin_saves_sender_lists(db, admin_client):
         "senders": "office@greshamprimary.school\n*@gresham.croydon.sch.uk\nclubs@example.org",
         "exclusions": "sen@gresham.croydon.sch.uk\nhead@gresham.croydon.sch.uk",
     })
-    assert r.headers["location"] == "/admin#school-email"
+    assert r.headers["location"] == "/admin?tab=school#school-email"
     assert await school_email.get_senders(db) == [
         "office@greshamprimary.school", "*@gresham.croydon.sch.uk", "clubs@example.org"]
     assert await school_email.get_exclusions(db) == ["sen@gresham.croydon.sch.uk", "head@gresham.croydon.sch.uk"]
 
     r = await admin_client.post("/admin/school-email/senders", data={"senders": "not an address", "exclusions": ""})
-    assert r.headers["location"] == "/admin?error=school-senders#school-email"
+    assert r.headers["location"] == "/admin?tab=school&error=school-senders#school-email"
     assert "clubs@example.org" in await school_email.get_senders(db)  # unchanged
     page = (await admin_client.get("/admin?error=school-senders")).text
     assert "Each sender must be an email address" in page
@@ -477,7 +477,7 @@ async def test_no_gmail_scope_means_reconnect_without_calling_google(db, claude,
     assert not google.calls
     google.get(google_oauth.CALENDAR_LIST_ENDPOINT).respond(200, json={"items": []})
     google.get("https://tasks.googleapis.com/tasks/v1/users/@me/lists").respond(200, json={"items": []})
-    page = (await admin_client.get("/admin")).text
+    page = (await admin_client.get("/admin?tab=school")).text
     assert "Reconnect Google to enable school email import" in page
 
 
@@ -657,12 +657,12 @@ async def test_run_if_due(db, monkeypatch):
 
 async def test_admin_schedule_setting(db, admin_client):
     r = await admin_client.post("/admin/school-email/schedule", data={"mode": "twice", "time": "07:30"})
-    assert r.headers["location"] == "/admin#school-email"
+    assert r.headers["location"] == "/admin?tab=school#school-email"
     assert await school_email.get_schedule(db) == _schedule("twice", "07:30")
     r = await admin_client.post("/admin/school-email/schedule", data={"mode": "hourly", "time": "07:30"})
-    assert r.headers["location"] == "/admin?error=school-schedule#school-email"
+    assert r.headers["location"] == "/admin?tab=school&error=school-schedule#school-email"
     r = await admin_client.post("/admin/school-email/schedule", data={"mode": "daily", "time": "7pm"})
-    assert r.headers["location"] == "/admin?error=school-schedule#school-email"
+    assert r.headers["location"] == "/admin?tab=school&error=school-schedule#school-email"
     assert await school_email.get_schedule(db) == _schedule("twice", "07:30")
 
 
@@ -697,7 +697,7 @@ async def test_check_now_and_the_lock(db, admin_client, monkeypatch):
     scheduled = asyncio.create_task(school_email.run_if_due(NOW))
     await started.wait()
     r = await admin_client.post("/admin/school-email/check")
-    assert r.headers["location"] == "/admin?school_email=busy#school-email"
+    assert r.headers["location"] == "/admin?tab=school&school_email=busy#school-email"
     assert len(calls) == 1
     release.set()
     assert (await scheduled).result == "ok"
@@ -707,14 +707,14 @@ async def test_check_now_and_the_lock(db, admin_client, monkeypatch):
     release.clear()
     started.clear()
     r = await admin_client.post("/admin/school-email/check")
-    assert r.headers["location"] == "/admin?school_email=started#school-email"
+    assert r.headers["location"] == "/admin?tab=school&school_email=started#school-email"
     await started.wait()
     assert school_email.check_in_progress()
     page = (await admin_client.get("/admin?school_email=started")).text
     assert "Checking school email" in page and 'hx-get="/admin/school-email/status"' in page
     assert "Checking in the background" in page
     r = await admin_client.post("/admin/school-email/check")
-    assert r.headers["location"] == "/admin?school_email=busy#school-email"
+    assert r.headers["location"] == "/admin?tab=school&school_email=busy#school-email"
     release.set()
     await school_email.wait_for_background()
     assert len(calls) == 2 and not school_email.check_in_progress()
@@ -895,7 +895,7 @@ async def test_admin_event_approval_and_errors(db, school_calendar, google, admi
     candidate_id = await _event_candidate(db)
     google.get(google_oauth.CALENDAR_LIST_ENDPOINT).respond(200, json={"items": []})
     google.get("https://tasks.googleapis.com/tasks/v1/users/@me/lists").respond(200, json={"items": []})
-    page = (await admin_client.get("/admin")).text
+    page = (await admin_client.get("/admin?tab=school")).text
     assert "Add to Family" in page
 
     route = google.post(url__regex=EVENTS_URL.pattern).respond(500)
@@ -903,11 +903,11 @@ async def test_admin_event_approval_and_errors(db, school_calendar, google, admi
                                 headers={"HX-Request": "true"})
     assert "Google Calendar didn&#39;t accept the event" in r.text and "Add to Family" in r.text
     r = await admin_client.post(f"/admin/inbox/candidates/{candidate_id}/approve", data=_form())
-    assert r.headers["location"] == "/admin?error=import-calendar-failed#inbox"
+    assert r.headers["location"] == "/admin?tab=school&error=import-calendar-failed#inbox"
 
     route.respond(200, json={"id": "e1"})
     r = await admin_client.post(f"/admin/inbox/candidates/{candidate_id}/approve", data=_form(title="Museum trip"))
-    assert r.headers["location"] == "/admin#inbox"
+    assert r.headers["location"] == "/admin?tab=school#inbox"
     assert json.loads(route.calls[-1].request.content)["summary"] == "Museum trip"
     assert (await _candidate(db, candidate_id))["external_id"] == "e1"
 
@@ -919,15 +919,15 @@ async def test_calendar_picker_only_takes_writable_calendars(db, gmail, google, 
         {"id": "shared", "summary": "Shared <b>", "accessRole": "writer"},
     ]})
     google.get("https://tasks.googleapis.com/tasks/v1/users/@me/lists").respond(200, json={"items": []})
-    page = (await admin_client.get("/admin")).text
+    page = (await admin_client.get("/admin?tab=school")).text
     picker = page.split('name="calendar_id" aria-label="Calendar for school events"')[1].split("</select>")[0]
     assert "Family (primary)" in picker and "Shared &lt;b&gt;" in picker and "UK holidays" not in picker
 
     r = await admin_client.post("/admin/school-email/calendar", data={"calendar_id": "holidays"})
-    assert r.headers["location"] == "/admin?error=school-calendar#school-email"
+    assert r.headers["location"] == "/admin?tab=school&error=school-calendar#school-email"
     assert await school_events.get_target_calendar(db) is None
     r = await admin_client.post("/admin/school-email/calendar", data={"calendar_id": "shared"})
-    assert r.headers["location"] == "/admin#school-email"
+    assert r.headers["location"] == "/admin?tab=school#school-email"
     assert await school_events.get_target_calendar(db) == {"id": "shared", "summary": "Shared <b>"}
     await admin_client.post("/admin/school-email/calendar", data={"calendar_id": ""})
     assert await school_events.get_target_calendar(db) is None
@@ -936,11 +936,11 @@ async def test_calendar_picker_only_takes_writable_calendars(db, gmail, google, 
 async def test_admin_panel_shows_status(db, gmail, google, admin_client):
     google.get(google_oauth.CALENDAR_LIST_ENDPOINT).respond(200, json={"items": []})
     google.get("https://tasks.googleapis.com/tasks/v1/users/@me/lists").respond(200, json={"items": []})
-    page = (await admin_client.get("/admin")).text
+    page = (await admin_client.get("/admin?tab=school")).text
     assert 'id="school-email"' in page and "Not checked yet" in page and "Next check" in page
     assert "office@greshamprimary.school" in page and "sen@gresham.croydon.sch.uk is never read" in page
     await school_email._record(db, NOW, school_email.CheckResult("offline"))
-    page = (await admin_client.get("/admin")).text
+    page = (await admin_client.get("/admin?tab=school")).text
     assert "Couldn&#39;t reach Google" in page
 
 
@@ -1023,7 +1023,7 @@ async def test_retry_only_works_on_failed_school_emails(db, admin_client):
         "INSERT INTO import_sources (kind, source_ref, status) VALUES ('upload', 'u1', 'failed')")
     await db.commit()
     r = await admin_client.post(f"/admin/inbox/sources/{cursor.lastrowid}/retry")
-    assert r.headers["location"] == "/admin?error=import-missing#inbox"
+    assert r.headers["location"] == "/admin?tab=school&error=import-missing#inbox"
 
 
 async def test_a_database_crash_while_storing_counts_as_an_attempt(db, gmail, claude, mailbox, monkeypatch):
@@ -1058,6 +1058,13 @@ async def test_permanent_failures_are_not_sent_again(db, gmail, claude, mailbox,
 
 async def test_the_daily_claude_cap_covers_every_import(db, gmail, claude, mailbox, monkeypatch, google):
     monkeypatch.setattr(imports, "DAILY_CLAUDE_CAP", 2)
+
+    # The cap's day is NOW's, not the real clock's (on 29 Sep the real "today"
+    # was the test's "tomorrow", so the cap never reset).
+    async def today(db):
+        return NOW.date()
+
+    monkeypatch.setattr(imports, "family_today", today)
     for i in range(3):
         mailbox.add(f"m{i}", received=NOW - timedelta(hours=10 - i))
     first = await school_email.check_now(db, NOW)
@@ -1218,7 +1225,7 @@ async def test_unverified_senders_are_dropped_or_marked(db, gmail, claude, mailb
     assert (await _source(db, "unknown"))["sender_unverified"] == 1
     google.get(google_oauth.CALENDAR_LIST_ENDPOINT).respond(200, json={"items": []})
     google.get("https://tasks.googleapis.com/tasks/v1/users/@me/lists").respond(200, json={"items": []})
-    page = (await admin_client.get("/admin")).text
+    page = (await admin_client.get("/admin?tab=school")).text
     assert page.count(">Sender not verified<") == 1
 
 

@@ -144,7 +144,7 @@ async def test_a_failing_status_write_does_not_fail_the_cycle(client, db, connec
     with caplog.at_level(logging.WARNING, logger="app.task_sync"):
         assert await task_sync.run_sync(db) is True  # success path
         resp = await client.post("/admin/sync")
-        assert resp.status_code == 303 and resp.headers["location"] == "/admin?sync=done#sync"
+        assert resp.status_code == 303 and resp.headers["location"] == "/admin?tab=google&sync=done#sync"
         await _queue_delete(db)
         google.delete(f"{TASKS_API}/shop/tasks/g1").mock(side_effect=httpx.ConnectError("offline"))
         assert await task_sync.run_sync(db) is True  # failure path
@@ -435,7 +435,7 @@ async def test_dot_is_amber_when_failing_for_a_while(client, db, connected):
     await sync_status.record_failure(db, httpx.ConnectError("x"), now=datetime.now(timezone.utc) - timedelta(minutes=6))
     await sync_status.record_failure(db, httpx.ConnectError("x"))
     html = (await client.get("/sync-status")).text
-    assert "sync-dot-amber" in html and 'href="/admin#sync"' in html and "Sync delayed" in html
+    assert "sync-dot-amber" in html and 'href="/admin?tab=google#sync"' in html and "Sync delayed" in html
     assert 'hx-trigger="every 60s"' in html  # keeps polling in every state
 
 
@@ -444,7 +444,7 @@ async def test_dot_is_red_when_needing_attention(client, db, connected):
         await sync_status.record_failure(db, httpx.HTTPStatusError(
             "x", request=httpx.Request("GET", "https://example.test"), response=httpx.Response(403)))
     html = (await client.get("/sync-status")).text
-    assert "sync-dot-red" in html and "Needs attention" in html and 'href="/admin#sync"' in html
+    assert "sync-dot-red" in html and "Needs attention" in html and 'href="/admin?tab=google#sync"' in html
 
 
 async def test_dot_is_red_when_google_drops_the_connection(client, db):
@@ -472,8 +472,8 @@ async def test_admin_sync_panel_renders_in_family_time(client, db, connected, go
     # 11:05 UTC is 12:05 in Europe/London (BST), the test family's timezone.
     await sync_status.record_success(db, now=datetime(2026, 9, 28, 11, 5, tzinfo=timezone.utc))
     await _login(client)
-    html = (await client.get("/admin")).text
-    panel = html[html.index('id="sync"'):html.index("<!-- Weather location -->")]
+    html = (await client.get("/admin?tab=google")).text
+    panel = html[html.index('id="sync"'):html.index("<!-- end of tab -->")]
     assert "<h2>Sync</h2>" in panel
     assert "Last successful sync" in panel and "12:05" in panel
     assert "Waiting to sync" in panel and "0 changes" in panel
@@ -495,7 +495,7 @@ async def test_sync_now_runs_one_cycle(client, db, connected, google):
 
     resp = await client.post("/admin/sync")
 
-    assert resp.status_code == 303 and resp.headers["location"] == "/admin?sync=done#sync"
+    assert resp.status_code == 303 and resp.headers["location"] == "/admin?tab=google&sync=done#sync"
     assert delete.call_count == 1
     assert (await _status(db))["last_success_at"] is not None
     html = (await client.get("/admin?sync=done")).text
@@ -509,7 +509,7 @@ async def test_sync_now_does_not_overlap_a_running_cycle(client, db, connected, 
         assert task_sync.sync_in_progress()
         resp = await client.post("/admin/sync")
         assert await task_sync.run_sync(db) is False
-    assert resp.headers["location"] == "/admin?sync=busy#sync"
+    assert resp.headers["location"] == "/admin?tab=google&sync=busy#sync"
     assert (await _status(db))["last_cycle_at"] is None
     assert "A sync was already running" in (await client.get("/admin?sync=busy")).text
 
@@ -517,7 +517,7 @@ async def test_sync_now_does_not_overlap_a_running_cycle(client, db, connected, 
 async def test_admin_ignores_unknown_sync_messages(client, db):
     await _login(client)
     html = (await client.get("/admin?sync=<script>")).text
-    assert "<script>" not in html.split('id="sync"')[1].split("<!-- Weather")[0]
+    assert "<script>" not in html.split('id="sync"')[1].split("<!-- end of tab -->")[0]
 
 
 # --- /health ------------------------------------------------------------------------
