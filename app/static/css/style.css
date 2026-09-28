@@ -161,9 +161,17 @@ input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-
 /* Top-bar sync status (templates/_sync_dot.html): an empty span while sync
    is healthy; a small tinted pill with a coloured dot when it isn't — amber
    = delayed/offline, red = needs a person. Label text stays --ink (AA);
-   the dot is 3:1+ on its tint in both palettes. margin-left: auto keeps it
-   beside the Admin button. Also used by Admin's Sync panel (.sync-state). */
-.topbar .sync-dot { margin-left: auto; }
+   the dot is 3:1+ on its tint in both palettes. It sits in .topbar-actions
+   with the Admin button, a right-hand group of its own, so it appearing or
+   going never moves anything else in the bar. Also used by Admin's Sync
+   panel (.sync-state). */
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
 .sync-dot:empty { display: none; }
 .sync-dot-amber, .sync-dot-red, .sync-state {
   display: inline-flex;

@@ -10,9 +10,11 @@
     <span class="signature">Today</span>
     <span id="today-date" data-iso="{{ today }}"></span>
   </div>
-  {#- Sync status dot: loads, then polls itself (_sync_dot.html). -#}
-  <span id="sync-dot" class="sync-dot" hx-get="/sync-status" hx-trigger="load" hx-swap="outerHTML"></span>
-  <a href="/admin" class="btn-ghost">{{ icon("settings", 20) }}Admin</a>
+  <div class="topbar-actions">
+    {#- Sync status dot: loads, then polls itself (_sync_dot.html). -#}
+    <span id="sync-dot" class="sync-dot" hx-get="/sync-status" hx-trigger="load" hx-swap="outerHTML"></span>
+    <a href="/admin" class="btn-ghost">{{ icon("settings", 20) }}Admin</a>
+  </div>
 </div>
 
 {# The scroller is its own element: Gridstack sizes #dashboard-grid with an

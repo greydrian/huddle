@@ -2,14 +2,18 @@
 for a persistent 401/403, the dashboard dot, Admin's Sync panel and
 "Sync now", and /health."""
 
+import asyncio
 import json
 import logging
+import sqlite3
 import time
 from datetime import datetime, timedelta, timezone
 
 import httpx
+import pytest
 
 from app import database, google_oauth, google_tasks, sync_status, task_sync
+from app.routers import calendar
 
 TASKS_API = "https://tasks.googleapis.com/tasks/v1/lists"
 SHOP_LIST = {"id": "shop", "title": "Shopping"}
@@ -82,7 +86,7 @@ async def test_an_offline_cycle_records_the_failure_and_keeps_the_queue(db, conn
     assert summary["state"] == "retrying" and summary["level"] is None
 
 
-async def test_not_connected_is_recorded_as_such_not_as_a_failure(db):
+async def test_never_connected_is_recorded_but_not_alarming(db):
     await task_sync.run_sync(db)
 
     row = await _status(db)
@@ -90,18 +94,175 @@ async def test_not_connected_is_recorded_as_such_not_as_a_failure(db):
     assert row["last_error"] == "not connected"
     assert row["consecutive_failures"] == 0
     summary = await sync_status.summary(db)
-    assert summary["state"] == "disconnected" and summary["level"] == "red"
+    assert summary["state"] == "unlinked" and summary["level"] is None
+    assert "Connect a Google account" in summary["detail"]
 
 
 async def test_a_revoked_grant_shows_as_disconnected(db, google):
     await google_oauth.store_tokens(
         db, {"access_token": ACCESS, "refresh_token": REFRESH, "expires_at": time.time() - 10}, "f@example.com"
     )
+    await sync_status.record_success(db)  # it was working before
     google.post(google_oauth.TOKEN_ENDPOINT).respond(400, json={"error": "invalid_grant"})
 
     await task_sync.run_sync(db)
 
-    assert (await sync_status.summary(db))["state"] == "disconnected"
+    summary = await sync_status.summary(db)
+    assert summary["state"] == "disconnected" and summary["level"] == "red"
+
+
+# --- Failures that aren't Google's ---------------------------------------------
+
+async def test_an_unexpected_error_in_a_cycle_is_recorded_not_raised(db, connected, monkeypatch, caplog):
+    async def broken_reconcile(db, token):
+        raise KeyError("updated")
+    monkeypatch.setattr(task_sync, "reconcile_shopping", broken_reconcile)
+
+    with caplog.at_level(logging.WARNING, logger="app.task_sync"):
+        for _ in range(sync_status.ATTENTION_AFTER + 2):
+            assert await task_sync.run_sync(db) is True
+
+    row = await _status(db)
+    assert row["last_error"] == "error"
+    assert row["consecutive_failures"] == sync_status.ATTENTION_AFTER + 2
+    assert row["auth_failures"] == 0  # never "needs attention"
+    assert (await sync_status.summary(db))["state"] != "attention"
+    warnings = _warnings(caplog)
+    assert len(warnings) == 1 and "unexpected error: KeyError" in warnings[0].getMessage()
+    assert warnings[0].exc_info is not None  # the traceback, once
+    assert not task_sync.sync_in_progress()
+
+
+async def test_a_failing_status_write_does_not_fail_the_cycle(client, db, connected, google, monkeypatch, caplog):
+    async def locked(*args, **kwargs):
+        raise sqlite3.OperationalError("database is locked")
+    monkeypatch.setattr(sync_status, "record_success", locked)
+    monkeypatch.setattr(sync_status, "record_failure", locked)
+    _mock_admin_pickers(google)
+    await _login(client)
+
+    with caplog.at_level(logging.WARNING, logger="app.task_sync"):
+        assert await task_sync.run_sync(db) is True  # success path
+        resp = await client.post("/admin/sync")
+        assert resp.status_code == 303 and resp.headers["location"] == "/admin?sync=done#sync"
+        await _queue_delete(db)
+        google.delete(f"{TASKS_API}/shop/tasks/g1").mock(side_effect=httpx.ConnectError("offline"))
+        assert await task_sync.run_sync(db) is True  # failure path
+
+    assert any("Couldn't save the sync status: OperationalError" in r.getMessage() for r in _warnings(caplog))
+    assert not task_sync.sync_in_progress()
+
+
+async def test_the_lock_is_released_when_a_cycle_is_cancelled(db, connected, monkeypatch):
+    async def cancelled(db):
+        raise asyncio.CancelledError
+    monkeypatch.setattr(google_oauth, "get_valid_access_token", cancelled)
+
+    with pytest.raises(asyncio.CancelledError):
+        await task_sync.run_sync(db)
+
+    assert not task_sync.sync_in_progress()
+
+
+# --- 403 reasons ------------------------------------------------------------------
+
+RATE_LIMIT_403 = {"error": {
+    "code": 403, "status": "PERMISSION_DENIED", "message": "Rate Limit Exceeded",
+    "errors": [{"reason": "userRateLimitExceeded", "domain": "usageLimits"}],
+}}
+SCOPE_403 = {"error": {
+    "code": 403, "status": "PERMISSION_DENIED", "message": "Request had insufficient authentication scopes.",
+    "errors": [{"reason": "insufficientPermissions"}],
+    "details": [{"reason": "ACCESS_TOKEN_SCOPE_INSUFFICIENT"}],
+}}
+
+
+def _status_error(status, body=None):
+    request = httpx.Request("GET", "https://example.test")
+    response = httpx.Response(status, json=body) if body is not None else httpx.Response(status)
+    return httpx.HTTPStatusError("x", request=request, response=response)
+
+
+def test_403_reasons_map_to_short_codes():
+    assert sync_status.error_code(_status_error(403, SCOPE_403)) == "HTTP 403"
+    assert sync_status.error_code(_status_error(403)) == "HTTP 403"  # no reason given: assume access
+    assert sync_status.error_code(_status_error(403, RATE_LIMIT_403)) == "rate limited"
+    rate = {"error": {"errors": [{"reason": "rateLimitExceeded"}]}}
+    assert sync_status.error_code(_status_error(403, rate)) == "rate limited"
+    other = {"error": {"errors": [{"reason": "somethingElse"}]}}
+    assert sync_status.error_code(_status_error(403, other)) == "HTTP 403 other"
+    assert sync_status.error_code(KeyError("x")) == "error"
+
+
+async def test_rate_limit_403s_never_need_attention(db, connected, google):
+    await _queue_delete(db)
+    google.delete(f"{TASKS_API}/shop/tasks/g1").respond(403, json=RATE_LIMIT_403)
+
+    for _ in range(sync_status.ATTENTION_AFTER + 2):
+        await task_sync.run_sync(db)
+
+    row = await _status(db)
+    assert row["last_error"] == "rate limited" and row["auth_failures"] == 0
+    assert (await sync_status.summary(db))["state"] != "attention"
+    assert "Rate Limit" not in json.dumps(dict(row))  # the code only, never the body
+
+
+async def test_scope_403s_need_attention(db, connected, google):
+    await _queue_delete(db)
+    google.delete(f"{TASKS_API}/shop/tasks/g1").respond(403, json=SCOPE_403)
+
+    for _ in range(sync_status.ATTENTION_AFTER):
+        await task_sync.run_sync(db)
+
+    assert (await sync_status.summary(db))["state"] == "attention"
+
+
+# --- Reconnect / disconnect ---------------------------------------------------------
+
+async def _needs_attention(db):
+    for _ in range(sync_status.ATTENTION_AFTER):
+        await sync_status.record_failure(db, _status_error(403))
+    assert (await sync_status.summary(db))["state"] == "attention"
+
+
+async def test_reconnecting_clears_needs_attention(client, db, connected, google):
+    await _needs_attention(db)
+    google.post(google_oauth.TOKEN_ENDPOINT).respond(200, json={
+        "access_token": "fresh-access", "refresh_token": "fresh-refresh", "expires_in": 3599,
+    })
+    google.get(google_oauth.USERINFO_ENDPOINT).respond(200, json={"email": "family@example.com"})
+    await _login(client)
+    client.cookies.set(calendar.STATE_COOKIE, "the-state")
+
+    resp = await client.get("/admin/google/callback", params={"code": "c", "state": "the-state"})
+
+    assert resp.status_code == 303
+    row = await _status(db)
+    assert row["auth_failures"] == 0 and row["consecutive_failures"] == 0 and row["last_error"] is None
+    assert (await sync_status.summary(db))["state"] == "waiting"
+
+
+async def test_a_failed_reconnect_leaves_the_status_alone(client, db, connected, google):
+    await _needs_attention(db)
+    google.post(google_oauth.TOKEN_ENDPOINT).respond(400, json={"error": "invalid_grant"})
+    await _login(client)
+    client.cookies.set(calendar.STATE_COOKIE, "the-state")
+
+    await client.get("/admin/google/callback", params={"code": "c", "state": "the-state"})
+
+    assert (await sync_status.summary(db))["state"] == "attention"
+
+
+async def test_disconnecting_clears_the_status_and_hides_the_dot(client, db, connected, google):
+    await _needs_attention(db)
+    google.post(url__startswith=google_oauth.REVOKE_ENDPOINT).respond(200)
+    await _login(client)
+
+    resp = await client.post("/admin/google/disconnect")
+
+    assert resp.status_code == 303
+    assert (await sync_status.summary(db))["state"] == "unlinked"
+    assert "<a" not in (await client.get("/sync-status")).text
 
 
 async def test_stored_status_never_holds_tokens_or_urls(db, google):
@@ -211,10 +372,23 @@ async def test_long_failure_turns_amber_after_the_grace_period(db, connected):
     assert summary["last_success_ago"] == "8 minutes ago"
 
 
-async def test_no_cycle_for_a_long_time_is_stalled(db, connected):
-    await sync_status.record_success(db, now=datetime.now(timezone.utc) - timedelta(minutes=20))
+async def test_no_cycle_for_a_long_time_is_stalled(db, connected, monkeypatch):
+    now = datetime.now(timezone.utc)
+    monkeypatch.setattr(sync_status, "PROCESS_STARTED_AT", now - timedelta(hours=1))
+    await sync_status.record_success(db, now=now - timedelta(minutes=20))
     summary = await sync_status.summary(db)
     assert summary["state"] == "stalled" and summary["level"] == "amber"
+
+
+async def test_just_after_a_restart_an_old_last_cycle_is_not_stalled(db, connected, monkeypatch):
+    # Down for two hours; the first cycle only runs a minute after start.
+    now = datetime.now(timezone.utc)
+    await sync_status.record_success(db, now=now - timedelta(hours=2))
+    monkeypatch.setattr(sync_status, "PROCESS_STARTED_AT", now - timedelta(seconds=30))
+    assert (await sync_status.summary(db))["state"] == "ok"
+    # ...but if the scheduler never gets going, it is stalled 15 minutes after start.
+    monkeypatch.setattr(sync_status, "PROCESS_STARTED_AT", now - timedelta(minutes=16))
+    assert (await sync_status.summary(db))["state"] == "stalled"
 
 
 async def test_unconfigured_google_shows_nothing(db, monkeypatch):
@@ -238,7 +412,8 @@ async def test_ago_wording():
 async def test_dashboard_loads_the_dot_in_the_top_bar_outside_any_widget(client):
     html = (await client.get("/")).text
     topbar = html[html.index('class="topbar"'):html.index('id="dashboard-scroll"')]
-    assert 'id="sync-dot"' in topbar and 'hx-get="/sync-status"' in topbar
+    actions = topbar[topbar.index('class="topbar-actions"'):]
+    assert 'id="sync-dot"' in actions and 'hx-get="/sync-status"' in actions and 'href="/admin"' in actions
     assert html.count('id="sync-dot"') == 1
 
 
@@ -272,9 +447,16 @@ async def test_dot_is_red_when_needing_attention(client, db, connected):
     assert "sync-dot-red" in html and "Needs attention" in html and 'href="/admin#sync"' in html
 
 
-async def test_dot_is_red_when_disconnected(client):
+async def test_dot_is_red_when_google_drops_the_connection(client, db):
+    await sync_status.record_success(db)
+    await sync_status.record_not_connected(db)  # e.g. the grant was revoked
     html = (await client.get("/sync-status")).text
-    assert "sync-dot-red" in html and "Google not connected" in html
+    assert "sync-dot-red" in html and "Google disconnected" in html
+
+
+async def test_dot_is_hidden_on_a_fresh_install(client):
+    html = (await client.get("/sync-status")).text
+    assert 'data-state="unlinked"' in html and "<a" not in html
 
 
 async def test_dot_is_hidden_when_google_is_not_set_up(client, monkeypatch):

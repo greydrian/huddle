@@ -4,16 +4,19 @@ one-row `sync_status` table so Admin, the dashboard's status dot and /health
 can say whether sync is working — instead of it failing silently.
 
 task_sync.run_sync() records every cycle here. Only log-safe summaries are
-stored ("offline", "HTTP 403", "not connected"), never tokens, URLs or
-response bodies.
+stored ("offline", "HTTP 403", "rate limited", "error", "not connected"),
+never tokens, URLs or response bodies.
 
 States (summary()["state"]), most serious first:
 - off           Google isn't configured on this install — nothing to show
-- disconnected  configured, but no Google account connected       (red)
+- unlinked      no account connected since install or the last deliberate
+                Disconnect — a choice, not a fault: Admin explains, no dot
+- disconnected  Google dropped the connection (e.g. a revoked grant) (red)
 - attention     Google keeps refusing access (the same 401/403 for
                 ATTENTION_AFTER cycles in a row) — reconnect in Admin (red)
 - failing       every cycle has failed for FAILING_AFTER or longer   (amber)
-- stalled       no cycle has run for STALLED_AFTER (scheduler stuck)  (amber)
+- stalled       no cycle for STALLED_AFTER since the last one or since
+                this process started (scheduler stuck)              (amber)
 - retrying      failing, but not for long yet: a blip, not shown on the dashboard
 - waiting       connected, no cycle has run yet
 - ok            the last cycle succeeded
@@ -37,23 +40,71 @@ STALLED_AFTER = timedelta(minutes=15)
 
 AUTH_ERRORS = ("HTTP 401", "HTTP 403")
 NOT_CONNECTED = "not connected"
+RATE_LIMITED = "rate limited"
+UNEXPECTED = "error"  # anything that isn't an HTTP/network failure (a bug, a locked DB)
+
+# Google's 403 reasons (error.errors[].reason, error.status,
+# error.details[].reason), lower-cased. Rate limits come back as 403 too and
+# are transient; only a permission/scope refusal needs a person to reconnect.
+PERMISSION_REASONS = {
+    "insufficientpermissions", "forbidden", "permission_denied", "access_token_scope_insufficient",
+    "autherror", "accessnotconfigured",
+}
+RATE_LIMIT_REASONS = {
+    "ratelimitexceeded", "userratelimitexceeded", "quotaexceeded", "dailylimitexceeded",
+    "resource_exhausted", "rate_limit_exceeded",
+}
+
+# "stalled" is measured from the later of the last cycle and this: after
+# downtime the stored last_cycle_at is old, and the scheduler's first cycle
+# only runs a minute after start.
+PROCESS_STARTED_AT = datetime.now(timezone.utc)
 
 # The dashboard dot's colour for each state; None = nothing shown.
 LEVELS = {
-    "off": None, "ok": None, "waiting": None, "retrying": None,
+    "off": None, "unlinked": None, "ok": None, "waiting": None, "retrying": None,
     "failing": "amber", "stalled": "amber",
     "attention": "red", "disconnected": "red",
 }
 
 
+def _error_reasons(response: httpx.Response) -> set[str]:
+    """Google's machine-readable reasons from an error body, lower-cased.
+    Only compared against the fixed sets above — never stored or logged."""
+    try:
+        error = response.json().get("error")
+    except Exception:  # no body, not JSON, not an object
+        return set()
+    if not isinstance(error, dict):
+        return set()
+    reasons = {error.get("status")}
+    for key in ("errors", "details"):
+        items = error.get(key)
+        if isinstance(items, list):
+            reasons.update(item.get("reason") for item in items if isinstance(item, dict))
+    return {r.lower() for r in reasons if isinstance(r, str)}
+
+
 def error_code(exc: BaseException) -> str:
-    """A short, log-safe description, like http_client.describe() but in the
-    family's words for the common case: every network failure is "offline"."""
+    """A short, log-safe code, like http_client.describe() but in the
+    family's words: every network failure is "offline", and anything that
+    isn't an HTTP failure at all is "error".
+
+    A 403 is "HTTP 403" (counts towards needs-attention) when Google says
+    it's a permission/scope refusal or gives no reason at all; "rate
+    limited" for a rate limit; "HTTP 403 other" for any other reason."""
     if isinstance(exc, httpx.HTTPStatusError):
-        return f"HTTP {exc.response.status_code}"
+        status = exc.response.status_code
+        if status == 403:
+            reasons = _error_reasons(exc.response)
+            if reasons & RATE_LIMIT_REASONS:
+                return RATE_LIMITED
+            if reasons and not reasons & PERMISSION_REASONS:
+                return "HTTP 403 other"
+        return f"HTTP {status}"
     if isinstance(exc, httpx.TransportError):
         return "offline"
-    return type(exc).__name__
+    return UNEXPECTED
 
 
 def _now() -> datetime:
@@ -85,6 +136,14 @@ async def _row(db):
 
 
 # --- Recording (called by task_sync.run_sync once per cycle) ----------------
+
+async def reset(db) -> None:
+    """Forget all sync history: on a new Google grant (the old one's failures
+    are over) and on a deliberate Disconnect (not a fault)."""
+    await db.execute("DELETE FROM sync_status")
+    await db.execute("INSERT INTO sync_status (id) VALUES (1)")
+    await db.commit()
+
 
 async def record_success(db, now: datetime | None = None) -> None:
     now = now or _now()
@@ -157,13 +216,22 @@ def _describe(state: str, row, failing_for: str | None, stalled_for: str | None)
     if state == "off":
         return "Not set up", "Google isn't configured on this display, so nothing syncs."
     if state == "disconnected":
+        return ("Google disconnected",
+                "Google ended the connection (access was revoked or expired). Reconnect under Google Account; "
+                "changes made here are kept and will sync once it's reconnected.")
+    if state == "unlinked":
         return "Google not connected", "Connect a Google account under Google Account to sync tasks and shopping."
     if state == "attention":
         return ("Needs attention",
                 "Google refused access — reconnect in Admin (Disconnect, then Connect Google Account). "
                 "Changes made here are kept and will sync once it's reconnected.")
     if state == "failing":
-        reason = "Can't reach Google" if error == "offline" else f"Google keeps failing ({error})"
+        if error == "offline":
+            reason = "Can't reach Google"
+        elif error == UNEXPECTED:
+            reason = "Sync keeps hitting an unexpected error (details are in the server log)"
+        else:
+            reason = f"Google keeps failing ({error})"
         return ("Sync delayed",
                 f"{reason} — failing for {failing_for}. Changes made here are kept and will sync "
                 "when it's back.")
@@ -189,12 +257,15 @@ async def summary(db, now: datetime | None = None) -> dict:
     if not google_oauth.is_configured() and not connected:
         state = "off"
     elif not connected:
-        state = "disconnected"
+        # A cycle recorded since the last reset() means an account was
+        # connected and then dropped without anyone pressing Disconnect.
+        ever_connected = bool(row["last_success_at"] or row["last_failure_at"])
+        state = "disconnected" if ever_connected else "unlinked"
     elif row["auth_failures"] >= ATTENTION_AFTER:
         state = "attention"
     elif row["consecutive_failures"] and failing_since and now - failing_since >= FAILING_AFTER:
         state = "failing"
-    elif last_cycle and now - last_cycle >= STALLED_AFTER:
+    elif last_cycle and now - max(last_cycle, PROCESS_STARTED_AT) >= STALLED_AFTER:
         state = "stalled"
     elif row["consecutive_failures"]:
         state = "retrying"
