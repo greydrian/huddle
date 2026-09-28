@@ -11,7 +11,7 @@ import re
 from datetime import datetime, timedelta, timezone
 
 import httpx
-from fastapi import APIRouter, Depends, Form, Request
+from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app import appearance, backup, google_oauth, google_tasks, recurrence, sync_status, task_sync
@@ -36,7 +36,7 @@ from app.security import (
     lockout_seconds_for,
     verify_pin,
 )
-from app.services import homework, weather
+from app.services import extraction, homework, imports, weather
 from app.services import tasks as task_service
 from app.templating import templates
 
@@ -44,6 +44,8 @@ from app.templating import templates
 __all__ = ["SESSION_COOKIE", "require_admin", "router"]
 
 router = APIRouter(prefix="/admin")
+
+MAX_SCHOOL_YEAR = 30  # "Year 4", "Reception", "Year 6 (Oak Class)"
 
 # A form that can't be saved redirects back to its Admin section with
 # ?error=<code> (like ?weather_error=), and the page shows that section's
@@ -62,6 +64,20 @@ ADMIN_ERRORS = {
     "pin-weak": ("pin", "That PIN is too easy to guess: avoid one digit repeated (like 0000) or a "
                         "straight run (like 1234 or 9876). Your PIN hasn't changed."),
     "pin-mismatch": ("pin", "The two PINs didn't match. Your PIN hasn't changed."),
+    "profile-missing": ("family", "That family member no longer exists."),
+    "profile-year": ("family", f"A year group can be at most {MAX_SCHOOL_YEAR} characters."),
+    "import-empty": ("classroom", "Add a screenshot, a PDF or some pasted text first."),
+    "import-too-big": ("classroom", "That's too big to read: at most 15 MB a file and 22 MB in all. "
+                                    "Try a smaller screenshot or fewer pages."),
+    "import-too-many": ("classroom", f"Add at most {extraction.MAX_ATTACHMENTS} files at a time."),
+    "import-bad-type": ("classroom", "That file isn't one the inbox can read. Use a screenshot or photo "
+                                     "(PNG, JPEG, WebP or HEIC) or a PDF."),
+    "import-already": ("inbox", "That's already in the School inbox below."),
+    "import-missing": ("inbox", "That item is no longer waiting in the inbox. It may have just been "
+                                "approved or discarded."),
+    "import-event": ("inbox", "Adding events to the calendar arrives with the Gmail import. "
+                              "Discard this one for now."),
+    "import-busy": ("inbox", "That's still being read. Try again in a moment."),
 }
 
 # The login form only takes digits (inputmode=numeric, maxlength=8), so a PIN
@@ -224,6 +240,8 @@ async def _render_admin(
     words_error: str | None = None,
     homework_form: dict | None = None,
     words_form: dict | None = None,
+    inbox_form: dict | None = None,
+    inbox_error: str | None = None,
     status_code: int = 200,
 ):
     """Renders Admin. After a validation error, *_form carries what was
@@ -244,6 +262,7 @@ async def _render_admin(
         mode = await appearance.current_mode(db)
         backup_status = backup.status(await family_timezone(db))
         sync = await sync_status.summary(db)
+        inbox = await imports.get_inbox(db)
 
         available_calendars = []
         selected_calendar_ids = []
@@ -307,6 +326,10 @@ async def _render_admin(
             "weekdays": recurrence.WEEKDAYS,
             "backup_status": backup_status,
             "sync": sync,
+            "inbox": inbox,
+            "inbox_configured": extraction.is_configured(),
+            "inbox_form": inbox_form,
+            "inbox_error": inbox_error,
         },
         status_code=status_code,
     )
@@ -325,6 +348,22 @@ async def add_profile(name: str = Form(...), colour_hex: str = Form(...)):
         )
         await db.commit()
     return RedirectResponse(url="/admin", status_code=303)
+
+
+@router.post("/profiles/{profile_id}/school-year", dependencies=[Depends(require_admin)])
+async def save_school_year(profile_id: int, school_year: str = Form("")):
+    """A child's year group ("Year 4"): the school inbox uses it to decide
+    whose spellings and homework are whose. Blank clears it."""
+    try:
+        value = homework.clean_text(school_year, "Year group", MAX_SCHOOL_YEAR) or None
+    except homework.ValidationError:
+        return _admin_error("profile-year")
+    async with get_db() as db:
+        cursor = await db.execute("UPDATE profiles SET school_year = ? WHERE id = ?", (value, profile_id))
+        await db.commit()
+    if not cursor.rowcount:
+        return _admin_error("profile-missing")
+    return RedirectResponse(url="/admin#family", status_code=303)
 
 
 @router.post("/profiles/{profile_id}/delete", dependencies=[Depends(require_admin)])
@@ -543,6 +582,124 @@ async def save_handwriting_style(style: str = Form("")):
         await set_setting(db, homework.HANDWRITING_SETTING, style)
         await db.commit()
     return RedirectResponse(url="/admin#practice-words", status_code=303)
+
+
+# --- School inbox (app/services/imports.py): nothing reaches the wall unapproved ---
+
+@router.post("/inbox/add", dependencies=[Depends(require_admin)])
+async def inbox_add(
+    files: list[UploadFile] = File(default=[]),
+    text: str = Form(""),
+    child_id: str = Form(""),
+):
+    # An empty file input still posts one nameless, empty part.
+    uploads = [f for f in files if f.filename or f.size]
+    text = text.strip()
+    if not uploads and not text:
+        return _admin_error("import-empty")
+    blobs = []
+    try:
+        imports.check_attachment_limits(len(uploads), 0)
+        for upload in uploads:
+            # Read one byte past the cap, so an oversized file is refused
+            # without reading all of it.
+            data = await upload.read(extraction.MAX_ATTACHMENT_BYTES + 1)
+            if len(data) > extraction.MAX_ATTACHMENT_BYTES:
+                raise imports.UploadRejected("import-too-big")
+            blobs.append((upload.filename or "", data))
+        imports.check_attachment_limits(len(blobs), sum(len(d) for _, d in blobs))
+        attachments = [await asyncio.to_thread(imports.prepare_attachment, name, data) for name, data in blobs]
+    except imports.UploadRejected as exc:
+        return _admin_error(exc.code)
+    async with get_db() as db:
+        children = {c.profile_id for c in await imports.get_children(db)}
+    child_hint = int(child_id) if child_id.isdigit() and int(child_id) in children else None
+    doc = imports.SourceDocument(
+        kind="upload" if attachments else "paste",
+        source_ref=imports.content_ref(text, [data for _, data in blobs]),
+        text=text[:extraction.MAX_TEXT_CHARS],
+        attachments=tuple(attachments),
+        subject=", ".join(name for name, _ in blobs if name) or None,
+        child_hint=child_hint,
+    )
+    result = await imports.start_ingest(doc)
+    if result.already:
+        return _admin_error("import-already")
+    return RedirectResponse(url="/admin#inbox", status_code=303)
+
+
+@router.get("/inbox/sources/{source_id}", response_class=HTMLResponse, dependencies=[Depends(require_admin)])
+async def inbox_source(request: Request, source_id: int):
+    """One source's inbox block: polled while it says "Reading…"."""
+    async with get_db() as db:
+        source = await imports.get_source(db, source_id)
+        profiles = [dict(r) for r in await (await db.execute(
+            "SELECT id, name, colour_hex FROM profiles ORDER BY sort_order"
+        )).fetchall()]
+    if source is None:
+        return HTMLResponse("")
+    return templates.TemplateResponse(
+        request, "admin/_inbox_source.html", {"source": source, "profiles": profiles}
+    )
+
+
+@router.post("/inbox/candidates/{candidate_id}/approve", dependencies=[Depends(require_admin)])
+async def inbox_approve(
+    request: Request,
+    candidate_id: int,
+    profile_id: str = Form(""),
+    title: str = Form(""),
+    subject: str = Form(""),
+    details: str = Form(""),
+    due_date: str = Form(""),
+    words: str = Form(""),
+    starts_on: str = Form(""),
+    ends_on: str = Form(""),
+):
+    form = {
+        "profile_id": profile_id, "title": title, "subject": subject, "details": details,
+        "due_date": due_date, "words": words, "starts_on": starts_on, "ends_on": ends_on,
+    }
+    async with get_db() as db:
+        try:
+            await imports.approve_candidate(db, candidate_id, form)
+        except imports.CandidateError as exc:
+            return _admin_error(exc.code)
+        except homework.ValidationError as exc:
+            return await _render_admin(
+                request, inbox_error=str(exc), inbox_form={"id": candidate_id, **form}, status_code=400
+            )
+    return RedirectResponse(url="/admin#inbox", status_code=303)
+
+
+@router.post("/inbox/candidates/{candidate_id}/discard", dependencies=[Depends(require_admin)])
+async def inbox_discard(candidate_id: int):
+    async with get_db() as db:
+        try:
+            await imports.discard_candidate(db, candidate_id)
+        except imports.CandidateError as exc:
+            return _admin_error(exc.code)
+    return RedirectResponse(url="/admin#inbox", status_code=303)
+
+
+@router.post("/inbox/sources/{source_id}/approve-all", dependencies=[Depends(require_admin)])
+async def inbox_approve_all(source_id: int):
+    async with get_db() as db:
+        try:
+            await imports.approve_all(db, source_id)
+        except imports.CandidateError as exc:
+            return _admin_error(exc.code)
+    return RedirectResponse(url="/admin#inbox", status_code=303)
+
+
+@router.post("/inbox/sources/{source_id}/delete", dependencies=[Depends(require_admin)])
+async def inbox_delete_source(source_id: int):
+    async with get_db() as db:
+        try:
+            await imports.delete_source(db, source_id)
+        except imports.CandidateError as exc:
+            return _admin_error(exc.code)
+    return RedirectResponse(url="/admin#inbox", status_code=303)
 
 
 # --- Google Tasks sync ---

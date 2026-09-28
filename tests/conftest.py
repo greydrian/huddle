@@ -7,6 +7,10 @@ import time
 os.environ["DATA_DIR"] = tempfile.mkdtemp(prefix="huddle-test-")
 os.environ["GOOGLE_CLIENT_ID"] = "test-client-id"
 os.environ["GOOGLE_CLIENT_SECRET"] = "test-client-secret"
+# The school inbox starts unconfigured (and load_dotenv never overrides a set
+# variable, so a developer's .env key can't leak in); tests that need it set one.
+os.environ["ANTHROPIC_API_KEY"] = ""
+os.environ["ANTHROPIC_MODEL"] = ""
 
 import httpx  # noqa: E402
 import pytest  # noqa: E402

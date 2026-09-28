@@ -112,6 +112,40 @@
 .pw-practised.on .pw-tick { background: var(--person, var(--accent)); color: var(--person-ink, var(--on-accent)); }
 .pw-practised.just-ticked .pw-tick { animation: tick-bounce 0.45s cubic-bezier(0.3, 1.6, 0.5, 1); }
 
+/* --- Admin: School inbox (admin/_inbox_source.html) and year groups ---
+   Sources are cards; each candidate is a pre-filled approve form with its
+   evidence quoted underneath. */
+.admin-row:has(.school-year-form) { flex-wrap: wrap; }
+.school-year-form { display: flex; gap: 6px; align-items: center; margin-left: auto; }
+.school-year-form input { width: 11em; max-width: 40vw; padding: 7px 10px; border-radius: var(--radius-control); border: 1px solid var(--line); background: var(--card); color: var(--ink); font-size: 0.9rem; }
+.inbox-setup { margin: 4px 0 12px; padding: 10px 14px; border-radius: var(--radius-control); background: var(--sunken); font-size: 0.92rem; }
+.inbox-setup p { margin: 4px 0; }
+.inbox-setup ol { margin: 4px 0; padding-left: 22px; }
+.inbox-add .inbox-file { flex-basis: 100%; }
+.inbox-add input[type="file"] { padding: 8px; font-size: 0.95rem; color: var(--ink); }
+.inbox-source { margin-top: 12px; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--radius-control); }
+.inbox-source.is-processed { padding: 8px 12px; }
+.inbox-source-head { display: flex; align-items: center; gap: 6px 8px; flex-wrap: wrap; }
+.inbox-source-label { font-weight: 700; min-width: 0; overflow-wrap: anywhere; }
+.inbox-source-actions { display: flex; gap: 6px; margin-left: auto; }
+.inbox-excerpt { margin: 6px 0 0; font-size: 0.85rem; color: var(--ink-soft); overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.inbox-reading { display: flex; align-items: center; gap: 10px; margin: 10px 0 2px; font-weight: 600; color: var(--ink-soft); }
+.inbox-spinner { width: 18px; height: 18px; border-radius: 50%; border: 3px solid var(--line); border-top-color: var(--accent); animation: inbox-spin 0.9s linear infinite; }
+@keyframes inbox-spin { to { transform: rotate(360deg); } }
+.inbox-candidate { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+.inbox-candidate-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.inbox-kind { font-size: 0.78rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; padding: 3px 9px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); }
+.inbox-kind-event { background: var(--sunken); color: var(--ink-soft); }
+.inbox-duplicate { font-size: 0.8rem; font-weight: 700; padding: 3px 9px; border-radius: 999px; background: var(--danger-soft); color: var(--danger); }
+.inbox-candidate .admin-form { margin-top: 8px; }
+.inbox-candidate .admin-form input[type="text"] { flex: 1; min-width: 160px; }
+.inbox-buttons { display: flex; gap: 8px; align-self: flex-end; }
+/* .admin-form button paints every button accent; Discard stays quiet. */
+.inbox-candidate .admin-form .btn-quiet { background: var(--sunken); color: var(--ink); }
+.inbox-event { margin: 8px 0 2px; overflow-wrap: anywhere; }
+.inbox-evidence { margin: 8px 0 0; font-size: 0.82rem; font-style: italic; color: var(--ink-soft); overflow-wrap: anywhere; }
+.inbox-processed .inbox-source { opacity: 0.85; }
+
 /* --- Admin --- */
 .admin-form textarea {
   width: 100%; min-height: 110px; resize: vertical;

@@ -54,8 +54,9 @@ from fastapi.responses import PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
 from app import appearance, freshness, scheduler
-from app.database import init_db
+from app.database import get_db, init_db
 from app.routers import admin, calendar, dashboard, homework, layout, meals, shopping, sync, tasks, weather
+from app.services import imports
 
 BASE_DIR = Path(__file__).parent
 
@@ -63,6 +64,9 @@ BASE_DIR = Path(__file__).parent
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
+    async with get_db() as db:
+        # Documents being read when the app stopped are gone from memory.
+        await imports.fail_interrupted(db)
     scheduler.start()
     yield
     scheduler.stop()

@@ -10,6 +10,9 @@ services:
       # the app just shows "not configured" in Admin until these are set.
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      # School inbox (optional): blank = Admin shows "not set up".
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-}
     volumes:
       # Bind mount, per spec 9.7 — plain host folder, browsable/backupable/
       # rsync'able directly. Safe for SQLite's WAL mode here because the

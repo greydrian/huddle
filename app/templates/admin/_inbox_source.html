@@ -1,0 +1,82 @@
+{#- One source in Admin's School inbox (app/services/imports.py): included by
+    settings.html for each source, and returned alone by /admin/inbox/sources/{id},
+    which a source polls while it's still being read. Needs `source` and `profiles`;
+    after a failed approve, `inbox_form` (with the candidate's "id") and `inbox_error`
+    bring back what was typed. -#}
+{% set kind_labels = {"word_list": "Spellings", "homework": "Homework", "event": "Event"} %}
+<div class="inbox-source{{ ' is-processed' if source.processed else '' }}" id="inbox-source-{{ source.id }}"
+     {%- if source.status == 'pending' %} hx-get="/admin/inbox/sources/{{ source.id }}" hx-trigger="every 3s" hx-swap="outerHTML"{% endif %}>
+  <div class="inbox-source-head">
+    <span class="inbox-source-label">{{ source.label }}</span>
+    <span class="admin-meta">· added {{ source.created_at[:10] }}</span>
+    <span class="inbox-source-actions">
+      {% if source.approvable > 1 %}
+      <form method="post" action="/admin/inbox/sources/{{ source.id }}/approve-all">
+        <button type="submit" class="btn btn-small">Approve all ({{ source.approvable }})</button>
+      </form>
+      {% endif %}
+      {% if source.status != 'pending' %}
+      <form method="post" action="/admin/inbox/sources/{{ source.id }}/delete">
+        <button type="submit" class="btn btn-quiet btn-small">Remove</button>
+      </form>
+      {% endif %}
+    </span>
+  </div>
+  {% if source.excerpt %}<p class="inbox-excerpt">{{ source.excerpt }}</p>{% endif %}
+
+  {% if source.status == 'pending' %}
+  <p class="inbox-reading" role="status"><span class="inbox-spinner" aria-hidden="true"></span>Reading… this can take up to a minute.</p>
+  {% elif source.status in ('failed', 'not_configured') %}
+  <p class="admin-error">{{ source.error_message }}</p>
+  {% elif source.processed %}
+  <p class="admin-meta">{% if source.approved_count or source.discarded_count %}{{ source.approved_count }} added to the wall · {{ source.discarded_count }} discarded{% else %}Nothing to add was found in this.{% endif %}</p>
+  {% endif %}
+
+  {% for c in source.candidates %}
+  {% set p = c.payload %}
+  {% set editing = inbox_form and inbox_form.id == c.id %}
+  {% set f = inbox_form if editing else {
+      "profile_id": c.profile_id or "", "title": p.title, "subject": p.subject, "details": p.details,
+      "due_date": p.due_date, "words": (p.words or []) | join("\n"), "starts_on": p.starts_on, "ends_on": p.ends_on} %}
+  <div class="inbox-candidate" id="inbox-candidate-{{ c.id }}">
+    <div class="inbox-candidate-head">
+      <span class="inbox-kind inbox-kind-{{ c.kind }}">{{ kind_labels[c.kind] }}</span>
+      {% if c.kind == 'event' %}<span class="admin-meta">{{ 'Whole school' if p.whole_school else (c.profile_name or 'No child chosen') }}</span>{% endif %}
+      {% if c.duplicate %}<span class="inbox-duplicate">Already on the wall</span>{% endif %}
+    </div>
+    {% if editing and inbox_error %}<p class="admin-error" role="alert">{{ inbox_error }}</p>{% endif %}
+
+    {% if c.kind == 'event' %}
+    <p class="inbox-event"><strong>{{ p.title }}</strong> · {{ p.date }}{% if p.start_time %} · {{ p.start_time }}{% if p.end_time %}–{{ p.end_time }}{% endif %}{% endif %}</p>
+    {% if p.notes %}<p class="admin-meta">{{ p.notes }}</p>{% endif %}
+    <p class="admin-hint">Adding to the calendar arrives with the Gmail import.</p>
+    <form method="post" action="/admin/inbox/candidates/{{ c.id }}/discard">
+      <button type="submit" class="btn btn-quiet btn-small">Discard</button>
+    </form>
+    {% else %}
+    <form class="admin-form" method="post" action="/admin/inbox/candidates/{{ c.id }}/approve">
+      <select name="profile_id" aria-label="Child">
+        <option value="">Which child?</option>
+        {% for pr in profiles %}<option value="{{ pr.id }}" {{ 'selected' if pr.id|string == f.profile_id|string else '' }}>{{ pr.name }}</option>{% endfor %}
+      </select>
+      {% if c.kind == 'word_list' %}
+      <input type="text" name="title" value="{{ f.title or '' }}" maxlength="120" aria-label="List title" autocomplete="off"{% if onscreen_keyboard %} data-osk="text"{% endif %}>
+      <textarea name="words" aria-label="Words, one per line" autocapitalize="off" spellcheck="false"{% if onscreen_keyboard %} data-osk="text"{% endif %}>{{ f.words or '' }}</textarea>
+      <label class="hw-field">From <input type="date" name="starts_on" value="{{ f.starts_on or '' }}"></label>
+      <label class="hw-field">Until <input type="date" name="ends_on" value="{{ f.ends_on or '' }}"></label>
+      {% else %}
+      <input type="text" name="subject" value="{{ f.subject or '' }}" maxlength="60" placeholder="Subject" aria-label="Subject" autocomplete="off"{% if onscreen_keyboard %} data-osk="text"{% endif %}>
+      <input type="text" name="title" value="{{ f.title or '' }}" maxlength="120" aria-label="Homework" autocomplete="off"{% if onscreen_keyboard %} data-osk="text"{% endif %}>
+      <input type="text" name="details" value="{{ f.details or '' }}" maxlength="1000" placeholder="Details (optional)" aria-label="Details" autocomplete="off"{% if onscreen_keyboard %} data-osk="text"{% endif %}>
+      <label class="hw-field">Due <input type="date" name="due_date" value="{{ f.due_date or '' }}"></label>
+      {% endif %}
+      <span class="inbox-buttons">
+        <button type="submit" class="btn">Approve</button>
+        <button type="submit" class="btn btn-quiet" formaction="/admin/inbox/candidates/{{ c.id }}/discard" formnovalidate>Discard</button>
+      </span>
+    </form>
+    {% endif %}
+    {% if c.evidence %}<p class="inbox-evidence">From the post: “{{ c.evidence }}”</p>{% endif %}
+  </div>
+  {% endfor %}
+</div>
