@@ -9,6 +9,7 @@ and the calendar picker's settings live in app/google_oauth.py.
 
 import asyncio
 import logging
+import sqlite3
 from collections.abc import Callable
 from datetime import date, datetime, timedelta
 from datetime import time as dtime
@@ -17,7 +18,7 @@ from zoneinfo import ZoneInfo
 
 import httpx
 
-from app import http_client
+from app import calendar_cache, http_client
 from app.database import CALENDAR_TIMEZONE_SETTING, family_timezone, get_setting, set_setting
 from app.google_oauth import DEFAULT_EVENT_COLOR, connect, get_all_pages, get_selected_calendars
 
@@ -145,29 +146,43 @@ async def _fetch_selected_events(db, access_token, tz, start: date, end: date) -
     return events, offline
 
 
-async def _load_events(db, span: Callable[[datetime], tuple[date, date]]) -> dict | None:
+async def _fetch_span(db, span: Callable[[datetime], tuple[date, date]]) -> dict | None:
+    """One live fetch: None = not connected; otherwise {"now", "tz",
+    "range", "events", "offline"}. `offline` also covers a partial fetch
+    (one calendar failed)."""
+    access_token, offline = await connect(db)
+    if not access_token and not offline:
+        return None
+    tz = await _calendar_timezone(db, access_token)
+    now = datetime.now(tz)
+    start, end = span(now)
+    events: list[dict] = []
+    if access_token:
+        events, fetch_offline = await _fetch_selected_events(db, access_token, tz, start, end)
+        offline = offline or fetch_offline
+    return {"now": now, "tz": tz, "range": (start, end), "events": events, "offline": offline}
+
+
+async def _store_cache(db, loaded: dict) -> None:
+    try:
+        await calendar_cache.store(db, *loaded["range"], loaded["events"])
+    except sqlite3.Error as exc:  # e.g. briefly locked: the live grid still renders
+        logger.warning("Couldn't save the calendar cache: %s", type(exc).__name__)
+
+
+async def _load_events(db, span: Callable[[datetime], tuple[date, date]], cache: bool = False) -> dict | None:
     """Everything the request path needs from Google, under one hard
     deadline. None = not connected; otherwise {"now", "tz", "events",
-    "offline"}. `span` maps "now" in the calendar's timezone to the
-    [start, end) date range to fetch."""
+    "offline", "updated_label"}. `span` maps "now" in the calendar's
+    timezone to the [start, end) date range to fetch.
 
-    async def load() -> dict | None:
-        access_token, offline = await connect(db)
-        if not access_token and not offline:
-            return None
-        tz = await _calendar_timezone(db, access_token)
-        now = datetime.now(tz)
-        events: list[dict] = []
-        if access_token:
-            start, end = span(now)
-            events, fetch_offline = await _fetch_selected_events(db, access_token, tz, start, end)
-            offline = offline or fetch_offline
-        if not offline:
-            http_client.report_success(logger, OUTAGE_KEY)
-        return {"now": now, "tz": tz, "events": events, "offline": offline}
-
+    A complete fetch is saved to calendar_cache when `cache` is set (the
+    month grid; a day view is served from its month's copy). When Google
+    is down, slow or partial, the newest cached copy covering the range is
+    shown instead, with `updated_label` ("HH:MM", family time) set and
+    `offline` cleared; with no cached copy the offline state stands."""
     try:
-        return await asyncio.wait_for(load(), CALENDAR_DEADLINE)
+        loaded = await asyncio.wait_for(_fetch_span(db, span), CALENDAR_DEADLINE)
     except asyncio.TimeoutError:
         # Only a connected account makes network calls, so a timeout means
         # connected-but-slow: render the offline state, never block the page.
@@ -175,7 +190,48 @@ async def _load_events(db, span: Callable[[datetime], tuple[date, date]]) -> dic
             logger, OUTAGE_KEY, "Google Calendar took over %ss; showing offline", CALENDAR_DEADLINE
         )
         tz = await family_timezone(db)
-        return {"now": datetime.now(tz), "tz": tz, "events": [], "offline": True}
+        now = datetime.now(tz)
+        loaded = {"now": now, "tz": tz, "range": span(now), "events": [], "offline": True}
+    if loaded is None:
+        return None
+
+    loaded["updated_label"] = None
+    if not loaded["offline"]:
+        http_client.report_success(logger, OUTAGE_KEY)
+        if cache:
+            await _store_cache(db, loaded)
+        return loaded
+
+    cached = await calendar_cache.load(db, *loaded["range"])
+    if cached is not None:
+        events, fetched_at = cached
+        loaded.update(
+            events=events,
+            offline=False,
+            # Only the note's clock is converted; event times keep Google's offsets.
+            updated_label=fetched_at.astimezone(loaded["tz"]).strftime("%H:%M"),
+        )
+    return loaded
+
+
+async def refresh_cache(db) -> bool:
+    """Scheduler job: re-fetch the current month's grid range (no request
+    deadline: background work keeps the full per-request timeouts) and
+    save it, so the cache stays fresh even when nobody taps the wall.
+    True if the cache was updated."""
+    loaded = await _fetch_span(db, _grid_span)
+    if loaded is None or loaded["offline"]:
+        return False
+    http_client.report_success(logger, OUTAGE_KEY)
+    await _store_cache(db, loaded)
+    return True
+
+
+def _grid_span(now: datetime, year: int | None = None, month: int | None = None) -> tuple[date, date]:
+    """The Monday-start 6-week range shown for a month (default: now's)."""
+    first = date(year or now.year, month or now.month, 1)
+    grid_start = first - timedelta(days=first.weekday())  # Monday on/before the 1st
+    return grid_start, grid_start + timedelta(days=42)
 
 
 async def get_month_grid(db, year: int | None = None, month: int | None = None) -> dict | None:
@@ -188,15 +244,14 @@ async def get_month_grid(db, year: int | None = None, month: int | None = None) 
     that cap don't get a bar; the day(s) they're on get hidden_count
     incremented instead (surfaced as "+N more" in the template).
 
-    If Google is unreachable the grid still renders (with "offline": True
-    and whatever events could be fetched) — a network blip must never take
-    down the whole dashboard."""
+    If Google is unreachable the grid renders from the saved copy
+    ("updated_label" set), or failing that with "offline": True and
+    whatever events could be fetched — a network blip must never take down
+    the whole dashboard."""
     def grid_span(now: datetime) -> tuple[date, date]:
-        first = date(year or now.year, month or now.month, 1)
-        grid_start = first - timedelta(days=first.weekday())  # Monday on/before the 1st
-        return grid_start, grid_start + timedelta(days=42)
+        return _grid_span(now, year, month)
 
-    loaded = await _load_events(db, grid_span)
+    loaded = await _load_events(db, grid_span, cache=True)
     if loaded is None:
         return None
     now, all_events, offline = loaded["now"], loaded["events"], loaded["offline"]
@@ -269,11 +324,13 @@ async def get_month_grid(db, year: int | None = None, month: int | None = None) 
         "prev": {"year": prev_year, "month": prev_month},
         "next": {"year": next_year, "month": next_month},
         "offline": offline,
+        "updated_label": loaded["updated_label"],
     }
 
 
 async def get_day_events(db, target: date) -> dict | None:
-    """None means not connected. Otherwise {"events": [...], "offline": bool}
+    """None means not connected. Otherwise {"events": [...], "offline": bool,
+    "updated_label": "HH:MM" when served from the cache}
     — every event on the given day across all selected calendars, all-day
     events first then by time."""
     loaded = await _load_events(db, lambda _now: (target, target + timedelta(days=1)))
@@ -281,4 +338,4 @@ async def get_day_events(db, target: date) -> dict | None:
         return None
     events = loaded["events"]
     events.sort(key=lambda e: (0 if e["all_day"] else 1, e["sort_key"]))
-    return {"events": events, "offline": loaded["offline"]}
+    return {"events": events, "offline": loaded["offline"], "updated_label": loaded["updated_label"]}

@@ -41,6 +41,7 @@
 
     {% elif view == 'day' %}
     {% if day_offline %}<p class="cal-offline">Couldn't reach Google — some events may be missing.</p>{% endif %}
+    {% if day_updated %}<p class="cal-stale">Last updated {{ day_updated }}</p>{% endif %}
     {% if day_events %}
       {% for event in day_events %}
       <div class="event-row{{ ' all-day' if event.all_day else '' }}" style="--ev: {{ event.color }};">
@@ -54,6 +55,8 @@
 
     {% else %}
     {% if calendar_month.offline %}<p class="cal-offline">Couldn't reach Google — showing what's available, retrying shortly.</p>{% endif %}
+    {#- Google down or slow: the saved copy (app/calendar_cache.py) is shown. -#}
+    {% if calendar_month.updated_label %}<p class="cal-stale">Last updated {{ calendar_month.updated_label }}</p>{% endif %}
     <div class="cal-weekdays">
       <span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span class="weekend">Sat</span><span class="weekend">Sun</span>
     </div>

@@ -13,7 +13,8 @@ from fastapi.responses import HTMLResponse, JSONResponse
 
 from app import scheduler, sync_status
 from app.appearance import current_mode
-from app.database import family_today, get_db
+from app.database import get_db
+from app.freshness import today_info, widget_revisions
 from app.templating import templates
 from app.widgets import WIDGETS
 
@@ -55,10 +56,10 @@ async def dashboard(request: Request):
         )).fetchall()
         # Widget templates are included into dashboard.html and inherit its
         # context, so each loader's names must match its template's.
-        context = {}
-        for widget in WIDGETS.values():
-            context.update(await widget.load(db))
-        today = await family_today(db)
+        contexts = {widget_id: await widget.load(db) for widget_id, widget in WIDGETS.items()}
+        context = {name: value for widget_context in contexts.values() for name, value in widget_context.items()}
+        today = await today_info(db)
+        widget_revs = await widget_revisions(db, contexts)
         appearance = await current_mode(db)
 
     return templates.TemplateResponse(
@@ -68,7 +69,9 @@ async def dashboard(request: Request):
             **context,
             "layout": [dict(row) for row in layout_rows],
             "widget_templates": {widget_id: widget.template for widget_id, widget in WIDGETS.items()},
-            "today": today.isoformat(),
+            "today": today["date"],
+            "today_next_change": today["next_change_in"],
+            "widget_revs": widget_revs,
             "appearance": appearance,
         },
     )

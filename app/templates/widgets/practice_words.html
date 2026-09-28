@@ -1,6 +1,7 @@
 {% from "_icons.html" import icon, person_pill %}
 {% from "widgets/_widget.html" import widget_header, stub_empty, tick_button %}
-<div class="widget-card" id="widget-practice_words">
+{#- Re-fetched by static/js/fresh.js when /api/rev says it changed. -#}
+<div class="widget-card" id="widget-practice_words" data-refresh="/widgets/practice-words" data-rev-key="practice_words">
   {{ widget_header("pencil-line", "Practice Words") }}
   <div class="widget-body pw-body">
     {% for wl in practice_lists %}

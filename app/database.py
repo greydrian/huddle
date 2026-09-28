@@ -276,6 +276,20 @@ async def init_db():
             stored = await get_setting(db, "pin_hash") or ""
             await set_setting(db, "pin_is_default", "1" if verify_pin(DEFAULT_PIN, stored) else "0")
 
+        # Migration: calendar outage cache (app/calendar_cache.py). The last
+        # fully fetched events per displayed [range_start, range_end) date
+        # range, shown with a "Last updated" note when Google is down or
+        # slow. Event data only — never tokens.
+        await db.execute(
+            """CREATE TABLE IF NOT EXISTS calendar_cache (
+                range_start TEXT NOT NULL,
+                range_end TEXT NOT NULL,
+                events_json TEXT NOT NULL,
+                fetched_at TEXT NOT NULL,  -- UTC ISO timestamp
+                PRIMARY KEY (range_start, range_end)
+            )"""
+        )
+
         await db.commit()
 
         # Migration: sync health (app/sync_status.py). One row, written by

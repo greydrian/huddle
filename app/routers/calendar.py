@@ -136,5 +136,6 @@ async def calendar_day_widget(request: Request, date: str):
             "day_label": day_label,
             "day_events": day["events"] if day else None,
             "day_offline": bool(day and day["offline"]),
+            "day_updated": day["updated_label"] if day else None,
         },
     )
