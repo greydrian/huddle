@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Choose a new PIN — Family Display{% endblock %}
+{% block head %}{% with part = "head" %}{% include "_keyboard_assets.html" %}{% endwith %}{% endblock %}
+{% block content %}
+{% from "_icons.html" import icon %}
+<div class="admin-shell pin-shell">
+  <div class="admin-panel pin-card">
+    <div class="pin-lock">{{ icon("settings", 32) }}</div>
+    <h1>Choose a new PIN</h1>
+    <p class="admin-hint">Admin is still using the PIN it came with, which anyone could guess. Pick a new one to carry on.</p>
+    <ul class="pin-rules">
+      <li>4 to 8 digits</li>
+      <li>Not one digit repeated, like 0000</li>
+      <li>Not a straight run, like 1234 or 9876</li>
+    </ul>
+    <form class="pin-pad-form" method="post" action="/admin/new-pin">
+      <input type="password" name="new_pin" aria-label="New PIN" placeholder="New PIN" inputmode="numeric" pattern="[0-9]{4,8}" minlength="4" maxlength="8" required autofocus autocomplete="off"{% if onscreen_keyboard %} data-osk="numeric"{% endif %}>
+      <input type="password" name="confirm_pin" aria-label="New PIN again" placeholder="Again" inputmode="numeric" pattern="[0-9]{4,8}" minlength="4" maxlength="8" required autocomplete="off"{% if onscreen_keyboard %} data-osk="numeric"{% endif %}>
+      {% if error %}<div class="pin-error" role="alert">{{ error }}</div>{% endif %}
+      <button type="submit" class="btn">Save PIN</button>
+    </form>
+  </div>
+  <form method="post" action="/admin/logout">
+    <button type="submit" class="btn btn-quiet pin-back">Log out</button>
+  </form>
+</div>
+{% endblock %}
+{% block scripts %}{% with part = "scripts" %}{% include "_keyboard_assets.html" %}{% endwith %}{% endblock %}

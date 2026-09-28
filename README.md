@@ -55,8 +55,13 @@ Google (Calendar + Tasks) and Open-Meteo (weather).
   page switches without a reload. Admin → Appearance can pin it to light or
   dark. Fonts (Figtree, Playwrite) and icons (Lucide, Meteocons) are
   self-hosted, so no CDN is needed.
-- **Admin**: PIN-protected (default **1234**, so change it straight away
-  under Admin → Change Admin PIN). Failed attempts back off exponentially.
+- **Admin**: PIN-protected. The default **1234** only gets you as far as a
+  "Choose a new PIN" screen. Failed attempts back off exponentially, up to
+  15 minutes after 10 in a row. Logging out or changing the PIN signs out
+  every device. Forgot the PIN? Run
+  `docker compose exec family-display python -m app.reset_pin`. It puts the
+  PIN back to 1234 (and asks for a new one at the next login), clears any
+  lockout and signs everyone out.
   Admin manages family members, task schedules, homework, practice words,
   Google account + list links, weather location, appearance and the
   keyboard.

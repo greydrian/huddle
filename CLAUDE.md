@@ -66,4 +66,5 @@ Tests use a fresh temp SQLite DB per test (`tests/conftest.py`) and `respx` to m
 - `.grid-stack-item-content` is forced `overflow: visible` so card shadows aren't clipped; each `.widget-body` scrolls itself. Flex children that should shrink need `min-height: 0`.
 - In Playwright, use native `page.click()` + `wait_for_selector(...)` on the expected result; `element.click()` via `evaluate` and `networkidle` waits give false negatives with HTMX. Automated clicks can also trigger Gridstack drags, which **persist** to `layout_state` — check it after UI automation.
 - OAuth redirect URIs are exact-string matched (`localhost` ≠ `127.0.0.1`). Google rejects raw LAN IPs and non-localhost `http://`, and "Testing" consent screens expire refresh tokens after 7 days.
+- Forgotten Admin PIN: `docker compose exec family-display python -m app.reset_pin` (back to 1234 + forced change, lockout cleared, all sessions ended).
 - `docker compose config` prints the resolved `.env` secrets — don't run it where output is logged.

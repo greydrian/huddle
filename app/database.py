@@ -262,6 +262,19 @@ async def init_db():
                 "INSERT INTO app_settings (key, value) VALUES ('pin_hash', ?)",
                 (hash_pin("1234"),),
             )
+            # Whenever 1234 is seeded (first run, or the pin_hash row was
+            # deleted), Admin must force a change away from it again.
+            await set_setting(db, "pin_is_default", "1")
+
+        # Migration: PIN hardening. Admin forces a change away from the
+        # default PIN, tracked by a flag rather than a PBKDF2 check on every
+        # request. Set once, for fresh installs and existing DBs alike, by
+        # checking whether the stored hash is still "1234"; change-pin clears it.
+        if await get_setting(db, "pin_is_default") is None:
+            from app.security import DEFAULT_PIN, verify_pin
+
+            stored = await get_setting(db, "pin_hash") or ""
+            await set_setting(db, "pin_is_default", "1" if verify_pin(DEFAULT_PIN, stored) else "0")
 
         await db.commit()
         await load_onscreen_keyboard(db)

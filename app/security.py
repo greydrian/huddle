@@ -13,6 +13,7 @@ import hmac
 import json
 import os
 import time
+from itertools import pairwise
 
 from cryptography.fernet import Fernet, InvalidToken
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
@@ -22,6 +23,14 @@ from app.database import DATA_DIR
 SECRET_KEY_PATH = DATA_DIR / ".secret_key"
 SESSION_MAX_AGE_SECONDS = 60 * 60 * 2  # 2 hour admin session
 BASE_LOCKOUT_SECONDS = 5  # doubles per consecutive failure
+MAX_BACKOFF_SECONDS = 300
+# Sustained guessing: from this many consecutive failures, a long lockout.
+LONG_LOCKOUT_AFTER = 10
+LONG_LOCKOUT_SECONDS = 15 * 60
+# Failures this far apart don't add up: the count starts again, so a stray
+# typo weeks later isn't treated as sustained guessing.
+FAILURE_DECAY_SECONDS = 24 * 60 * 60
+DEFAULT_PIN = "1234"  # seeded on a fresh install; Admin forces a change
 # Baked into every stored PIN hash — changing it invalidates existing PINs.
 PBKDF2_ITERATIONS = 200_000
 
@@ -47,33 +56,51 @@ def verify_pin(pin: str, stored: str) -> bool:
         salt_hex, hash_hex = stored.split("$")
     except ValueError:
         return False
-    salt = bytes.fromhex(salt_hex)
+    try:
+        salt = bytes.fromhex(salt_hex)
+    except ValueError:  # a corrupt stored hash reads as "no match", not a crash
+        return False
     candidate = hashlib.pbkdf2_hmac("sha256", pin.encode(), salt, PBKDF2_ITERATIONS)
     return hmac.compare_digest(candidate.hex(), hash_hex)
 
 
 def lockout_seconds_for(failed_attempts: int) -> int:
-    """Exponential backoff: 5s, 10s, 20s, 40s ... capped at 5 minutes."""
+    """Exponential backoff: 5s, 10s, 20s, 40s ... capped at 5 minutes, then
+    15 minutes per attempt once LONG_LOCKOUT_AFTER failures have piled up."""
     if failed_attempts <= 0:
         return 0
+    if failed_attempts >= LONG_LOCKOUT_AFTER:
+        return LONG_LOCKOUT_SECONDS
     seconds = BASE_LOCKOUT_SECONDS * (2 ** (failed_attempts - 1))
-    return min(seconds, 300)
+    return min(seconds, MAX_BACKOFF_SECONDS)
 
 
-def create_session_token() -> str:
+def is_weak_pin(pin: str) -> bool:
+    """One digit repeated (0000, 1111) or a straight run up or down (1234,
+    9876, 012345) — the first things anyone would try."""
+    if len(set(pin)) == 1:
+        return True
+    steps = {int(b) - int(a) for a, b in pairwise(pin)}
+    return steps in ({1}, {-1})
+
+
+def create_session_token(generation: int = 0) -> str:
+    """`generation` is the session generation (see auth.py) at login;
+    logging out or changing the PIN bumps it, killing older tokens."""
     serializer = URLSafeTimedSerializer(_get_secret_key())
-    return serializer.dumps({"admin": True, "issued_at": time.time()})
+    return serializer.dumps({"admin": True, "gen": generation, "issued_at": time.time()})
 
 
-def verify_session_token(token: str | None) -> bool:
+def verify_session_token(token: str | None, generation: int = 0) -> bool:
     if not token:
         return False
     serializer = URLSafeTimedSerializer(_get_secret_key())
     try:
         data = serializer.loads(token, max_age=SESSION_MAX_AGE_SECONDS)
-        return bool(data.get("admin"))
     except (BadSignature, SignatureExpired):
         return False
+    # Tokens issued before generations existed carry none: treat as 0.
+    return bool(data.get("admin")) and data.get("gen", 0) == generation
 
 
 def _get_fernet() -> Fernet:

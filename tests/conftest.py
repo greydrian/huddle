@@ -26,6 +26,10 @@ async def isolated_db(tmp_path, monkeypatch):
     async with database.get_db() as db:
         # Avoid a calendar-metadata network call just to learn the timezone.
         await database.set_setting(db, database.CALENDAR_TIMEZONE_SETTING, "Europe/London")
+        # A fresh install forces a PIN change before Admin opens. Most tests
+        # are about Admin itself, so start past that screen (the PIN hash is
+        # still "1234"); test_admin_auth.py covers the forced change.
+        await database.set_setting(db, "pin_is_default", "0")
         await db.commit()
     yield
 

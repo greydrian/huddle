@@ -744,8 +744,11 @@ html:has(.admin-shell), html:has(.admin-shell) body { height: auto; overflow-y: 
   width: 240px; padding: 14px; border-radius: 16px;
   border: 1px solid var(--line); background: var(--sunken); color: var(--ink);
 }
+.pin-pad-form input::placeholder { font-size: 1.2rem; letter-spacing: 0.02em; }
 .pin-pad-form .btn { min-width: 160px; }
 .pin-error { color: var(--danger); font-size: 1rem; font-weight: 600; }
+/* Forced "Choose a new PIN" screen: the short rule list under the hint. */
+.pin-rules { display: inline-block; text-align: left; margin: 4px 0 0; padding-left: 1.2em; color: var(--ink-soft); font-size: 0.95rem; line-height: 1.6; }
 .pin-back { display: inline-flex; align-items: center; gap: 6px; margin-top: 28px; }
 
 /* Motion: keep it, unless the viewer asked for less. */
