@@ -192,6 +192,33 @@ needs that file (`sudo cp backups/.secret_key.replaced-20261103-033000
 the wrong key the restore still works, but Google shows as disconnected and
 you'll need to reconnect it in Admin.
 
+### If the app won't start after an update (a failed migration)
+
+Updates to the database's structure are numbered migrations (`app/migrations.py`)
+that run when the app starts. Before deploying an update, take a snapshot:
+press Admin → Backups → "Back up now".
+
+If a migration fails, the app does the following:
+- It rolls that migration back completely, so the database is left as it was.
+- It logs the error and exits.
+- Docker (`restart: unless-stopped`) starts it again, and it fails the same way.
+
+So the container keeps restarting, the display and `/health` don't respond, and
+nothing is changed on each attempt. To confirm, run:
+
+```bash
+docker compose -f docker-compose.yml logs --tail 100 family-display | grep -B2 -A20 MigrationError
+```
+
+To recover:
+1. Go back to the previous version of the code: `git checkout <previous commit>`, then
+   `docker compose -f docker-compose.yml up -d --build`. The database needs no restore: a
+   failed migration changes nothing. The older code runs happily on it.
+2. Only if the database itself looks damaged, restore the pre-deploy snapshot with the steps in
+   "Restoring a backup" above.
+
+Restoring alone doesn't help: the new code would run the same failing migration again.
+
 ### Keep a copy off the box
 
 The backups are on the same disk as the database, so if that disk fails you

@@ -18,25 +18,39 @@
     </div>
   </div>
 
+  {#- Tabs (app/admin_tabs.py): each is its own page, /admin?tab=<slug>, which
+      renders only that tab's sections. -#}
+  <nav class="admin-tabs" aria-label="Admin sections">
+    {% for slug, label in admin_tabs.items() %}
+    <a href="/admin?tab={{ slug }}" class="admin-tab{{ ' is-current' if slug == admin_tab else '' }}"
+       {%- if slug == admin_tab %} aria-current="page"{% endif %}>{{ label }}</a>
+    {% endfor %}
+  </nav>
+
+  {% if admin_tab == "family" %}
   <!-- Family members -->
   <div class="admin-panel" id="family">
     <h2>Family Members</h2>
     {{ section_error("family") }}
     {% for p in profiles %}
-    <div class="admin-row">
-      <span class="admin-person">{{ person_avatar(p.name, p.colour_hex) }}{{ p.name }}</span>
-      {#- Children's year group: the School inbox matches "Year 4" posts to them. -#}
-      <form class="school-year-form" method="post" action="/admin/profiles/{{ p.id }}/school-year">
-        <input type="text" name="school_year" value="{{ p.school_year or '' }}" maxlength="30" placeholder="Year group" aria-label="{{ p.name }}'s year group" autocomplete="off"{% if onscreen_keyboard %} data-osk="text"{% endif %}>
-        <button type="submit" class="btn btn-quiet btn-small">Save</button>
-      </form>
+    <div class="admin-row family-row">
+      <span class="admin-person">{{ person_avatar(p.name, p.colour_hex) }}{{ p.name }}{% if p.is_parent %}<span class="admin-badge">Parent</span>{% endif %}</span>
       <form method="post" action="/admin/profiles/{{ p.id }}/delete">
         <button type="submit" class="btn btn-danger btn-small">Remove</button>
+      </form>
+      {#- Children's year group: the School inbox matches "Year 4" posts to them.
+          Parent + email (spec 10.0) are for the assistant's parent tasks and digest. -#}
+      <form class="admin-form profile-details" method="post" action="/admin/profiles/{{ p.id }}/details">
+        <input type="text" name="school_year" value="{{ p.school_year or '' }}" maxlength="30" placeholder="Year group" aria-label="{{ p.name }}'s year group" autocomplete="off"{% if onscreen_keyboard %} data-osk="text"{% endif %}>
+        <label class="admin-check"><input type="checkbox" name="is_parent" value="true" {{ 'checked' if p.is_parent else '' }}> Parent</label>
+        {#- type=text, not email: the on-screen keyboard can't place the caret in an email input. -#}
+        <input type="text" name="email" value="{{ p.email or '' }}" maxlength="254" placeholder="Email (optional)" aria-label="{{ p.name }}'s email" autocomplete="off" autocapitalize="off" spellcheck="false"{% if onscreen_keyboard %} data-osk="text"{% endif %}>
+        <button type="submit" class="btn btn-quiet btn-small">Save</button>
       </form>
     </div>
     {% endfor %}
     <form class="admin-form" method="post" action="/admin/profiles">
-      <input type="text" name="name" placeholder="Name" required>
+      <input type="text" name="name" placeholder="Name" required autocomplete="off"{% if onscreen_keyboard %} data-osk="text"{% endif %}>
       <input type="color" name="colour_hex" value="#C1584A">
       <button type="submit" class="btn">Add family member</button>
     </form>
@@ -51,7 +65,7 @@
     {% for p in profiles %}
     {% set person_tasks = tasks | selectattr("profile_id", "equalto", p.id) | list %}
     <div class="schedule-person">
-      <h3>{{ person_avatar(p.name, p.colour_hex) }}{{ p.name }}{% if not p.google_tasklist_id %} <span class="admin-meta">· {% if person_tasks %}These stay on this display only until a Google list is linked below (Google Account → Task Sync){% else %}Link a Google list under Google Account → Task Sync below to give them tasks{% endif %}</span>{% endif %}</h3>
+      <h3>{{ person_avatar(p.name, p.colour_hex) }}{{ p.name }}{% if not p.google_tasklist_id %} <span class="admin-meta">· {% if person_tasks %}These stay on this display only until a Google list is linked (<a class="inline-link" href="/admin?tab=google#task-lists">Google &amp; Sync → Task Sync</a>){% else %}Link a Google list under <a class="inline-link" href="/admin?tab=google#task-lists">Google &amp; Sync → Task Sync</a> to give them tasks{% endif %}</span>{% endif %}</h3>
       {% for t in person_tasks %}
       <div class="admin-row admin-item">
         <span class="admin-item-label">{{ t.title }} <span class="admin-meta">· {{ 'repeats ' ~ t.schedule if t.schedule else 'one-off' }}</span></span>
@@ -85,119 +99,6 @@
       {% endfor %}
     </div>
     {% endfor %}
-  </div>
-
-  <!-- School inbox: Classroom screenshots / pasted text, read by Claude
-       (app/services/imports.py). Nothing reaches the wall until approved. -->
-  <div class="admin-panel" id="classroom">
-    <h2>Add from Classroom</h2>
-    {{ section_error("classroom") }}
-    <p class="admin-hint">Screenshot the Classroom post on your phone (or copy its text) and add it here. Claude reads it and puts the spellings and homework it finds in the School inbox below for you to check. Nothing goes on the wall until you approve it.</p>
-    {% if not inbox_configured %}
-    <div class="inbox-setup" role="note">
-      <p><strong>Not set up yet.</strong> Reading school posts needs an Anthropic API key:</p>
-      <ol>
-        <li>Create a key at <strong>console.anthropic.com</strong> (API keys).</li>
-        <li>Add <code>ANTHROPIC_API_KEY=your-key</code> to the <code>.env</code> file next to <code>docker-compose.yml</code>.</li>
-        <li>Restart: <code>docker compose up -d</code>.</li>
-      </ol>
-      <p class="admin-meta">Optional: <code>ANTHROPIC_MODEL</code> picks the model (default <code>claude-sonnet-5</code>). Anything added before then waits in the inbox as "not set up"; add it again afterwards.</p>
-    </div>
-    {% endif %}
-    <form class="admin-form inbox-add" method="post" action="/admin/inbox/add" enctype="multipart/form-data">
-      <label class="hw-field inbox-file">Screenshots or a PDF (up to 3)
-        <input type="file" name="files" accept="image/*,application/pdf" multiple>
-      </label>
-      <textarea name="text" maxlength="30000" placeholder="…or paste the post's text here" aria-label="Pasted text"{% if onscreen_keyboard %} data-osk="text"{% endif %}></textarea>
-      <select name="child_id" aria-label="Which child is this for? (optional)">
-        <option value="">Which child? (optional)</option>
-        {% for p in profiles %}<option value="{{ p.id }}">{{ p.name }}{% if p.school_year %} ({{ p.school_year }}){% endif %}</option>{% endfor %}
-      </select>
-      <button type="submit" class="btn">Add to inbox</button>
-    </form>
-  </div>
-
-  <div class="admin-panel" id="inbox">
-    <h2>School inbox</h2>
-    {{ section_error("inbox") }}
-    {% for source in inbox.active %}{% include "admin/_inbox_source.html" %}{% else %}
-    <p class="admin-meta">Nothing waiting to be checked.</p>
-    {% endfor %}
-    {% if inbox.processed %}
-    <details class="finished-homework inbox-processed">
-      <summary>Show processed ({{ inbox.processed|length }})</summary>
-      {% for source in inbox.processed %}{% include "admin/_inbox_source.html" %}{% endfor %}
-    </details>
-    {% endif %}
-  </div>
-
-  <!-- School email (app/school_email.py): the school's emails, read from Gmail on a
-       schedule, go into the School inbox above. `school` is school_email.summary();
-       ?school_email=started|busy comes from Check now (fixed messages only). -->
-  {% set school_result = request.query_params.get("school_email") %}
-  <div class="admin-panel" id="school-email">
-    <h2>School email</h2>
-    {{ section_error("school-email") }}
-    {% if not google_configured %}
-    <p class="admin-hint">Needs Google set up first (see README, "School email import").</p>
-    {% elif not school.connected %}
-    <p class="admin-hint">Connect a Google account (Google Account, below) to read the school's emails.</p>
-    {% elif not school.gmail_scope %}
-    <p class="admin-error" role="note">Reconnect Google to enable school email import: Disconnect, then Connect Google Account (below). Calendar and Tasks keep working meanwhile.</p>
-    {% elif not inbox_configured %}
-    <p class="admin-error" role="note">School emails are read by Claude: add an Anthropic API key first (see Add from Classroom above).</p>
-    {% endif %}
-    {% include "admin/_school_email_status.html" %}
-    {% if school_result == "started" %}
-    <p class="admin-meta" role="status">Checking in the background: the status above updates by itself, and anything found goes into the School inbox.</p>
-    {% elif school_result == "busy" %}
-    <p class="admin-meta" role="status">A check was already running; its result is above.</p>
-    {% endif %}
-    <form method="post" action="/admin/school-email/check" class="school-email-check">
-      <button type="submit" class="btn btn-small">Check now</button>
-    </form>
-
-    <form class="admin-form school-email-schedule" method="post" action="/admin/school-email/schedule">
-      <label class="hw-field">Check school email
-        <select name="mode">
-          {% for value, label in school.schedules.items() %}<option value="{{ value }}" {{ 'selected' if value == school.schedule.mode else '' }}>{{ label }}</option>{% endfor %}
-        </select>
-      </label>
-      <label class="hw-field">At <input type="time" name="time" value="{{ school.schedule.time }}" required></label>
-      <button type="submit" class="btn btn-small">Save</button>
-      <span class="admin-meta admin-form-note">{{ school.schedule.label() }} (twice daily adds 12 hours before or after)</span>
-    </form>
-
-    <form class="admin-form school-email-senders" method="post" action="/admin/school-email/senders">
-      <label class="hw-field">School senders (one per line; *@domain for everyone there)
-        <textarea name="senders" rows="3" autocapitalize="off" spellcheck="false"{% if onscreen_keyboard %} data-osk="text"{% endif %}>{{ school.senders | join("\n") }}</textarea>
-      </label>
-      <label class="hw-field">Never read
-        <textarea name="exclusions" rows="3" autocapitalize="off" spellcheck="false"{% if onscreen_keyboard %} data-osk="text"{% endif %}>{{ school.exclusions | join("\n") }}</textarea>
-      </label>
-      <button type="submit" class="btn btn-small">Save senders</button>
-      <span class="admin-meta admin-form-note">{{ school.always_excluded | join(", ") }} is never read, whatever is listed here. Only emails from these senders are sent to Claude.</span>
-    </form>
-
-    <div class="admin-subsection">
-      <h3>School events go to calendar</h3>
-      {% if school.connected and not school.events_scope %}
-      <p class="admin-hint">Reconnect to allow adding to your calendar.</p>
-      {% endif %}
-      {% if writable_calendars %}
-      <form class="admin-form" method="post" action="/admin/school-email/calendar">
-        <select name="calendar_id" aria-label="Calendar for school events">
-          <option value="">Don't add events (discard only)</option>
-          {% for cal in writable_calendars %}<option value="{{ cal.id }}" {{ 'selected' if event_setup.calendar and event_setup.calendar.id == cal.id else '' }}>{{ cal.summary }}{% if cal.primary %} (primary){% endif %}</option>{% endfor %}
-        </select>
-        <button type="submit" class="btn btn-small">Save</button>
-      </form>
-      {% elif event_setup.calendar %}
-      <p>Using <strong>{{ event_setup.calendar.summary }}</strong> <span class="admin-meta">(couldn't load the calendar list just now)</span></p>
-      {% else %}
-      <p class="admin-meta">No calendar to pick yet{% if school.connected %}: couldn't load calendars this account can edit{% endif %}.</p>
-      {% endif %}
-    </div>
   </div>
 
   <!-- Homework -->
@@ -316,8 +217,194 @@
     </form>
   </div>
 
+  {% endif %}
+
+  {% if admin_tab == "school" %}
+  <!-- School inbox: Classroom screenshots / pasted text, read by Claude
+       (app/services/imports.py). Nothing reaches the wall until approved. -->
+  <div class="admin-panel" id="classroom">
+    <h2>Add from Classroom</h2>
+    {{ section_error("classroom") }}
+    <p class="admin-hint">Screenshot the Classroom post on your phone (or copy its text) and add it here. Claude reads it and puts the spellings and homework it finds in the School inbox below for you to check. Nothing goes on the wall until you approve it.</p>
+    {% if not inbox_configured %}
+    <div class="inbox-setup" role="note">
+      <p><strong>Not set up yet.</strong> Reading school posts needs an Anthropic API key:</p>
+      <ol>
+        <li>Create a key at <strong>console.anthropic.com</strong> (API keys).</li>
+        <li>Add <code>ANTHROPIC_API_KEY=your-key</code> to the <code>.env</code> file next to <code>docker-compose.yml</code>.</li>
+        <li>Restart: <code>docker compose up -d</code>.</li>
+      </ol>
+      <p class="admin-meta">Optional: <code>ANTHROPIC_MODEL</code> picks the model (default <code>claude-sonnet-5</code>). Anything added before then waits in the inbox as "not set up"; add it again afterwards.</p>
+    </div>
+    {% endif %}
+    <form class="admin-form inbox-add" method="post" action="/admin/inbox/add" enctype="multipart/form-data">
+      <label class="hw-field inbox-file">Screenshots or a PDF (up to 3)
+        <input type="file" name="files" accept="image/*,application/pdf" multiple>
+      </label>
+      <textarea name="text" maxlength="30000" placeholder="…or paste the post's text here" aria-label="Pasted text"{% if onscreen_keyboard %} data-osk="text"{% endif %}></textarea>
+      <select name="child_id" aria-label="Which child is this for? (optional)">
+        <option value="">Which child? (optional)</option>
+        {% for p in profiles %}<option value="{{ p.id }}">{{ p.name }}{% if p.school_year %} ({{ p.school_year }}){% endif %}</option>{% endfor %}
+      </select>
+      <button type="submit" class="btn">Add to inbox</button>
+    </form>
+  </div>
+
+  <div class="admin-panel" id="inbox">
+    <h2>School inbox</h2>
+    {{ section_error("inbox") }}
+    {% for source in inbox.active %}{% include "admin/_inbox_source.html" %}{% else %}
+    <p class="admin-meta">Nothing waiting to be checked.</p>
+    {% endfor %}
+    {% if inbox.processed %}
+    <details class="finished-homework inbox-processed">
+      <summary>Show processed ({{ inbox.processed|length }})</summary>
+      {% for source in inbox.processed %}{% include "admin/_inbox_source.html" %}{% endfor %}
+    </details>
+    {% endif %}
+  </div>
+
+  <!-- School email (app/school_email.py): the school's emails, read from Gmail on a
+       schedule, go into the School inbox above. `school` is school_email.summary();
+       ?school_email=started|busy comes from Check now (fixed messages only). -->
+  {% set school_result = request.query_params.get("school_email") %}
+  <div class="admin-panel" id="school-email">
+    <h2>School email</h2>
+    {{ section_error("school-email") }}
+    {% if not google_configured %}
+    <p class="admin-hint">Needs Google set up first (see README, "School email import").</p>
+    {% elif not school.connected %}
+    <p class="admin-hint">Connect a Google account (<a class="inline-link" href="/admin?tab=google#google">Google &amp; Sync</a>) to read the school's emails.</p>
+    {% elif not school.gmail_scope %}
+    <p class="admin-error" role="note">Reconnect Google to enable school email import: Disconnect, then Connect Google Account (<a class="inline-link" href="/admin?tab=google#google">Google &amp; Sync</a>). Calendar and Tasks keep working meanwhile.</p>
+    {% elif not inbox_configured %}
+    <p class="admin-error" role="note">School emails are read by Claude: add an Anthropic API key first (see Add from Classroom above).</p>
+    {% endif %}
+    {% include "admin/_school_email_status.html" %}
+    {% if school_result == "started" %}
+    <p class="admin-meta" role="status">Checking in the background: the status above updates by itself, and anything found goes into the School inbox.</p>
+    {% elif school_result == "busy" %}
+    <p class="admin-meta" role="status">A check was already running; its result is above.</p>
+    {% endif %}
+    <form method="post" action="/admin/school-email/check" class="school-email-check">
+      <button type="submit" class="btn btn-small">Check now</button>
+    </form>
+
+    <form class="admin-form school-email-schedule" method="post" action="/admin/school-email/schedule">
+      <label class="hw-field">Check school email
+        <select name="mode">
+          {% for value, label in school.schedules.items() %}<option value="{{ value }}" {{ 'selected' if value == school.schedule.mode else '' }}>{{ label }}</option>{% endfor %}
+        </select>
+      </label>
+      <label class="hw-field">At <input type="time" name="time" value="{{ school.schedule.time }}" required></label>
+      <button type="submit" class="btn btn-small">Save</button>
+      <span class="admin-meta admin-form-note">{{ school.schedule.label() }} (twice daily adds 12 hours before or after)</span>
+    </form>
+
+    <form class="admin-form school-email-senders" method="post" action="/admin/school-email/senders">
+      <label class="hw-field">School senders (one per line; *@domain for everyone there)
+        <textarea name="senders" rows="3" autocapitalize="off" spellcheck="false"{% if onscreen_keyboard %} data-osk="text"{% endif %}>{{ school.senders | join("\n") }}</textarea>
+      </label>
+      <label class="hw-field">Never read
+        <textarea name="exclusions" rows="3" autocapitalize="off" spellcheck="false"{% if onscreen_keyboard %} data-osk="text"{% endif %}>{{ school.exclusions | join("\n") }}</textarea>
+      </label>
+      <button type="submit" class="btn btn-small">Save senders</button>
+      <span class="admin-meta admin-form-note">{{ school.always_excluded | join(", ") }} is never read, whatever is listed here. Only emails from these senders are sent to Claude.</span>
+    </form>
+
+    <div class="admin-subsection">
+      <h3>School events go to calendar</h3>
+      {% if school.connected and not school.events_scope %}
+      <p class="admin-hint">Reconnect to allow adding to your calendar.</p>
+      {% endif %}
+      {% if writable_calendars %}
+      <form class="admin-form" method="post" action="/admin/school-email/calendar">
+        <select name="calendar_id" aria-label="Calendar for school events">
+          <option value="">Don't add events (discard only)</option>
+          {% for cal in writable_calendars %}<option value="{{ cal.id }}" {{ 'selected' if event_setup.calendar and event_setup.calendar.id == cal.id else '' }}>{{ cal.summary }}{% if cal.primary %} (primary){% endif %}</option>{% endfor %}
+        </select>
+        <button type="submit" class="btn btn-small">Save</button>
+      </form>
+      {% elif event_setup.calendar %}
+      <p>Using <strong>{{ event_setup.calendar.summary }}</strong> <span class="admin-meta">(couldn't load the calendar list just now)</span></p>
+      {% else %}
+      <p class="admin-meta">No calendar to pick yet{% if school.connected %}: couldn't load calendars this account can edit{% endif %}.</p>
+      {% endif %}
+    </div>
+  </div>
+
+  {% endif %}
+
+  {% if admin_tab == "display" %}
+  <!-- Weather location -->
+  <div class="admin-panel" id="weather">
+    <h2>Weather location</h2>
+    {% if weather_error == 'notfound' %}
+    <p class="admin-error">Couldn't find that place — try a nearby town or add the country.</p>
+    {% elif weather_error == 'offline' %}
+    <p class="admin-error">Couldn't reach the weather service just now — try again in a minute.</p>
+    {% endif %}
+    {% if weather_location %}
+    <p>
+      Using: <strong>{{ weather_location.name }}{% if weather_location.country %}, {{ weather_location.country }}{% endif %}</strong>
+      <span class="admin-meta">({{ '%.2f' % weather_location.latitude }}, {{ '%.2f' % weather_location.longitude }})</span>
+    </p>
+    <p class="admin-hint">Wrong place? Add the county or country, e.g. "Reading, Berkshire".</p>
+    {% else %}
+    <p class="admin-hint">Type your town and the dashboard will show its forecast.</p>
+    {% endif %}
+    <form class="admin-form" method="post" action="/admin/weather-location">
+      <input type="text" name="place" placeholder="Town or city" required autocomplete="off"{% if onscreen_keyboard %} data-osk="text"{% endif %}>
+      <button type="submit" class="btn">{{ 'Change location' if weather_location else 'Set location' }}</button>
+    </form>
+  </div>
+
+  <!-- Appearance -->
+  <div class="admin-panel" id="display">
+    <h2>Appearance</h2>
+    {{ section_error("display") }}
+    <form method="post" action="/admin/appearance">
+      {% for value, label in appearances.items() %}
+      <label class="admin-check">
+        <input type="radio" name="value" value="{{ value }}" {{ 'checked' if value == appearance_setting else '' }}>
+        {{ label }}
+      </label>
+      {% endfor %}
+      <p class="admin-hint">Evening and morning follow the family's timezone (the connected calendar's). The dashboard switches by itself — no reload needed.</p>
+      <button type="submit" class="btn btn-small">Save</button>
+    </form>
+  </div>
+
+  <!-- On-screen keyboard -->
+  <div class="admin-panel" id="keyboard">
+    <h2>On-screen Keyboard</h2>
+    <form method="post" action="/admin/onscreen-keyboard">
+      <label class="admin-check">
+        <input type="checkbox" name="enabled" value="true" {{ 'checked' if onscreen_keyboard else '' }}>
+        Use the built-in keyboard on the dashboard and PIN screen
+      </label>
+      <p class="admin-hint">
+        Replaces the tablet's own keyboard (which is suppressed while this is on).
+      </p>
+      <button type="submit" class="btn btn-small">Save</button>
+    </form>
+  </div>
+
+  <!-- Device management -->
+  <div class="admin-panel" id="device">
+    <h2>Device</h2>
+    <p><a href="/pen-test" class="btn btn-quiet">Pen test (for checking a new tablet)</a></p>
+    <p class="admin-hint">
+      Wi-Fi settings and restart/sleep controls are planned but not yet built
+      (v1 scope per the spec — software update button intentionally deferred).
+    </p>
+  </div>
+
+  {% endif %}
+
+  {% if admin_tab == "google" %}
   <!-- Google account -->
-  <div class="admin-panel">
+  <div class="admin-panel" id="google">
     <h2>Google Account</h2>
     {% if google_account %}
     <div class="admin-row">
@@ -327,7 +414,7 @@
       </form>
     </div>
     {% if available_calendars %}
-    <form class="calendar-picker" method="post" action="/admin/google/calendars">
+    <form class="calendar-picker" id="calendars" method="post" action="/admin/google/calendars">
       <p class="admin-hint">Calendars shown on the dashboard:</p>
       {% for cal in available_calendars %}
       <label class="admin-check">
@@ -352,7 +439,7 @@
     </p>
     {% endif %}
     {% if google_account %}
-    <div class="admin-subsection">
+    <div class="admin-subsection" id="task-lists">
       <h3>Task Sync</h3>
       {% if google_offline %}
       <p class="admin-error">
@@ -410,45 +497,31 @@
   <!-- Sync health -->
   {% include "admin/_sync_panel.html" %}
 
-  <!-- Weather location -->
-  <div class="admin-panel" id="weather">
-    <h2>Weather location</h2>
-    {% if weather_error == 'notfound' %}
-    <p class="admin-error">Couldn't find that place — try a nearby town or add the country.</p>
-    {% elif weather_error == 'offline' %}
-    <p class="admin-error">Couldn't reach the weather service just now — try again in a minute.</p>
-    {% endif %}
-    {% if weather_location %}
-    <p>
-      Using: <strong>{{ weather_location.name }}{% if weather_location.country %}, {{ weather_location.country }}{% endif %}</strong>
-      <span class="admin-meta">({{ '%.2f' % weather_location.latitude }}, {{ '%.2f' % weather_location.longitude }})</span>
-    </p>
-    <p class="admin-hint">Wrong place? Add the county or country, e.g. "Reading, Berkshire".</p>
+  {% endif %}
+
+  {% if admin_tab == "assistant" %}
+  <!-- Assistant (docs/assistant-spec.md): settings arrive with each capability. -->
+  <div class="admin-panel" id="assistant">
+    <h2>Assistant</h2>
+    {% if inbox_configured %}
+    <p><span class="sync-state sync-state-ok"><span class="sync-dot-mark" aria-hidden="true"></span>Anthropic API key set</span>
+      <span class="admin-meta">Model: <code>{{ assistant_model }}</code></span></p>
     {% else %}
-    <p class="admin-hint">Type your town and the dashboard will show its forecast.</p>
+    <p><span class="sync-state sync-state-amber"><span class="sync-dot-mark" aria-hidden="true"></span>No Anthropic API key</span></p>
+    <p class="admin-hint">Add <code>ANTHROPIC_API_KEY=your-key</code> to the <code>.env</code> file next to <code>docker-compose.yml</code>, then restart (<code>docker compose up -d</code>). The School tab's Classroom and email import need it too.</p>
     {% endif %}
-    <form class="admin-form" method="post" action="/admin/weather-location">
-      <input type="text" name="place" placeholder="Town or city" required>
-      <button type="submit" class="btn">{{ 'Change location' if weather_location else 'Set location' }}</button>
-    </form>
+    <p class="admin-hint">The assistant only ever suggests: nothing reaches the wall, a calendar, a task list or an email until someone confirms it. Coming here, one at a time:</p>
+    <ul class="assistant-coming">
+      <li><strong>Any letter or photo</strong>: payments and reply deadlines become parent tasks and reminders, for a parent to approve.</li>
+      <li><strong>Quick add</strong> in plain words on the tablet: events, shopping and tasks.</li>
+      <li><strong>Questions</strong> such as "What's on Thursday?", answered from Huddle's own data.</li>
+      <li><strong>A weekly family digest</strong> on the display and by email to the parents (Family tab: tick Parent and add an email).</li>
+      <li><strong>Meal planning help</strong>, on request.</li>
+    </ul>
   </div>
+  {% endif %}
 
-  <!-- Appearance -->
-  <div class="admin-panel" id="display">
-    <h2>Appearance</h2>
-    {{ section_error("display") }}
-    <form method="post" action="/admin/appearance">
-      {% for value, label in appearances.items() %}
-      <label class="admin-check">
-        <input type="radio" name="value" value="{{ value }}" {{ 'checked' if value == appearance_setting else '' }}>
-        {{ label }}
-      </label>
-      {% endfor %}
-      <p class="admin-hint">Evening and morning follow the family's timezone (the connected calendar's). The dashboard switches by itself — no reload needed.</p>
-      <button type="submit" class="btn btn-small">Save</button>
-    </form>
-  </div>
-
+  {% if admin_tab == "system" %}
   <!-- Backups (app/backup.py; restore steps in the README) -->
   <div class="admin-panel" id="backups">
     <h2>Backups</h2>
@@ -467,31 +540,6 @@
     </form>
   </div>
 
-  <!-- Device management -->
-  <div class="admin-panel">
-    <h2>Device</h2>
-    <p><a href="/pen-test">Pen test (for checking a new tablet)</a></p>
-    <p class="admin-hint">
-      Wi-Fi settings and restart/sleep controls are planned but not yet built
-      (v1 scope per the spec — software update button intentionally deferred).
-    </p>
-  </div>
-
-  <!-- On-screen keyboard -->
-  <div class="admin-panel">
-    <h2>On-screen Keyboard</h2>
-    <form method="post" action="/admin/onscreen-keyboard">
-      <label class="admin-check">
-        <input type="checkbox" name="enabled" value="true" {{ 'checked' if onscreen_keyboard else '' }}>
-        Use the built-in keyboard on the dashboard and PIN screen
-      </label>
-      <p class="admin-hint">
-        Replaces the tablet's own keyboard (which is suppressed while this is on).
-      </p>
-      <button type="submit" class="btn btn-small">Save</button>
-    </form>
-  </div>
-
   <!-- Change PIN -->
   <div class="admin-panel" id="pin">
     <h2>Change Admin PIN</h2>
@@ -503,6 +551,27 @@
       <button type="submit" class="btn">Update PIN</button>
     </form>
   </div>
+
+  {% endif %}
+  <!-- end of tab -->
 </div>
 {% endblock %}
-{% block scripts %}{% with part = "scripts" %}{% include "_keyboard_assets.html" %}{% endwith %}{% endblock %}
+{% block scripts %}{% with part = "scripts" %}{% include "_keyboard_assets.html" %}{% endwith %}
+<script>
+  // A link to a section on another tab without ?tab= (an old bookmark, or
+  // /admin#sync typed in) opens that tab. Redirects from Admin's own forms
+  // already carry ?tab= (app/admin_tabs.py), so this only catches the rest.
+  (function () {
+    var sections = {{ admin_sections | tojson }};
+    var current = {{ admin_tab | tojson }};
+    function follow() {
+      var hash = location.hash.slice(1);
+      // Own keys only: #constructor or #__proto__ must not find a "tab".
+      var tab = Object.prototype.hasOwnProperty.call(sections, hash) ? sections[hash] : null;
+      if (tab && tab !== current) location.replace('/admin?tab=' + tab + location.hash);
+    }
+    if (!new URLSearchParams(location.search).has('tab')) follow();
+    window.addEventListener('hashchange', follow);
+  })();
+</script>
+{% endblock %}

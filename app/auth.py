@@ -8,9 +8,12 @@ or changing the PIN bumps the generation, so any copy of an older cookie
 stops working at once rather than living out its 2 hours.
 """
 
+from urllib.parse import urlencode
+
 from fastapi import HTTPException, Request
 from fastapi.responses import Response
 
+from app.admin_tabs import login_next
 from app.database import get_db, get_setting, set_setting
 from app.security import create_session_token, verify_session_token
 
@@ -49,8 +52,18 @@ async def has_valid_session(request: Request) -> bool:
     return (await admin_session_state(request))[0]
 
 
-def _to_login() -> HTTPException:
-    return HTTPException(status_code=303, headers={"Location": "/admin/login"})
+def _to_login(request: Request | None = None) -> HTTPException:
+    """To the PIN page. A signed-out visit to an Admin tab (e.g. the sync
+    dot's /admin?tab=google#sync) comes back to it after the PIN: the tab
+    rides along as ?next= (validated again on the way out, admin_tabs.
+    login_return), and the browser keeps the #section on the login page,
+    whose form posts it."""
+    location = "/admin/login"
+    if request is not None and request.method == "GET":
+        next_url = login_next(request.url.path, request.query_params.get("tab"))
+        if next_url and next_url != "/admin":
+            location += "?" + urlencode({"next": next_url})
+    return HTTPException(status_code=303, headers={"Location": location})
 
 
 async def require_session(request: Request) -> None:
@@ -65,7 +78,7 @@ async def require_admin(request: Request) -> None:
     and to the "Choose a new PIN" screen while the PIN is the default."""
     valid, pin_is_default = await admin_session_state(request)
     if not valid:
-        raise _to_login()
+        raise _to_login(request)
     if pin_is_default:
         raise HTTPException(status_code=303, headers={"Location": NEW_PIN_PATH})
 

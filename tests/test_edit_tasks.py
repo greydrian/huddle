@@ -46,7 +46,7 @@ async def test_schedule_days_persist_locally_without_a_push(db, admin_client):
 
     resp = await admin_client.post(f"/admin/tasks/{task_id}/edit", data={"profile_id": p1, "days": ["Fri", "Mon"]})
 
-    assert resp.status_code == 303 and resp.headers["location"] == "/admin#tasks"
+    assert resp.status_code == 303 and resp.headers["location"] == "/admin?tab=family#tasks"
     task = await _task(db, task_id)
     assert task["title"] == "Feed cat"
     assert task["is_recurring"] == 1 and task["recurrence_rule"] == "Mon,Fri"
@@ -122,7 +122,7 @@ async def test_admin_page_shows_hint_and_unlinked_note(db, admin_client):
     assert "Add, rename or delete tasks in Google Tasks — they sync here within a minute." in panel
     assert 'action="/admin/tasks"' not in html and "/delete\"" not in panel
     # Only the unlinked person gets the note.
-    assert panel.count("Link a Google list under Google Account → Task Sync") == len(await _profile_ids(db)) - 1
+    assert panel.count("Link a Google list under") == len(await _profile_ids(db)) - 1
 
 
 async def test_removed_task_routes_are_gone(db, admin_client):
@@ -145,9 +145,9 @@ async def test_edit_validation(db, admin_client):
 
     # A form the parent submitted comes back to Admin with a readable message, not JSON.
     missing = await admin_client.post("/admin/tasks/9999/edit", data={"profile_id": p1})
-    assert (missing.status_code, missing.headers["location"]) == (303, "/admin?error=task-missing#tasks")
+    assert (missing.status_code, missing.headers["location"]) == (303, "/admin?tab=family&error=task-missing#tasks")
     bad_profile = await admin_client.post(f"/admin/tasks/{task_id}/edit", data={"profile_id": 9999, "days": ["Mon"]})
-    assert bad_profile.headers["location"] == "/admin?error=task-unknown-person#tasks"
+    assert bad_profile.headers["location"] == "/admin?tab=family&error=task-unknown-person#tasks"
     page = (await admin_client.get(missing.headers["location"])).text
     assert 'role="alert">That task no longer exists.' in page
     missing_profile = await admin_client.post(f"/admin/tasks/{task_id}/edit", data={"days": ["Mon"]})
@@ -166,7 +166,7 @@ async def test_edit_of_archived_task_is_treated_as_missing(db, admin_client):
 
     resp = await admin_client.post(f"/admin/tasks/{task_id}/edit", data={"profile_id": p1, "days": ["Mon"]})
 
-    assert resp.headers["location"] == "/admin?error=task-missing#tasks"
+    assert resp.headers["location"] == "/admin?tab=family&error=task-missing#tasks"
     assert (await _task(db, task_id))["recurrence_rule"] is None
     assert await _queue_payloads(db) == []
 
@@ -222,7 +222,7 @@ async def test_reassign_to_person_without_google_list_is_rejected(db, admin_clie
 
     resp = await admin_client.post(f"/admin/tasks/{task_id}/edit", data={"profile_id": pb, "days": ["Mon"]})
 
-    assert resp.headers["location"] == "/admin?error=task-no-list#tasks"
+    assert resp.headers["location"] == "/admin?tab=family&error=task-no-list#tasks"
     task = await _task(db, task_id)
     assert (task["profile_id"], task["google_task_id"], task["recurrence_rule"]) == (pa, "g-old", None)
     assert await _live_tasks(db) == [(pa, "Feed cat", "g-old")]
@@ -243,7 +243,7 @@ async def test_person_select_disables_unlinked_people(db, admin_client):
     assert f'<option value="{others[-1]}" disabled>' in panel
     # A task already under an unlinked person keeps that person selectable.
     assert f'<option value="{others[0]}" selected>' in panel
-    assert "These stay on this display only until a Google list is linked below" in panel
+    assert "These stay on this display only until a Google list is linked" in panel
 
 
 class FakeTasks:
