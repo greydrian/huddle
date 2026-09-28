@@ -327,6 +327,24 @@
     </form>
   </div>
 
+  <!-- Backups (app/backup.py; restore steps in the README) -->
+  <div class="admin-panel" id="backups">
+    <h2>Backups</h2>
+    {{ section_error("backups") }}
+    {% if backup_status.newest_at %}
+    <p>
+      Latest: <strong>{{ backup_status.newest_at.strftime('%a %d %b, %H:%M') }}</strong>
+      <span class="admin-meta">({{ backup_status.newest_size | filesizeformat }} · {{ backup_status.count }} kept)</span>
+    </p>
+    {% else %}
+    <p>No backups yet.</p>
+    {% endif %}
+    <p class="admin-hint">The database is backed up every night at about 3:30. Copy the backups folder off this box now and then; see the README.</p>
+    <form method="post" action="/admin/backups/run">
+      <button type="submit" class="btn btn-small">Back up now</button>
+    </form>
+  </div>
+
   <!-- Device management -->
   <div class="admin-panel">
     <h2>Device</h2>
