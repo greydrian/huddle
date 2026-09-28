@@ -12,9 +12,9 @@ import httpx
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from app import appearance, google_oauth, google_tasks, recurrence, task_sync
+from app import appearance, backup, google_oauth, google_tasks, recurrence, task_sync
 from app.auth import SESSION_COOKIE, end_session, require_admin, start_session
-from app.database import family_today, get_db, get_setting, set_onscreen_keyboard, set_setting
+from app.database import family_timezone, family_today, get_db, get_setting, set_onscreen_keyboard, set_setting
 from app.security import hash_pin, lockout_seconds_for, verify_pin
 from app.services import homework, weather
 from app.services import tasks as task_service
@@ -38,6 +38,7 @@ ADMIN_ERRORS = {
     "handwriting-style": ("practice-words", "Pick one of the handwriting styles."),
     "appearance": ("display", "Pick one of the appearance options."),
     "pin-invalid": ("pin", "A PIN must be 4 to 8 digits, numbers only. Your PIN hasn't changed."),
+    "backup-failed": ("backups", "The backup didn't complete. Check the logs (docker compose logs)."),
 }
 
 # The login form only takes digits (inputmode=numeric, maxlength=8), so a PIN
@@ -148,6 +149,7 @@ async def _render_admin(
         weather_location = await weather.get_location(db)
         current_appearance = await appearance.get_appearance(db)
         mode = await appearance.current_mode(db)
+        backup_status = backup.status(await family_timezone(db))
 
         available_calendars = []
         selected_calendar_ids = []
@@ -209,6 +211,7 @@ async def _render_admin(
             "appearance_setting": current_appearance,
             "appearances": appearance.APPEARANCES,
             "weekdays": recurrence.WEEKDAYS,
+            "backup_status": backup_status,
         },
         status_code=status_code,
     )
@@ -527,3 +530,12 @@ async def change_pin(new_pin: str = Form(...)):
         await set_setting(db, "pin_hash", hash_pin(new_pin))
         await db.commit()
     return RedirectResponse(url="/admin", status_code=303)
+
+
+# --- Backups ---
+
+@router.post("/backups/run", dependencies=[Depends(require_admin)])
+async def run_backup_now():
+    if await backup.create_backup() is None:
+        return _admin_error("backup-failed")
+    return RedirectResponse(url="/admin#backups", status_code=303)

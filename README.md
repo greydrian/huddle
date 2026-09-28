@@ -78,7 +78,8 @@ Open `http://localhost:8000/`. The image is built on Python 3.14. CI runs
 
 The database and secret key live in a **bind-mounted host folder**,
 `./data/family-display`, per spec 9.7. They are plain files you can browse,
-back up or `rsync`. SQLite's WAL mode is safe on a bind mount on the G10's
+but don't back up the live `.db` file by copying it: use the nightly backups
+instead (see "Backups and restore" below). SQLite's WAL mode is safe on a bind mount on the G10's
 native Linux. With Docker Desktop on Windows/Mac, "database is locked" errors
 against the bind-mounted DB are a known Docker Desktop file-locking caveat
 that affects dev only.
@@ -104,6 +105,88 @@ reset run on an in-process scheduler.
    `docker-compose.yml` owns. Behind a reverse proxy, pass the `Host` header
    through: the app refuses non-GET requests whose `Origin` doesn't match its
    host.
+
+## Backups and restore
+
+The app backs up its database every night at about 03:30 in the family's
+timezone (the connected calendar's; UTC if none), and at startup if the
+newest backup is more than 24 hours old (e.g. the G10 was off at 03:30).
+Admin → Backups shows the latest one and has a "Back up now" button.
+
+- **Where**: `data/family-display/backups/` on the host (`/data/backups/` in
+  the container), named `huddle-YYYYMMDD-HHMMSS.db` in family-local time.
+- **How**: SQLite `VACUUM INTO`, which takes a consistent snapshot of the live
+  database, including changes still in the WAL, without stopping the app. Each
+  file is written under a temporary name, checked with `PRAGMA
+  integrity_check`, and only then renamed into place. A copy that fails the
+  check is deleted and logged as a WARNING. Don't `cp`/`rsync` the live
+  `family_display.db`: without its `-wal` file the copy can be missing
+  recent changes or be inconsistent.
+- **Kept**: the 14 newest backups, plus the newest backup of each of the last
+  8 weeks.
+- **The secret key**: Google tokens in the database are encrypted with
+  `data/family-display/.secret_key`, so a copy of that key is kept in the
+  backups folder as `.secret_key` (owner-only permissions). If the key ever
+  changes, the old copy is kept as `.secret_key.replaced-<time>`, since the
+  older backups need it. `.env` is never copied.
+
+**Security trade-off:** the backups folder holds the database *and* the key
+that decrypts its Google tokens, so it is as sensitive as `data/` itself.
+Anyone with a copy can use the family's Google Calendar/Tasks access until you
+disconnect Google in Admin or revoke access at
+https://myaccount.google.com/permissions. Keep off-box copies somewhere
+private. Without the key, a backup still restores everything except the
+Google connection (and signs you out of Admin), so you'd just reconnect Google.
+
+The backups folder is inside `data/`, which is already in `.gitignore` and
+`.dockerignore`, so backups are never committed or baked into the image.
+
+### Restoring a backup
+
+On the G10, from the project folder:
+
+```bash
+# 1. Stop the app so nothing writes to the database.
+docker compose -f docker-compose.yml stop family-display
+
+# 2. Put the chosen backup in place of the live database.
+cd data/family-display
+cp family_display.db family_display.db.before-restore    # optional safety copy
+cp backups/huddle-YYYYMMDD-HHMMSS.db family_display.db
+
+# 3. Remove the old database's WAL/shared-memory files. They belong to the
+#    database you just replaced, and SQLite would try to apply them to the backup.
+rm -f family_display.db-wal family_display.db-shm
+
+# 4. The secret key must be the one the backup was made with. Normally it
+#    hasn't changed. If it has (or .secret_key is missing), restore it:
+cmp .secret_key backups/.secret_key || cp backups/.secret_key .secret_key
+#    (for an older backup, a .secret_key.replaced-<time> file may be the right key)
+
+# 5. The container runs as uid 1000; keep the files owned by it.
+sudo chown 1000:1000 family_display.db .secret_key
+chmod 600 .secret_key
+cd ../..
+
+# 6. Start the app again.
+docker compose -f docker-compose.yml start family-display
+```
+
+### Keep a copy off the box
+
+The backups are on the same disk as the database, so if that disk fails you
+lose both. Copy the backups folder somewhere else regularly. For example, a
+nightly host cron job on the G10 (after the 03:30 backup) that syncs it to a
+NAS share or a USB drive:
+
+```bash
+# crontab -e on the G10 (as root, or a user who can read data/family-display)
+0 5 * * * rsync -a /path/to/huddle/data/family-display/backups/ /mnt/nas/huddle-backups/
+```
+
+Copying the finished `huddle-*.db` backups this way is safe, unlike the live
+database. They're complete files that the app never changes. The destination
+now holds the secret key too, so keep it private (see the trade-off above).
 
 ## Local development (without Docker)
 
@@ -197,7 +280,8 @@ app/
   google_calendar.py Calendar event fetch, month grid bar packing, day view
   google_tasks.py    Google Tasks API client
   task_sync.py       Two-way Tasks sync: push sync_queue, then reconcile each list
-  scheduler.py       APScheduler: sync every 60s, daily-reset check every 5 min
+  scheduler.py       APScheduler: sync every 60s, daily-reset check every 5 min, nightly backup
+  backup.py          Nightly SQLite backups (VACUUM INTO + integrity check), retention, key copy
   routers/
     dashboard.py     Home screen assembly + /health
     layout.py        Gridstack position persistence (/api/layout)
@@ -216,7 +300,7 @@ app/
     icons/           Lucide sprite (ISC) + Meteocons weather icons (MIT)
     vendor/          Pinned HTMX 2.0.10, Gridstack 13.2.0, simple-keyboard 3.8.192
 tests/               pytest suite (temp DB per test, Google mocked with respx)
-data/                SQLite DB + secret key (local dev; bind-mounted in Docker), gitignored
+data/                SQLite DB + secret key + backups/ (local dev; bind-mounted in Docker), gitignored
 ```
 
 There is no JS build step. Vendor files are committed as-is and referenced
@@ -243,8 +327,6 @@ A9+:
 1. **Sync health**: show in Admin (and subtly on the dashboard) when the
    last successful Google sync happened and whether changes are stuck in
    the queue.
-2. **Backups**: scheduled copies of the SQLite database (and the secret key)
-   out of `DATA_DIR`.
 3. **PIN hardening**: stop shipping a default PIN that works forever, e.g.
    force a change on first login.
 4. **Gmail/Classroom homework import**: replace manual homework entry by
