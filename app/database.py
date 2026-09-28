@@ -362,6 +362,12 @@ async def init_db():
         )
         await db.commit()
 
+        # Migration: school email import (app/school_email.py). An approved
+        # event goes to Google Calendar rather than a local table, and its
+        # Calendar event id is kept here (created_table = 'google_calendar').
+        await _add_column_if_missing(db, "import_candidates", "external_id", "TEXT")
+        await db.commit()
+
         await load_onscreen_keyboard(db)
 
 

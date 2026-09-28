@@ -359,10 +359,17 @@ async def wait_for_background():
 
 async def fail_interrupted(db):
     """At startup: a source still "pending" was being read when the app
-    stopped, and its bytes are gone — mark it failed so it can be re-added."""
+    stopped, and its bytes are gone — mark it failed so it can be re-added
+    (a Gmail one is read again by the next school email check)."""
     await db.execute(
         """UPDATE import_sources SET status = 'failed', error_code = 'interrupted', updated_at = datetime('now')
            WHERE status = 'pending'"""
+    )
+    # An event mid-approval when the app stopped goes back to pending; its
+    # Calendar event id is deterministic, so approving it again can't make
+    # a second event (see services/school_events.py).
+    await db.execute(
+        "UPDATE import_candidates SET status = 'pending' WHERE status = 'approving'"
     )
     await db.commit()
 
@@ -518,8 +525,8 @@ async def _pending_candidate(db, candidate_id: int) -> dict:
 async def approve_candidate(db, candidate_id: int, form: dict) -> tuple[str, int]:
     """Creates the word list or homework from the (possibly edited) form,
     validated exactly like Admin's own forms. Returns (table, row id).
-    Raises CandidateError or homework.ValidationError. Events can't be
-    approved yet (they arrive with the Gmail import)."""
+    Raises CandidateError or homework.ValidationError. Events go to Google
+    Calendar instead (services/school_events.approve_event)."""
     candidate = await _pending_candidate(db, candidate_id)
     source = f"import:{candidate['source_kind']}"
     # Validate first (reads only), then claim + insert in one transaction.

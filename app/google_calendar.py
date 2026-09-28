@@ -262,6 +262,17 @@ async def _load_events(db, span: Callable[[datetime], tuple[date, date]], cache:
     return loaded
 
 
+async def insert_event(access_token: str, calendar_id: str, event: dict) -> dict:
+    """events.insert (needs the calendar.events scope). `event` is the
+    Calendar API's Event resource; one with a client-chosen `id` that
+    already exists comes back as HTTP 409. Raises httpx.HTTPError."""
+    url = CALENDAR_EVENTS_ENDPOINT_TEMPLATE.format(calendar_id=quote(calendar_id, safe=""))
+    async with http_client.client() as client:
+        resp = await client.post(url, headers={"Authorization": f"Bearer {access_token}"}, json=event)
+        resp.raise_for_status()
+        return resp.json()
+
+
 async def refresh_cache(db) -> bool:
     """Scheduler job: re-fetch the current month's grid range (no request
     deadline: background work keeps the full per-request timeouts) and

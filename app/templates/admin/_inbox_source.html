@@ -4,7 +4,8 @@
     after a failed approve, `inbox_form` (with the candidate's "id") and `inbox_error`
     bring back what was typed, and `source_error` is an ADMIN_ERRORS message for it.
     Its buttons post via HTMX and swap only this block (hx-target="this" is inherited),
-    so unsaved edits elsewhere in the inbox survive. -#}
+    so unsaved edits elsewhere in the inbox survive. `event_setup` ({calendar, scope})
+    says whether events can be approved into Google Calendar yet. -#}
 {% set kind_labels = {"word_list": "Spellings", "homework": "Homework", "event": "Event"} %}
 <div class="inbox-source{{ ' is-processed' if source.processed else '' }}" id="inbox-source-{{ source.id }}" hx-target="this" hx-swap="outerHTML"
      {%- if source.status == 'pending' %} hx-get="/admin/inbox/sources/{{ source.id }}" hx-trigger="every 3s"{% endif %}>
@@ -40,7 +41,8 @@
   {% set editing = inbox_form and inbox_form.id == c.id %}
   {% set f = inbox_form if editing else {
       "profile_id": c.profile_id or "", "title": p.title, "subject": p.subject, "details": p.details,
-      "due_date": p.due_date, "words": (p.words or []) | join("\n"), "starts_on": p.starts_on, "ends_on": p.ends_on} %}
+      "due_date": p.due_date, "words": (p.words or []) | join("\n"), "starts_on": p.starts_on, "ends_on": p.ends_on,
+      "date": p.date, "start_time": p.start_time, "end_time": p.end_time, "notes": p.notes} %}
   <div class="inbox-candidate" id="inbox-candidate-{{ c.id }}">
     <div class="inbox-candidate-head">
       <span class="inbox-kind inbox-kind-{{ c.kind }}">{{ kind_labels[c.kind] }}</span>
@@ -49,10 +51,24 @@
     </div>
     {% if editing and inbox_error %}<p class="admin-error" role="alert">{{ inbox_error }}</p>{% endif %}
 
-    {% if c.kind == 'event' %}
+    {% if c.kind == 'event' and event_setup.calendar and event_setup.scope %}
+    {#- Approve adds it to Google Calendar (services/school_events.py). Blank start = all day. -#}
+    <form class="admin-form" method="post" action="/admin/inbox/candidates/{{ c.id }}/approve" hx-post="/admin/inbox/candidates/{{ c.id }}/approve">
+      <input type="text" name="title" value="{{ f.title or '' }}" maxlength="120" aria-label="Event" autocomplete="off"{% if onscreen_keyboard %} data-osk="text"{% endif %}>
+      <label class="hw-field">Date <input type="date" name="date" value="{{ f.date or '' }}"></label>
+      <label class="hw-field">From <input type="time" name="start_time" value="{{ f.start_time or '' }}"></label>
+      <label class="hw-field">Until <input type="time" name="end_time" value="{{ f.end_time or '' }}"></label>
+      <input type="text" name="notes" value="{{ f.notes or '' }}" maxlength="500" placeholder="Notes (optional)" aria-label="Notes" autocomplete="off"{% if onscreen_keyboard %} data-osk="text"{% endif %}>
+      <span class="inbox-buttons">
+        <button type="submit" class="btn">Add to {{ event_setup.calendar.summary }}</button>
+        <button type="submit" class="btn btn-quiet" formaction="/admin/inbox/candidates/{{ c.id }}/discard" hx-post="/admin/inbox/candidates/{{ c.id }}/discard" formnovalidate>Discard</button>
+      </span>
+      <span class="admin-meta admin-form-note">No start time = all day.</span>
+    </form>
+    {% elif c.kind == 'event' %}
     <p class="inbox-event"><strong>{{ p.title }}</strong> · {{ p.date }}{% if p.start_time %} · {{ p.start_time }}{% if p.end_time %}–{{ p.end_time }}{% endif %}{% endif %}</p>
     {% if p.notes %}<p class="admin-meta">{{ p.notes }}</p>{% endif %}
-    <p class="admin-hint">Adding to the calendar arrives with the Gmail import.</p>
+    <p class="admin-hint">{% if not event_setup.connected %}Connect a Google account to add school events to your calendar.{% elif not event_setup.scope %}Reconnect to allow adding to your calendar (Google Account: Disconnect, then Connect).{% else %}Pick the calendar school events go to in the School email panel to add this to it.{% endif %}</p>
     <form method="post" action="/admin/inbox/candidates/{{ c.id }}/discard" hx-post="/admin/inbox/candidates/{{ c.id }}/discard">
       <button type="submit" class="btn btn-quiet btn-small">Discard</button>
     </form>
@@ -79,7 +95,7 @@
       </span>
     </form>
     {% endif %}
-    {% if c.evidence %}<p class="inbox-evidence">From the post: “{{ c.evidence }}”</p>{% endif %}
+    {% if c.evidence %}<p class="inbox-evidence">{{ 'From the email' if source.kind == 'gmail' else 'From the post' }}: “{{ c.evidence }}”</p>{% endif %}
   </div>
   {% endfor %}
 </div>

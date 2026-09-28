@@ -232,10 +232,12 @@ with `respx`.
 
 ## Connecting Google (Calendar + Tasks)
 
-The app calls Google's OAuth, Calendar and Tasks REST endpoints directly
-with `httpx`, without a Google SDK (`app/google_oauth.py`, `app/google_calendar.py`,
-`app/google_tasks.py`). The scopes are `calendar.readonly` and `tasks`.
-Calendar is read-only; the Tasks scope drives the shopping and task sync.
+The app calls Google's OAuth, Calendar, Tasks and Gmail REST endpoints
+directly with `httpx`, without a Google SDK (`app/google_oauth.py`,
+`app/google_calendar.py`, `app/google_tasks.py`, `app/google_gmail.py`). The
+scopes are `calendar.readonly` (the month grid), `tasks` (shopping and task
+sync), and for the school email import `gmail.readonly` and
+`calendar.events` (see "School email import" below).
 
 **1. Create a Google Cloud project and OAuth credentials** (one-time, in a browser):
 
@@ -277,6 +279,43 @@ secret file in `DATA_DIR` that also signs admin sessions. **Disconnect** in
 the same panel revokes and clears them. If the scopes ever change,
 disconnect and reconnect.
 
+## School email import
+
+Once a day (18:00 family time by default) the display reads the school's
+emails from the connected Gmail account and puts what Claude finds in them
+(spellings, homework, events) in Admin's **School inbox** to approve. Only
+emails from the listed school senders are read, and only those are sent to
+the Anthropic API. `sen@gresham.croydon.sch.uk` (private SENDCo
+conversations) is never fetched, whatever the lists say. Approved events go
+into a Google calendar you pick. Code: `app/school_email.py`,
+`app/google_gmail.py`, `app/services/school_events.py`.
+
+Setup, once:
+
+1. **Make the OAuth app Internal.** In the Cloud console, **APIs & Services
+   → OAuth consent screen**, set User type to **Internal** (needs a Google
+   Workspace account). `gmail.readonly` is a restricted scope: an Internal
+   app needs no Google verification for it, and Internal apps don't have
+   the 7-day refresh-token expiry of "Testing".
+2. **Enable the Gmail API** in the same project (**APIs & Services →
+   Library → Gmail API → Enable**). Without it Admin says "The Gmail API
+   isn't enabled".
+3. **Add `ANTHROPIC_API_KEY`** to `.env` (a key from console.anthropic.com),
+   then `docker compose up -d`. Optional: `ANTHROPIC_MODEL`.
+4. **Reconnect Google in Admin**: Google Account → **Disconnect**, then
+   **Connect Google Account**, and approve the new Gmail and calendar
+   permissions. Until then Calendar and Tasks keep working as before, and
+   the School email panel says "Reconnect Google to enable school email
+   import".
+5. In Admin → **School email**, check the senders (defaults:
+   `office@greshamprimary.school` and `*@gresham.croydon.sch.uk`), pick
+   **School events go to calendar**, and press **Check now** once. The
+   first check looks back 14 days. After that it runs on the schedule set
+   there: daily at a time you choose, twice daily, weekly on Friday, or off.
+
+Weekly spellings posted in Google Classroom aren't emailed: add those with
+Admin → **Add from Classroom** (a screenshot or pasted text).
+
 ## Project structure
 
 ```
@@ -300,7 +339,9 @@ app/
   google_calendar.py Calendar event fetch, month grid bar packing, day view
   google_tasks.py    Google Tasks API client
   task_sync.py       Two-way Tasks sync: push sync_queue, then reconcile each list
-  scheduler.py       APScheduler: sync every 60s, daily-reset check every 5 min, nightly backup
+  google_gmail.py    Gmail reads: search, headers, body (HTML to text), attachments
+  school_email.py    School email import: sender lists, schedule, checkpoint, feeds the School inbox
+  scheduler.py       APScheduler: sync every 60s, daily-reset check every 5 min, nightly backup, school email
   backup.py          Nightly SQLite backups (VACUUM INTO + integrity check), retention, key copy
   routers/
     dashboard.py     Home screen assembly + /health
@@ -349,9 +390,5 @@ A9+:
    the queue.
 3. **PIN hardening**: stop shipping a default PIN that works forever, e.g.
    force a change on first login.
-4. **Gmail homework import (stage 2)**: Admin's School inbox already reads
-   Classroom screenshots and pasted text with Claude (set `ANTHROPIC_API_KEY`
-   in `.env`); stage 2 feeds school emails and their PDFs into the same
-   `app/services/imports.ingest()` and lets approved events reach the calendar.
 5. **Photos**: Google Photos Picker plus a local image cache, replacing the
    "coming soon" card.

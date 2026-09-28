@@ -131,6 +131,82 @@
     {% endif %}
   </div>
 
+  <!-- School email (app/school_email.py): the school's emails, read from Gmail on a
+       schedule, go into the School inbox above. `school` is school_email.summary();
+       ?school_email=done|busy comes from Check now (fixed messages only). -->
+  {% set school_result = request.query_params.get("school_email") %}
+  <div class="admin-panel" id="school-email">
+    <h2>School email</h2>
+    {{ section_error("school-email") }}
+    {% if not google_configured %}
+    <p class="admin-hint">Needs Google set up first (see README, "School email import").</p>
+    {% elif not school.connected %}
+    <p class="admin-hint">Connect a Google account (Google Account, below) to read the school's emails.</p>
+    {% elif not school.gmail_scope %}
+    <p class="admin-error" role="note">Reconnect Google to enable school email import: Disconnect, then Connect Google Account (below). Calendar and Tasks keep working meanwhile.</p>
+    {% elif not inbox_configured %}
+    <p class="admin-error" role="note">School emails are read by Claude: add an Anthropic API key first (see Add from Classroom above).</p>
+    {% endif %}
+    <p class="school-email-status">
+      {% if school.last_check_at %}Last checked <strong>{{ school.last_check_ago }}</strong>
+        <span class="admin-meta">({{ school.last_check_at.strftime("%a %d %b, %H:%M") }})</span> ·
+        {% if school.result_ok %}{{ school.emails_read }} new email{{ '' if school.emails_read == 1 else 's' }}, {{ school.items_found }} item{{ '' if school.items_found == 1 else 's' }} found
+        {%- else %}<span class="school-email-problem">{{ school.result_text }}</span>{% if school.emails_read %} ({{ school.emails_read }} email{{ '' if school.emails_read == 1 else 's' }} read){% endif %}{% endif %}
+      {%- else %}Not checked yet{% endif %}
+      <br><span class="admin-meta">{% if school.next_check_at %}Next check {{ school.next_check_at.strftime("%a %d %b, %H:%M") }}{% else %}Scheduled checks are off{% endif %}</span>
+    </p>
+    {% if school_result == "done" %}
+    <p class="admin-meta" role="status">Checked just now: the result is above, and anything found is in the School inbox.</p>
+    {% elif school_result == "busy" %}
+    <p class="admin-meta" role="status">A check was already running; its result is above.</p>
+    {% endif %}
+    <form method="post" action="/admin/school-email/check" class="school-email-check">
+      <button type="submit" class="btn btn-small">Check now</button>
+    </form>
+
+    <form class="admin-form school-email-schedule" method="post" action="/admin/school-email/schedule">
+      <label class="hw-field">Check school email
+        <select name="mode">
+          {% for value, label in school.schedules.items() %}<option value="{{ value }}" {{ 'selected' if value == school.schedule.mode else '' }}>{{ label }}</option>{% endfor %}
+        </select>
+      </label>
+      <label class="hw-field">At <input type="time" name="time" value="{{ school.schedule.time }}" required></label>
+      <button type="submit" class="btn btn-small">Save</button>
+      <span class="admin-meta admin-form-note">{{ school.schedule.label() }} (twice daily adds 12 hours before or after)</span>
+    </form>
+
+    <form class="admin-form school-email-senders" method="post" action="/admin/school-email/senders">
+      <label class="hw-field">School senders (one per line; *@domain for everyone there)
+        <textarea name="senders" rows="3" autocapitalize="off" spellcheck="false"{% if onscreen_keyboard %} data-osk="text"{% endif %}>{{ school.senders | join("\n") }}</textarea>
+      </label>
+      <label class="hw-field">Never read
+        <textarea name="exclusions" rows="3" autocapitalize="off" spellcheck="false"{% if onscreen_keyboard %} data-osk="text"{% endif %}>{{ school.exclusions | join("\n") }}</textarea>
+      </label>
+      <button type="submit" class="btn btn-small">Save senders</button>
+      <span class="admin-meta admin-form-note">{{ school.always_excluded | join(", ") }} is never read, whatever is listed here. Only emails from these senders are sent to Claude.</span>
+    </form>
+
+    <div class="admin-subsection">
+      <h3>School events go to calendar</h3>
+      {% if school.connected and not school.events_scope %}
+      <p class="admin-hint">Reconnect to allow adding to your calendar.</p>
+      {% endif %}
+      {% if writable_calendars %}
+      <form class="admin-form" method="post" action="/admin/school-email/calendar">
+        <select name="calendar_id" aria-label="Calendar for school events">
+          <option value="">Don't add events (discard only)</option>
+          {% for cal in writable_calendars %}<option value="{{ cal.id }}" {{ 'selected' if event_setup.calendar and event_setup.calendar.id == cal.id else '' }}>{{ cal.summary }}{% if cal.primary %} (primary){% endif %}</option>{% endfor %}
+        </select>
+        <button type="submit" class="btn btn-small">Save</button>
+      </form>
+      {% elif event_setup.calendar %}
+      <p>Using <strong>{{ event_setup.calendar.summary }}</strong> <span class="admin-meta">(couldn't load the calendar list just now)</span></p>
+      {% else %}
+      <p class="admin-meta">No calendar to pick yet{% if school.connected %}: couldn't load calendars this account can edit{% endif %}.</p>
+      {% endif %}
+    </div>
+  </div>
+
   <!-- Homework -->
   {#- After a validation error, homework_form / words_form hold what was submitted
       ("id" none = the add form) so the form comes back as typed. -#}

@@ -16,7 +16,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from starlette.datastructures import UploadFile as StarletteUploadFile
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app import appearance, backup, google_oauth, google_tasks, recurrence, sync_status, task_sync
+from app import appearance, backup, google_oauth, google_tasks, recurrence, school_email, sync_status, task_sync
 from app.auth import (
     NEW_PIN_PATH,
     PIN_IS_DEFAULT_SETTING,
@@ -38,7 +38,7 @@ from app.security import (
     lockout_seconds_for,
     verify_pin,
 )
-from app.services import extraction, homework, imports, weather
+from app.services import extraction, homework, imports, school_events, weather
 from app.services import tasks as task_service
 from app.templating import templates
 
@@ -77,8 +77,19 @@ ADMIN_ERRORS = {
     "import-already": ("inbox", "That's already in the School inbox below."),
     "import-missing": ("inbox", "That item is no longer waiting in the inbox. It may have just been "
                                 "approved or discarded."),
-    "import-event": ("inbox", "Adding events to the calendar arrives with the Gmail import. "
-                              "Discard this one for now."),
+    "import-event": ("inbox", "Pick the calendar school events go to (School email panel), then approve it."),
+    "import-calendar-scope": ("inbox", "Reconnect to allow adding to your calendar: Disconnect, then Connect "
+                                       "Google Account. The event is still waiting here."),
+    "import-calendar-offline": ("inbox", "Couldn't reach Google Calendar, so the event wasn't added. It's "
+                                         "still waiting here; try again in a minute."),
+    "import-calendar-missing": ("inbox", "The calendar for school events can't be found any more. Pick another "
+                                         "in the School email panel. The event is still waiting here."),
+    "import-calendar-failed": ("inbox", "Google Calendar didn't accept the event, so it wasn't added. It's "
+                                        "still waiting here."),
+    "school-senders": ("school-email", f"Each sender must be an email address or *@domain, one per line "
+                                       f"(at most {school_email.MAX_ENTRIES}). Nothing was changed."),
+    "school-schedule": ("school-email", "Pick one of the schedule options and a time like 18:00."),
+    "school-calendar": ("school-email", "Pick a calendar this Google account can add events to."),
     "import-busy": ("inbox", "That's still being read. Try again in a moment."),
     "import-pdf-pages": ("classroom", f"That PDF has more than {extraction.MAX_PDF_PAGES} pages. "
                                       "Try just the pages you need."),
@@ -267,6 +278,8 @@ async def _render_admin(
         backup_status = backup.status(await family_timezone(db))
         sync = await sync_status.summary(db)
         inbox = await imports.get_inbox(db)
+        school = await school_email.summary(db)
+        event_setup = await _event_setup(db)
 
         available_calendars = []
         selected_calendar_ids = []
@@ -334,6 +347,9 @@ async def _render_admin(
             "inbox_configured": extraction.is_configured(),
             "inbox_form": inbox_form,
             "inbox_error": inbox_error,
+            "school": school,
+            "event_setup": event_setup,
+            "writable_calendars": [c for c in available_calendars if c.get("writable")],
         },
         status_code=status_code,
     )
@@ -647,6 +663,17 @@ def _is_htmx(request: Request) -> bool:
     return request.headers.get("hx-request") == "true"
 
 
+async def _event_setup(db) -> dict:
+    """Whether event candidates can be approved (a calendar picked, the
+    calendar.events scope granted); _inbox_source.html needs it both from
+    the Admin page and from its own fragment route."""
+    return {
+        "calendar": await school_events.get_target_calendar(db),
+        "scope": await google_oauth.has_scope(db, google_oauth.CALENDAR_EVENTS_SCOPE),
+        "connected": await google_oauth.get_connected_account(db) is not None,
+    }
+
+
 async def _source_fragment(request: Request, source_id: int, **extra) -> HTMLResponse:
     """One source's inbox block (empty once it's gone). `extra` carries
     inbox_form / inbox_error / source_error after a failed action."""
@@ -655,10 +682,12 @@ async def _source_fragment(request: Request, source_id: int, **extra) -> HTMLRes
         profiles = [dict(r) for r in await (await db.execute(
             "SELECT id, name, colour_hex FROM profiles ORDER BY sort_order"
         )).fetchall()]
+        event_setup = await _event_setup(db)
     if source is None:
         return HTMLResponse("")
     return templates.TemplateResponse(
-        request, "admin/_inbox_source.html", {"source": source, "profiles": profiles, **extra}
+        request, "admin/_inbox_source.html",
+        {"source": source, "profiles": profiles, "event_setup": event_setup, **extra},
     )
 
 
@@ -671,11 +700,16 @@ async def _inbox_done(request: Request, source_id: int | None, error: str | None
 
 
 async def _candidate_source(candidate_id: int) -> int | None:
+    return (await _candidate_row(candidate_id))[0]
+
+
+async def _candidate_row(candidate_id: int) -> tuple[int | None, str | None]:
+    """(source id, kind) of a candidate, or (None, None)."""
     async with get_db() as db:
         row = await (await db.execute(
-            "SELECT source_id FROM import_candidates WHERE id = ?", (candidate_id,)
+            "SELECT source_id, kind FROM import_candidates WHERE id = ?", (candidate_id,)
         )).fetchone()
-    return row["source_id"] if row else None
+    return (row["source_id"], row["kind"]) if row else (None, None)
 
 
 @router.get("/inbox/sources/{source_id}", response_class=HTMLResponse, dependencies=[Depends(require_admin)])
@@ -696,15 +730,24 @@ async def inbox_approve(
     words: str = Form(""),
     starts_on: str = Form(""),
     ends_on: str = Form(""),
+    event_date: str = Form("", alias="date"),
+    start_time: str = Form(""),
+    end_time: str = Form(""),
+    notes: str = Form(""),
 ):
     form = {
         "profile_id": profile_id, "title": title, "subject": subject, "details": details,
         "due_date": due_date, "words": words, "starts_on": starts_on, "ends_on": ends_on,
+        "date": event_date, "start_time": start_time, "end_time": end_time, "notes": notes,
     }
-    source_id = await _candidate_source(candidate_id)
+    source_id, kind = await _candidate_row(candidate_id)
     async with get_db() as db:
         try:
-            await imports.approve_candidate(db, candidate_id, form)
+            if kind == "event":
+                # Into the Google calendar picked under School email.
+                await school_events.approve_event(db, candidate_id, form)
+            else:
+                await imports.approve_candidate(db, candidate_id, form)
         except imports.CandidateError as exc:
             return await _inbox_done(request, source_id, exc.code)
         except homework.ValidationError as exc:
@@ -744,6 +787,60 @@ async def inbox_delete_source(request: Request, source_id: int):
         except imports.CandidateError as exc:
             return await _inbox_done(request, source_id, exc.code)
     return await _inbox_done(request, source_id)
+
+
+# --- School email (app/school_email.py) ---
+
+@router.post("/school-email/schedule", dependencies=[Depends(require_admin)])
+async def save_school_email_schedule(mode: str = Form(""), time: str = Form("")):
+    try:
+        schedule = school_email.parse_schedule(mode, time)
+    except ValueError:
+        return _admin_error("school-schedule")
+    async with get_db() as db:
+        await school_email.set_schedule(db, schedule)
+    return RedirectResponse(url="/admin#school-email", status_code=303)
+
+
+@router.post("/school-email/senders", dependencies=[Depends(require_admin)])
+async def save_school_email_senders(senders: str = Form(""), exclusions: str = Form("")):
+    try:
+        allow = school_email.parse_entries(senders)
+        deny = school_email.parse_entries(exclusions)
+    except school_email.InvalidEntry:
+        return _admin_error("school-senders")
+    async with get_db() as db:
+        await school_email.set_lists(db, allow, deny)
+    return RedirectResponse(url="/admin#school-email", status_code=303)
+
+
+@router.post("/school-email/calendar", dependencies=[Depends(require_admin)])
+async def save_school_events_calendar(calendar_id: str = Form("")):
+    async with get_db() as db:
+        if not calendar_id:
+            await school_events.set_target_calendar(db, None)
+            return RedirectResponse(url="/admin#school-email", status_code=303)
+        try:
+            access_token = await google_oauth.get_valid_access_token(db)
+            # Re-derive the name and access from Google rather than trusting the form.
+            available = await google_oauth.fetch_calendar_list(access_token) if access_token else []
+        except httpx.HTTPError:
+            available = []
+        match = next((c for c in available if c["id"] == calendar_id and c["writable"]), None)
+        if match is None:
+            return _admin_error("school-calendar")
+        await school_events.set_target_calendar(db, match)
+    return RedirectResponse(url="/admin#school-email", status_code=303)
+
+
+@router.post("/school-email/check", dependencies=[Depends(require_admin)])
+async def check_school_email_now():
+    """Runs one check now. If the scheduled check is mid-run this doesn't
+    start a second one (they share a lock); Admin says so instead."""
+    async with get_db() as db:
+        result = await school_email.check_now(db)
+    status = "done" if result.ran else "busy"
+    return RedirectResponse(url=f"/admin?school_email={status}#school-email", status_code=303)
 
 
 # --- Google Tasks sync ---
