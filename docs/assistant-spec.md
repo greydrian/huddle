@@ -28,7 +28,8 @@ assistant capability, and the model for the rest.
 4. **Send the minimum.**
    - About the children: **first names and year groups only**.
    - Only mail from allowed sources, or mail a parent has labelled for Huddle, is ever read.
-   - **`sen@gresham.croydon.sch.uk` (SENDCo) is never read or sent**, whatever the source.
+   - **`sen@gresham.croydon.sch.uk` (SENDCo) is never read or sent automatically.** The only
+     exception is an email a parent deliberately labels "Huddle" (see A1).
    - Where an answer needs family data, such as Q&A or the digest, only the slice that's needed is
      sent (e.g. the next 14 days of event titles and times), never the whole database.
 5. **Nothing is logged that shouldn't be.** No document content, email bodies, model output,
@@ -70,8 +71,11 @@ parent's phone and on the display. The parent is picked when approving.
 
 New surfaces delivered with A1: **phone pairing** and the **Gmail "Huddle" label**.
 
-*Open:* should mail a parent deliberately labels "Huddle" override the SENDCo exclusion? The
-proposal is **no**: the exclusion stays absolute.
+**The SENDCo exception (decided).** An email a parent deliberately labels "Huddle" **is read even
+if it's from, or mentions, the SENDCo address**. Applying the label is the parent's explicit choice.
+- The automatic daily school-email check still never fetches SENDCo mail.
+- Labelled SENDCo mail follows every other rule: quoted history is stripped, nothing is logged, and
+  only the approved results and a short quote are kept.
 
 ### A2. Quick add in plain words (tablet)
 - Type "Dentist Tuesday 4pm for Alanna", "Milk, eggs, bread" or "Alanna tidy room every Saturday
@@ -87,6 +91,9 @@ proposal is **no**: the exclusion stays absolute.
   items. Only the slice needed for that question is sent.
 - **Read-only.** Answers never change anything. An answer can offer a quick-add card, e.g. "Add a
   reminder?", which then needs confirming.
+- **How long answers stay up.** An answer shows for **30 seconds** by default, changeable in Admin.
+  It can be **dismissed** at any time with a close button or by tapping outside it. Touching the
+  answer keeps it open.
 
 ### A4. Weekly family digest
 - **Sunday at 18:00 by default** (changeable in Admin). A "Week ahead" summary covering:
@@ -111,11 +118,13 @@ proposal is **no**: the exclusion stays absolute.
 - Depends on main spec 10.7, which is due in v1.2.
 
 ## 4. Budget, models and the activity log
-- **A monthly spending cap set in Admin.** When it's reached, the assistant pauses and the tablet
-  and Admin say so. Manual features still work.
+- **A monthly spending cap set in Admin, in pounds (£).** When it's reached, the assistant pauses
+  and the tablet and Admin say so. Manual features still work.
   - Existing safety limits stay underneath it: 25 emails per check, and 60 documents a day.
-  - Anthropic bills in US dollars. Admin shows the spend in both US dollars and an approximate
-    pound figure.
+  - **All costs are shown in pounds**: the cap, each log entry, and the monthly total. Anthropic
+    bills in US dollars, so Huddle converts at an exchange rate set in Admin (defaulting to a
+    sensible current rate). The cap is enforced in pounds, which makes it approximate by the
+    exchange-rate difference.
 - **The model is chosen per task automatically:**
   - a cheaper, faster model for quick add and Q&A
   - the stronger model for PDFs, photos, the digest and meal planning
@@ -147,7 +156,9 @@ proposal is **no**: the exclusion stays absolute.
 
   Each is gated by the scopes actually granted, as today.
 
-## 6. Open questions
-1. Should labelled mail override the SENDCo exclusion? (Proposed: no.)
-2. The pound conversion for the budget: a fixed rate set in Admin, or none (show US dollars only)?
-3. A3 answers: how long to show them, and should they be spoken aloud later (see Voice)?
+## 6. Decided in the review (28 Sep 2026)
+1. A parent-applied "Huddle" label overrides the SENDCo exclusion (see A1). The automatic school
+   check never does.
+2. Budget and costs are shown and capped in pounds, converted at an exchange rate set in Admin.
+3. Answers show for 30 seconds by default, changeable, and can be dismissed. Spoken answers are
+   part of the future voice work.
