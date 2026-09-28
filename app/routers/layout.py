@@ -30,11 +30,12 @@ router = APIRouter()
 GRID_COLUMNS = 12
 MAX_ROW = 500  # y + h ceiling: the dashboard scrolls, but nothing sane is this tall
 
-WidgetId = Literal[tuple(widget_id for widget_id, *_ in DEFAULT_LAYOUT)]
+# Built from the registry at import time, which a static checker can't follow.
+WidgetId = Literal[tuple(widget_id for widget_id, *_ in DEFAULT_LAYOUT)]  # type: ignore[valid-type]
 
 
 class LayoutItem(BaseModel):
-    id: WidgetId
+    id: WidgetId  # type: ignore[valid-type]
     x: StrictInt
     y: StrictInt
     w: StrictInt

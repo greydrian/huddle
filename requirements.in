@@ -1,0 +1,18 @@
+# Runtime dependencies: the human-edited input. requirements.txt is generated
+# from this file (every package pinned, with hashes). See "Dependencies" in
+# the README: edit this file, recompile, commit both.
+fastapi==0.141.1
+uvicorn[standard]==0.52.4
+jinja2==3.1.6
+python-multipart==0.0.32
+aiosqlite==0.22.1
+itsdangerous==2.2.0
+httpx==0.28.1
+cryptography==50.0.1
+python-dotenv==1.2.3
+tzdata==2026.3
+apscheduler==3.11.3
+# School inbox (Claude extractor + HEIC/image handling).
+anthropic==1.8.0
+pillow==12.3.0
+pillow-heif==1.8.0

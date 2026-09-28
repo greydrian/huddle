@@ -186,7 +186,8 @@ async def get_admin_homework(db, today: date) -> tuple[list[dict], list[dict]]:
     """Admin's homework panel: (current, finished). Archived homework, or
     done and already off the widget, is tucked away so the panel doesn't
     grow all term."""
-    homework_items, finished_homework = [], []
+    homework_items: list[dict] = []
+    finished_homework: list[dict] = []
     for row in await (await db.execute(
         "SELECT homework.*, profiles.name AS profile_name FROM homework "
         "JOIN profiles ON profiles.id = homework.profile_id "
@@ -243,13 +244,13 @@ async def toggle_practised(db, list_id: int) -> bool:
     today = await family_today(db)
     if row is None or not is_active(dict(row), today):
         return False
-    today = today.isoformat()
+    today_iso = today.isoformat()
     deleted = await db.execute(
-        "DELETE FROM practice_log WHERE list_id = ? AND practised_on = ?", (list_id, today)
+        "DELETE FROM practice_log WHERE list_id = ? AND practised_on = ?", (list_id, today_iso)
     )
     if deleted.rowcount == 0:
         await db.execute(
-            "INSERT INTO practice_log (list_id, practised_on) VALUES (?, ?)", (list_id, today)
+            "INSERT INTO practice_log (list_id, practised_on) VALUES (?, ?)", (list_id, today_iso)
         )
     await db.commit()
     return True

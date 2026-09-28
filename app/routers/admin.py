@@ -752,7 +752,7 @@ async def inbox_approve(
             return await _inbox_done(request, source_id, exc.code)
         except homework.ValidationError as exc:
             inbox_form = {"id": candidate_id, **form}
-            if _is_htmx(request):
+            if _is_htmx(request) and source_id is not None:
                 return await _source_fragment(request, source_id, inbox_form=inbox_form, inbox_error=str(exc))
             return await _render_admin(request, inbox_error=str(exc), inbox_form=inbox_form, status_code=400)
     return await _inbox_done(request, source_id)

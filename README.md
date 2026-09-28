@@ -91,7 +91,7 @@ that affects dev only.
 
 `docker compose up` automatically layers in `docker-compose.override.yml`,
 which adds `--reload` and bind-mounts `app/` for live code edits. Rebuild
-whenever `requirements.txt` changes. For a clean run without hot-reload, use
+whenever the requirements change. For a clean run without hot-reload, use
 `docker compose -f docker-compose.yml up --build`.
 
 Run **a single uvicorn process** (no `--workers`): the Google sync and daily
@@ -213,11 +213,15 @@ now holds the secret key too, so keep it private (see the trade-off above).
 ```bash
 python3.14 -m venv venv     # match the Docker image and CI
 source venv/bin/activate      # Windows: venv\Scripts\activate
-pip install -r requirements.txt -r requirements-dev.txt
+pip install --require-hashes -r requirements-dev.txt   # includes requirements.txt
 uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 
 ruff check app tests
-python -m pytest -q
+mypy                          # type check app/ ([tool.mypy] in pyproject.toml)
+python -m pytest -q           # unit tests; skips the browser tests
+
+python -m playwright install chromium   # once
+python -m pytest -m e2e       # browser smoke tests (tests/e2e)
 ```
 
 Open `http://localhost:8000/`. The SQLite database is created automatically
@@ -229,6 +233,61 @@ loaded automatically via `python-dotenv`.
 
 The tests use a fresh temporary database each and mock every Google call
 with `respx`.
+
+The browser smoke tests (`tests/e2e`, marked `e2e`) start their own uvicorn
+on a free port with a throwaway `DATA_DIR`, seed it straight into SQLite and
+drive it with headless Chromium at 1280x800: every widget renders, a header
+drag moves a widget while a touch swipe on a card scrolls, a ticked task
+folds into "✓ N done", the on-screen keyboard opens, and Admin logs in and
+scrolls. Nothing external is called. On failure a screenshot lands in
+`test-results/e2e/` (a CI artifact).
+
+Type checking is gradual: `mypy` runs at its default (lenient) level over
+`app/` only, which is clean today, so CI fails on any new error. Widen it
+in `pyproject.toml` a step at a time (add `tests`, then `check_untyped_defs`).
+mypy rather than pyright because it is pure Python: pyright needs Node, and
+its pip package's typeshed paths overflow Windows' 260-character limit
+inside this OneDrive folder.
+
+### Dependencies
+
+`requirements.in` (runtime) and `requirements-dev.in` (tests and tools) are
+the files you edit. `requirements.txt` and `requirements-dev.txt` are
+generated from them by [uv](https://docs.astral.sh/uv/): every package,
+including transitive ones, is pinned with its hashes, and the Docker image
+and CI install with `pip install --require-hashes`, so a tampered or
+substituted download fails the build.
+
+The lock files are compiled **universally** (`--universal`): one file carries
+environment markers and the hashes of every platform's wheels, so the same
+file installs on the Linux image and CI and in a Windows dev venv. (Compiling
+for Linux only would leave Windows without hashes for its own wheels, and
+pip-tools can only resolve for the machine it runs on.)
+
+To add or upgrade a dependency:
+
+```bash
+pip install uv
+# 1. Edit requirements.in (or requirements-dev.in), e.g. bump a pin.
+# 2. Recompile both files (uv keeps every other pin as it is):
+uv pip compile requirements.in --universal --python-version 3.14 --generate-hashes -o requirements.txt
+uv pip compile requirements-dev.in --universal --python-version 3.14 --generate-hashes -o requirements-dev.txt
+#    To move a package that isn't pinned in a .in file: add -P <package>
+#    (or --upgrade for everything).
+# 3. Install, test, and commit the .in and .txt files together.
+pip install --require-hashes -r requirements-dev.txt
+```
+
+CI's `lock` job recompiles and fails if the `.txt` files don't match their
+`.in` files. Rebuild the Docker image after a change.
+
+Dependabot (`.github/dependabot.yml`) opens update PRs: Python weekly
+(minor and patch bumps grouped into one PR), GitHub Actions and the Docker
+base image monthly. It uses the `uv` ecosystem, which re-runs `uv pip compile`
+with the options in the file header; the `pip` ecosystem only knows pip-tools,
+which would lose the universal hashes. The base image is pinned by digest in
+the `Dockerfile` (`python:3.14-slim@sha256:...`), and Dependabot moves the
+digest; it is told to stay on 3.14.
 
 ## Connecting Google (Calendar + Tasks)
 
@@ -334,9 +393,11 @@ Dockerfile                   Python 3.14 image, non-root user, /health check
 docker-compose.yml           Bind-mounted /data, port 8000, restart policy, .env keys
 docker-compose.override.yml  Dev-only: --reload + bind-mounted app/
 .env.example                 GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET / ANTHROPIC_API_KEY
-.github/workflows/ci.yml     ruff + pytest + docker build
-pyproject.toml, pytest.ini   ruff and pytest config
-requirements.txt             Runtime deps (requirements-dev.txt adds test/lint tools)
+.github/workflows/ci.yml     ruff + pytest, lock check, mypy, Playwright e2e, docker build
+.github/dependabot.yml       Weekly Python, monthly Actions + base-image update PRs
+pyproject.toml, pytest.ini   ruff, mypy and pytest config
+requirements.in              Runtime deps you edit (requirements-dev.in adds test/lint tools)
+requirements.txt             Generated: pinned + hashed (and requirements-dev.txt)
 family-display-spec.md       Product spec (source of truth)
 app/
   main.py            FastAPI entrypoint: lifespan (DB init + scheduler), same-origin check, static files
@@ -372,6 +433,7 @@ app/
     icons/           Lucide sprite (ISC) + Meteocons weather icons (MIT)
     vendor/          Pinned HTMX 2.0.10, Gridstack 13.2.0, simple-keyboard 3.8.192
 tests/               pytest suite (temp DB per test, Google mocked with respx)
+  e2e/               Playwright browser smoke tests (`pytest -m e2e`)
 data/                SQLite DB + secret key + backups/ (local dev; bind-mounted in Docker), gitignored
 ```
 

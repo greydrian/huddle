@@ -20,3 +20,6 @@ data/
 # Claude Code: per-agent worktrees and personal settings
 .claude/worktrees/
 .claude/settings.local.json
+
+# Playwright e2e failure screenshots
+test-results/

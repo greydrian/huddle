@@ -190,7 +190,8 @@ async def _store_cache(db, loaded: dict) -> bool:
     try:
         if (await _selection(db))[1] != loaded["selection"]:
             return False
-        await calendar_cache.store(db, loaded["selection"], *loaded["range"], answered)
+        start, end = loaded["range"]
+        await calendar_cache.store(db, loaded["selection"], start, end, answered)
     except sqlite3.Error as exc:  # e.g. briefly locked: the live grid still renders
         logger.warning("Couldn't save the calendar cache: %s", type(exc).__name__)
         return False
@@ -247,7 +248,8 @@ async def _load_events(db, span: Callable[[datetime], tuple[date, date]], cache:
         if live is not None:
             events.extend(live)
             continue
-        cached = await calendar_cache.load(db, loaded["selection"], *loaded["range"], cal_id)
+        start, end = loaded["range"]
+        cached = await calendar_cache.load(db, loaded["selection"], start, end, cal_id)
         if cached is None:
             offline = True
             continue

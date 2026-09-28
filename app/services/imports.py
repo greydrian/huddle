@@ -508,7 +508,8 @@ async def get_inbox(db) -> dict:
         item = dict(row)
         item["payload"] = json.loads(item.pop("payload_json"))
         by_source.setdefault(item["source_id"], []).append(item)
-    active, processed = [], []
+    active: list[dict] = []
+    processed: list[dict] = []
     for source in sources:
         _decorate(source, by_source.get(source["id"], []))
         (processed if source["processed"] else active).append(source)
