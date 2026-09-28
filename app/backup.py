@@ -21,9 +21,11 @@ folder exactly as sensitive as data/ itself.
 import asyncio
 import logging
 import os
+import re
 import sqlite3
 import time
 from datetime import datetime, timedelta, timezone
+from datetime import time as dtime
 from pathlib import Path
 
 from app import database, security
@@ -35,12 +37,16 @@ BACKUP_SUFFIX = ".db"
 TMP_SUFFIX = ".tmp"
 KEEP_DAILY = 14  # the newest 14 backups...
 KEEP_WEEKLY = 8  # ...plus the newest backup of each of the last 8 weeks
-NIGHTLY_AT = (3, 30)  # family-local time
-STALE_AFTER = timedelta(hours=24)
+NIGHTLY_AT = dtime(3, 30)  # family-local time
+# The time in a backup's name (family-local) orders backups, not the file's
+# mtime: copying old backups back in from a NAS must not make them "newest".
+STAMP_FORMAT = "%Y%m%d-%H%M%S"
+NAME_PATTERN = re.compile(r"huddle-(\d{8}-\d{6})(?:-(\d+))?\.db")
 RETRY_AFTER_FAILURE_SECONDS = 3600  # don't retry a failing backup every check
 
 _lock = asyncio.Lock()
 _last_failure: float | None = None  # time.monotonic() of the last failed attempt
+_warned_future: set[str] = set()  # future-stamped backups already logged
 
 
 def backup_dir() -> Path:
@@ -48,20 +54,47 @@ def backup_dir() -> Path:
     return database.DB_PATH.parent / "backups"
 
 
-def list_backups() -> list[Path]:
-    """Completed backups, newest first (by modification time)."""
+def backup_time(path: Path, tz) -> datetime:
+    """When a backup was taken (aware, UTC), from the family-local time in its
+    name; the file's mtime only if the name doesn't parse. An ambiguous
+    autumn-hour stamp reads as its first occurrence (fold=0)."""
+    match = NAME_PATTERN.fullmatch(path.name)
+    if match:
+        try:
+            local = datetime.strptime(match.group(1), STAMP_FORMAT).replace(tzinfo=tz)
+            return local.astimezone(timezone.utc)
+        except ValueError:
+            pass
+    return datetime.fromtimestamp(path.stat().st_mtime, timezone.utc)
+
+
+def _sort_key(path: Path, tz) -> tuple[datetime, int]:
+    match = NAME_PATTERN.fullmatch(path.name)
+    suffix = int(match.group(2)) if match and match.group(2) else 1
+    return backup_time(path, tz), suffix
+
+
+def list_backups(tz) -> list[Path]:
+    """Completed backups, newest first."""
     folder = backup_dir()
     if not folder.is_dir():
         return []
     files = [p for p in folder.glob(f"{BACKUP_PREFIX}*{BACKUP_SUFFIX}") if p.is_file()]
-    return sorted(files, key=lambda p: p.stat().st_mtime, reverse=True)
+    return sorted(files, key=lambda p: _sort_key(p, tz), reverse=True)
 
 
-def newest_backup_time() -> datetime | None:
-    backups = list_backups()
-    if not backups:
-        return None
-    return datetime.fromtimestamp(backups[0].stat().st_mtime, timezone.utc)
+def newest_backup_time(tz, now: datetime) -> datetime | None:
+    """The newest backup taken no later than `now`. A backup stamped in the
+    future (clock was wrong, or the family timezone changed) is logged once
+    and ignored, so it can't suppress backups."""
+    for path in list_backups(tz):
+        taken = backup_time(path, tz)
+        if taken <= now:
+            return taken
+        if path.name not in _warned_future:
+            _warned_future.add(path.name)
+            logger.warning("Backup %s is stamped in the future; ignoring it for scheduling", path.name)
+    return None
 
 
 def _snapshot(src: Path, dest: Path) -> None:
@@ -129,14 +162,14 @@ def _unique_name(folder: Path, stamp: str) -> Path:
 
 def _create_backup_sync(stamp: str) -> Path | None:
     folder = backup_dir()
-    folder.mkdir(parents=True, exist_ok=True)
-    _restrict(folder, 0o700)
-    for leftover in folder.glob(f"*{TMP_SUFFIX}"):  # from a crash mid-backup
-        leftover.unlink(missing_ok=True)
-
-    final = _unique_name(folder, stamp)
-    tmp = folder / f".{final.name}{TMP_SUFFIX}"
+    tmp = None
     try:
+        folder.mkdir(parents=True, exist_ok=True)
+        _restrict(folder, 0o700)
+        for leftover in folder.glob(f"*{TMP_SUFFIX}"):  # from a crash mid-backup
+            leftover.unlink(missing_ok=True)
+        final = _unique_name(folder, stamp)
+        tmp = folder / f".{final.name}{TMP_SUFFIX}"
         _snapshot(database.DB_PATH, tmp)
         if not _integrity_ok(tmp):
             logger.warning("Backup %s failed its integrity check and was deleted", final.name)
@@ -146,7 +179,11 @@ def _create_backup_sync(stamp: str) -> Path | None:
         tmp.replace(final)  # atomic: the complete name only ever holds a verified file
     except (sqlite3.Error, OSError) as exc:
         logger.warning("Backup failed: %s", exc)
-        tmp.unlink(missing_ok=True)
+        if tmp is not None:
+            try:
+                tmp.unlink(missing_ok=True)
+            except OSError:
+                pass
         return None
     try:
         _copy_secret_key(folder, stamp)
@@ -157,14 +194,14 @@ def _create_backup_sync(stamp: str) -> Path | None:
 
 def prune(tz, keep_daily: int = KEEP_DAILY, keep_weekly: int = KEEP_WEEKLY) -> list[Path]:
     """Delete backups outside the retention policy; returns what was deleted."""
-    backups = list_backups()
+    backups = list_backups(tz)
     keep = set(backups[:keep_daily])
     today = datetime.now(tz).date()
     this_monday = today - timedelta(days=today.weekday())
     oldest_week = this_monday - timedelta(weeks=keep_weekly - 1)
     seen_weeks = set()
     for path in backups:  # newest first, so the first one per week is its newest
-        day = datetime.fromtimestamp(path.stat().st_mtime, tz).date()
+        day = backup_time(path, tz).astimezone(tz).date()
         monday = day - timedelta(days=day.weekday())
         if monday >= oldest_week and monday not in seen_weeks:
             seen_weeks.add(monday)
@@ -183,7 +220,7 @@ async def create_backup() -> Path | None:
     async with _lock:
         async with database.get_db() as db:
             tz = await database.family_timezone(db)
-        stamp = datetime.now(tz).strftime("%Y%m%d-%H%M%S")
+        stamp = datetime.now(tz).strftime(STAMP_FORMAT)
         path = await asyncio.to_thread(_create_backup_sync, stamp)
         if path is None:
             _last_failure = time.monotonic()
@@ -197,15 +234,26 @@ async def create_backup() -> Path | None:
         return path
 
 
-def backup_due(newest: datetime | None, now: datetime) -> bool:
-    """`now` is family-local. Due when there's no backup, the newest is over
-    24h old (e.g. the box was off at 03:30), or tonight's 03:30 has passed
-    since the newest one."""
-    if newest is None or now - newest > STALE_AFTER:
-        return True
-    hour, minute = NIGHTLY_AT
-    nightly = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
-    return now >= nightly and newest < nightly
+def last_nightly(now: datetime, tz) -> datetime:
+    """The most recent 03:30 family-local instant at or before `now`, in UTC.
+    Worked in UTC because Python compares same-tz datetimes by wall time,
+    ignoring DST. An ambiguous 03:30 (autumn) means its first occurrence
+    (fold=0); a non-existent one (spring, where clocks jump over 03:30) maps
+    to the matching instant after the jump (e.g. 04:30)."""
+    now_utc = now.astimezone(timezone.utc)
+    day = now_utc.astimezone(tz).date()
+    for _ in range(3):
+        nightly = datetime.combine(day, NIGHTLY_AT, tzinfo=tz).astimezone(timezone.utc)
+        if nightly <= now_utc:
+            return nightly
+        day -= timedelta(days=1)
+    raise AssertionError("unreachable: there is a 03:30 within any three days")
+
+
+def backup_due(newest: datetime | None, now: datetime, tz) -> bool:
+    """Due when there's no backup yet, or none since the most recent 03:30
+    that has passed (which also covers a box that was off at 03:30)."""
+    return newest is None or newest < last_nightly(now, tz)
 
 
 async def run_backup_if_due() -> Path | None:
@@ -214,20 +262,20 @@ async def run_backup_if_due() -> Path | None:
         return None
     async with database.get_db() as db:
         tz = await database.family_timezone(db)
-    if not backup_due(newest_backup_time(), datetime.now(tz)):
+    now = datetime.now(timezone.utc)
+    if not backup_due(newest_backup_time(tz, now), now, tz):
         return None
     return await create_backup()
 
 
 def status(tz) -> dict:
     """For the Admin page: newest backup's local time and size, and the count."""
-    backups = list_backups()
+    backups = list_backups(tz)
     if not backups:
         return {"count": 0, "newest_at": None, "newest_size": None}
-    stat = backups[0].stat()
     return {
         "count": len(backups),
-        "newest_at": datetime.fromtimestamp(stat.st_mtime, tz),
-        "newest_size": stat.st_size,
+        "newest_at": backup_time(backups[0], tz).astimezone(tz),
+        "newest_size": backups[0].stat().st_size,
     }
 

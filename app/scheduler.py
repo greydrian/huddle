@@ -3,8 +3,8 @@ Background jobs, started/stopped from app/main.py's lifespan:
 - Google Tasks sync every 60s (spec 9.4: polling, not push)
 - the end-of-day task reset, checked every 5 minutes (it only acts once per
   family-local day — see services.tasks.run_daily_reset_if_due)
-- the nightly database backup (~03:30 family time, or at startup when the
-  newest backup is over 24h old), checked every 10 minutes — see app/backup.py
+- the nightly database backup (~03:30 family time; catches up at startup
+  if there's none since the last 03:30), checked every 10 minutes — see app/backup.py
 """
 
 from datetime import datetime, timezone

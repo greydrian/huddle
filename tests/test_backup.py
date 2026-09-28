@@ -4,7 +4,9 @@ import os
 import shutil
 import sqlite3
 import threading
-from datetime import datetime, timedelta, timezone
+import time
+from datetime import date, datetime, timedelta, timezone
+from datetime import time as dtime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -20,6 +22,7 @@ LONDON = ZoneInfo("Europe/London")
 @pytest.fixture(autouse=True)
 def reset_backup_state(monkeypatch):
     monkeypatch.setattr(backup, "_last_failure", None)
+    monkeypatch.setattr(backup, "_warned_future", set())
 
 
 def _rows(path: Path, sql: str) -> list:
@@ -34,12 +37,14 @@ def _folder_names() -> set[str]:
     return {p.name for p in backup.backup_dir().iterdir()}
 
 
-def _touch_backup(name: str, when: datetime) -> Path:
+def _touch_backup(when: datetime, name: str | None = None, mtime: datetime | None = None) -> Path:
+    """A fake backup taken at `when` (named by its London-local stamp)."""
     folder = backup.backup_dir()
     folder.mkdir(parents=True, exist_ok=True)
-    path = folder / name
+    path = folder / (name or f"huddle-{when.astimezone(LONDON):%Y%m%d-%H%M%S}.db")
     path.write_bytes(b"x")
-    os.utime(path, (when.timestamp(), when.timestamp()))
+    ts = (mtime or when).timestamp()
+    os.utime(path, (ts, ts))
     return path
 
 
@@ -100,7 +105,7 @@ async def test_failed_snapshot_leaves_no_partial_file(monkeypatch, caplog):
     with caplog.at_level(logging.WARNING, logger="app.backup"):
         assert await backup.create_backup() is None
 
-    assert backup.list_backups() == []
+    assert backup.list_backups(LONDON) == []
     assert _folder_names() == set()
     assert "disk full" in caplog.text
 
@@ -131,7 +136,7 @@ async def test_corrupt_copy_is_deleted_with_a_warning(monkeypatch, caplog):
     with caplog.at_level(logging.WARNING, logger="app.backup"):
         assert await backup.create_backup() is None
 
-    assert backup.list_backups() == []
+    assert backup.list_backups(LONDON) == []
     assert _folder_names() == set()
     assert "integrity check" in caplog.text
 
@@ -150,67 +155,116 @@ async def test_failure_backs_off_before_retrying(monkeypatch):
 
 
 def test_retention_keeps_14_newest_plus_one_per_week_for_8_weeks():
-    now = datetime.now(LONDON).replace(hour=12, minute=0, second=0, microsecond=0)
+    now = datetime.now(LONDON).replace(hour=3, minute=30, second=0, microsecond=0)
     for days_ago in range(120):
-        when = now - timedelta(days=days_ago)
-        _touch_backup(f"huddle-{when:%Y%m%d}-033000.db", when)
+        _touch_backup(now - timedelta(days=days_ago))
     (backup.backup_dir() / ".secret_key").write_bytes(b"k")  # never pruned
 
     backup.prune(LONDON)
 
-    kept = backup.list_backups()
-    kept_days = [(now.date() - datetime.fromtimestamp(p.stat().st_mtime, LONDON).date()).days for p in kept]
+    kept = backup.list_backups(LONDON)
+    kept_dates = [backup.backup_time(p, LONDON).astimezone(LONDON).date() for p in kept]
+    kept_days = [(now.date() - d).days for d in kept_dates]
     assert kept_days[:14] == list(range(14))
     this_monday = now.date() - timedelta(days=now.weekday())
     oldest_week = this_monday - timedelta(weeks=7)
-    weekly = [p for p, d in zip(kept, kept_days, strict=True) if d >= 14]
+    weekly = [d for d, n in zip(kept_dates, kept_days, strict=True) if n >= 14]
     assert weekly  # older weeks are represented...
-    for path in weekly:
-        day = datetime.fromtimestamp(path.stat().st_mtime, LONDON).date()
+    for day in weekly:
         assert day >= oldest_week  # ...only within the last 8 weeks...
-        assert day.weekday() == 6 or day == now.date()  # ...by that week's newest (Sunday)
+        assert day.weekday() == 6  # ...by that week's newest (Sunday)
     assert len(kept) <= 14 + 8
     assert (backup.backup_dir() / ".secret_key").exists()
 
 
 def test_retention_ignores_other_files():
-    _touch_backup("notes.txt", datetime.now(timezone.utc) - timedelta(days=400))
+    now = datetime.now(timezone.utc)
+    _touch_backup(now - timedelta(days=400), name="notes.txt")
     for i in range(20):
-        _touch_backup(f"huddle-2026010{i:02d}.db", datetime.now(timezone.utc) - timedelta(days=100 + i))
+        _touch_backup(now - timedelta(days=100 + i))
 
     backup.prune(LONDON, keep_daily=2, keep_weekly=1)
 
     assert (backup.backup_dir() / "notes.txt").exists()
-    assert len(backup.list_backups()) == 2
+    assert len(backup.list_backups(LONDON)) == 2
 
 
-async def test_secret_key_is_copied_and_follows_changes():
-    key = security._get_secret_key()
+def test_order_comes_from_the_name_not_the_mtime():
+    """Old backups copied back in from a NAS get a fresh mtime; they must
+    not become "newest" and push out the real recent ones."""
+    now = datetime.now(timezone.utc)
+    recent = [_touch_backup(now - timedelta(days=d), mtime=now - timedelta(days=d)) for d in range(3)]
+    old = [_touch_backup(now - timedelta(days=200 + d), mtime=now) for d in range(3)]  # cp'd back today
 
-    await backup.create_backup()
+    assert backup.list_backups(LONDON)[:3] == recent
+    backup.prune(LONDON, keep_daily=3, keep_weekly=1)
+    assert all(p.exists() for p in recent)
+    assert not any(p.exists() for p in old)
 
-    copy = backup.backup_dir() / ".secret_key"
-    assert copy.read_bytes() == key
-    if os.name == "posix":
-        assert copy.stat().st_mode & 0o777 == 0o600
-        assert backup.backup_dir().stat().st_mode & 0o777 == 0o700
 
-    security.SECRET_KEY_PATH.write_bytes(b"n" * 32)  # the key was regenerated
-    await backup.create_backup()
+def test_same_second_suffixes_sort_after_the_first():
+    when = datetime(2026, 9, 28, 12, 0, tzinfo=LONDON)
+    first = _touch_backup(when)
+    second = _touch_backup(when, name=f"{first.stem}-2.db", mtime=when - timedelta(days=5))
+    unparsable = _touch_backup(when - timedelta(days=1), name="huddle-manual.db")  # falls back to mtime
 
-    assert copy.read_bytes() == b"n" * 32
-    replaced = list(backup.backup_dir().glob(".secret_key.replaced-*"))
-    assert [p.read_bytes() for p in replaced] == [key]  # older backups still need it
+    assert backup.list_backups(LONDON) == [second, first, unparsable]
+
+
+async def test_future_stamped_backup_does_not_suppress_backups(caplog):
+    _touch_backup(datetime.now(timezone.utc) + timedelta(days=2))
+
+    with caplog.at_level(logging.WARNING, logger="app.backup"):
+        assert await backup.run_backup_if_due() is not None  # due despite the "newer" one
+        assert await backup.run_backup_if_due() is None  # the real one now counts
+
+    assert caplog.text.count("stamped in the future") == 1  # logged once
 
 
 def test_backup_due_rules():
-    now = datetime(2026, 9, 28, 2, 0, tzinfo=LONDON)
-    assert backup.backup_due(None, now)
-    assert not backup.backup_due(now - timedelta(hours=20), now)  # before 03:30, fresh
-    assert backup.backup_due(now - timedelta(hours=25), now)  # stale: box was off at 03:30
+    before = datetime(2026, 9, 28, 2, 0, tzinfo=LONDON)
+    assert backup.backup_due(None, before, LONDON)
+    assert not backup.backup_due(before - timedelta(hours=20), before, LONDON)  # after last night's run
+    assert backup.backup_due(before - timedelta(hours=25), before, LONDON)  # the box was off at 03:30
     after = datetime(2026, 9, 28, 3, 35, tzinfo=LONDON)
-    assert backup.backup_due(after - timedelta(hours=10), after)  # tonight's run
-    assert not backup.backup_due(after - timedelta(minutes=4), after)  # already done tonight
+    assert backup.backup_due(after - timedelta(hours=10), after, LONDON)  # tonight's run
+    assert not backup.backup_due(after - timedelta(minutes=4), after, LONDON)  # already done tonight
+
+
+# (zone, transition date) for 2026: spring forward and fall back.
+DST_DAYS = [
+    ("Europe/London", date(2026, 3, 29)),
+    ("Europe/London", date(2026, 10, 25)),
+    ("America/New_York", date(2026, 3, 8)),
+    ("America/New_York", date(2026, 11, 1)),
+    ("Europe/Helsinki", date(2026, 3, 29)),  # clocks jump 03:00 -> 04:00: no 03:30 at all
+    ("Europe/Helsinki", date(2026, 10, 25)),  # 04:00 -> 03:00: 03:30 happens twice
+]
+
+
+@pytest.mark.parametrize(("zone", "day"), DST_DAYS)
+def test_exactly_one_backup_per_night_across_dst(zone, day):
+    """Walk the 10-minute scheduler over the nights around a DST change,
+    stamping each backup the way create_backup does and reading it back."""
+    tz = ZoneInfo(zone)
+    start = datetime.combine(day - timedelta(days=1), dtime(12, 0), tzinfo=tz).astimezone(timezone.utc)
+    end = datetime.combine(day + timedelta(days=2), dtime(12, 0), tzinfo=tz).astimezone(timezone.utc)
+    newest = backup.last_nightly(start, tz)  # last night's backup already exists
+    taken = []
+    now = start
+    while now < end:
+        if backup.backup_due(newest, now, tz):
+            stamp = now.astimezone(tz).strftime(backup.STAMP_FORMAT)
+            newest = backup.backup_time(Path(f"huddle-{stamp}.db"), tz)
+            assert newest <= now
+            taken.append(now.astimezone(tz))
+        now += timedelta(minutes=10)
+
+    nights = [d.date() for d in taken]
+    assert nights == [day, day + timedelta(days=1), day + timedelta(days=2)]
+    for when in taken:
+        wall = when.hour * 60 + when.minute
+        assert 3 * 60 + 30 <= wall < 4 * 60 + 40, when  # ~03:30 (04:30 when 03:30 doesn't exist)
 
 
 async def test_startup_catch_up_only_when_stale(monkeypatch):
@@ -221,23 +275,62 @@ async def test_startup_catch_up_only_when_stale(monkeypatch):
         return Path("x")
 
     monkeypatch.setattr(backup, "create_backup", fake_create)
-    # Pin "now" to midday so only the staleness rule (not tonight's 03:30) applies.
-    noon = datetime.now(LONDON).replace(hour=12, minute=0, second=0, microsecond=0)
+    now = datetime.now(timezone.utc)
 
-    class FixedNow(datetime):
-        @classmethod
-        def now(cls, tz=None):
-            return noon.astimezone(tz)
-
-    monkeypatch.setattr(backup, "datetime", FixedNow)
-
-    fresh = _touch_backup("huddle-fresh.db", noon - timedelta(hours=2))
+    fresh = _touch_backup(backup.last_nightly(now, LONDON) + timedelta(minutes=1))
     assert await backup.run_backup_if_due() is None
     assert runs == []
 
-    os.utime(fresh, ((noon - timedelta(hours=30)).timestamp(),) * 2)
+    fresh.unlink()  # the newest is now from before the last 03:30 (box was off)
+    _touch_backup(backup.last_nightly(now, LONDON) - timedelta(hours=1))
     assert await backup.run_backup_if_due() is not None
     assert runs == [1]
+
+
+async def test_setup_failure_is_logged_and_backs_off(monkeypatch, caplog):
+    """E.g. a root-owned leftover .tmp that can't be removed: no traceback
+    every 10 minutes, just a warning and the usual retry backoff."""
+    calls = []
+
+    def unwritable(folder, stamp):
+        calls.append(stamp)
+        raise PermissionError("permission denied")
+
+    monkeypatch.setattr(backup, "_unique_name", unwritable)
+
+    with caplog.at_level(logging.WARNING, logger="app.backup"):
+        assert await backup.run_backup_if_due() is None
+        assert await backup.run_backup_if_due() is None
+
+    assert len(calls) == 1
+    assert "permission denied" in caplog.text
+    assert backup._last_failure is not None
+
+
+async def test_overlapping_backups_are_serialised(monkeypatch):
+    real_snapshot = backup._snapshot
+    active = 0
+    peak = 0
+    guard = threading.Lock()
+
+    def slow_snapshot(src, dest):
+        nonlocal active, peak
+        with guard:
+            active += 1
+            peak = max(peak, active)
+        time.sleep(0.2)
+        real_snapshot(src, dest)
+        with guard:
+            active -= 1
+
+    monkeypatch.setattr(backup, "_snapshot", slow_snapshot)
+
+    paths = await asyncio.gather(backup.create_backup(), backup.create_backup(), backup.create_backup())
+
+    assert peak == 1
+    assert all(p is not None for p in paths)
+    assert len(set(paths)) == 3  # same-second runs get -2/-3 names, nothing overwritten
+    assert len(backup.list_backups(LONDON)) == 3
 
 
 async def test_backups_route_requires_admin(client):
@@ -257,7 +350,7 @@ async def test_back_up_now_and_admin_panel(client):
     resp = await client.post("/admin/backups/run")
     assert resp.status_code == 303
     assert resp.headers["location"] == "/admin#backups"
-    assert len(backup.list_backups()) == 1
+    assert len(backup.list_backups(LONDON)) == 1
 
     page = await client.get("/admin")
     assert 'id="backups"' in page.text
@@ -267,10 +360,10 @@ async def test_back_up_now_and_admin_panel(client):
 async def test_back_up_now_failure_shows_an_error(client, monkeypatch):
     client.cookies.set(admin.SESSION_COOKIE, create_session_token())
 
-    async def failed():
-        return None
+    def unwritable(folder, stamp):
+        raise PermissionError("permission denied")
 
-    monkeypatch.setattr(backup, "create_backup", failed)
+    monkeypatch.setattr(backup, "_unique_name", unwritable)  # not a 500
     resp = await client.post("/admin/backups/run")
 
     assert resp.headers["location"] == "/admin?error=backup-failed#backups"

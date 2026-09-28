@@ -109,12 +109,17 @@ reset run on an in-process scheduler.
 ## Backups and restore
 
 The app backs up its database every night at about 03:30 in the family's
-timezone (the connected calendar's; UTC if none), and at startup if the
-newest backup is more than 24 hours old (e.g. the G10 was off at 03:30).
+timezone (the connected calendar's; UTC if none). If the G10 was off at
+03:30, the backup runs as soon as it's back up: the app checks every 10
+minutes (and at startup) whether a backup exists since the most recent 03:30.
+DST changes still give exactly one backup a night. Where clocks skip 03:30,
+it runs at 04:30.
 Admin → Backups shows the latest one and has a "Back up now" button.
 
 - **Where**: `data/family-display/backups/` on the host (`/data/backups/` in
   the container), named `huddle-YYYYMMDD-HHMMSS.db` in family-local time.
+  The time in the name decides which backup is newest, not the file's
+  modification time, so copying old backups back in doesn't confuse retention.
 - **How**: SQLite `VACUUM INTO`, which takes a consistent snapshot of the live
   database, including changes still in the WAL, without stopping the app. Each
   file is written under a temporary name, checked with `PRAGMA
@@ -149,28 +154,38 @@ On the G10, from the project folder:
 # 1. Stop the app so nothing writes to the database.
 docker compose -f docker-compose.yml stop family-display
 
-# 2. Put the chosen backup in place of the live database.
+# 2. Put the chosen backup in place of the live database. (sudo: backups/ is
+#    0700 and its files 0600, owned by the container's uid 1000.)
 cd data/family-display
-cp family_display.db family_display.db.before-restore    # optional safety copy
-cp backups/huddle-YYYYMMDD-HHMMSS.db family_display.db
+sudo cp family_display.db family_display.db.before-restore    # optional safety copy
+sudo cp backups/huddle-YYYYMMDD-HHMMSS.db family_display.db
 
 # 3. Remove the old database's WAL/shared-memory files. They belong to the
 #    database you just replaced, and SQLite would try to apply them to the backup.
-rm -f family_display.db-wal family_display.db-shm
+sudo rm -f family_display.db-wal family_display.db-shm
 
-# 4. The secret key must be the one the backup was made with. Normally it
-#    hasn't changed. If it has (or .secret_key is missing), restore it:
-cmp .secret_key backups/.secret_key || cp backups/.secret_key .secret_key
-#    (for an older backup, a .secret_key.replaced-<time> file may be the right key)
+# 4. Put back the secret key the backup needs (see "Which key" below). For
+#    the usual case, a backup newer than every .secret_key.replaced-* file:
+sudo cmp .secret_key backups/.secret_key || sudo cp backups/.secret_key .secret_key
 
 # 5. The container runs as uid 1000; keep the files owned by it.
 sudo chown 1000:1000 family_display.db .secret_key
-chmod 600 .secret_key
+sudo chmod 600 .secret_key
 cd ../..
 
 # 6. Start the app again.
 docker compose -f docker-compose.yml start family-display
 ```
+
+**Which key**: a backup stamped B needs the key that was current at B. That
+is the earliest `.secret_key.replaced-T` whose T is later than B. If there is
+no such file, it needs the current `backups/.secret_key`. Both stamps are
+family-local `YYYYMMDD-HHMMSS`, so compare them as text. For example, with
+`.secret_key.replaced-20261103-033000` present, `huddle-20261101-033000.db`
+needs that file (`sudo cp backups/.secret_key.replaced-20261103-033000
+.secret_key`), and `huddle-20261104-033000.db` needs `backups/.secret_key`. With
+the wrong key the restore still works, but Google shows as disconnected and
+you'll need to reconnect it in Admin.
 
 ### Keep a copy off the box
 
