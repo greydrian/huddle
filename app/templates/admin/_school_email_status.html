@@ -1,0 +1,19 @@
+{#- Admin → School email's status line (school_email.summary() as `school`):
+    included by settings.html and returned alone by GET /admin/school-email/status,
+    which it polls every 3s while a check (Check now runs in the background) is going. -#}
+<div id="school-email-status" hx-target="this" hx-swap="outerHTML"
+     {%- if school.running %} hx-get="/admin/school-email/status" hx-trigger="every 3s"{% endif %}>
+  {% if school.running %}
+  <p class="inbox-reading" role="status"><span class="inbox-spinner" aria-hidden="true"></span>Checking school email… this can take a few minutes.</p>
+  {% endif %}
+  <p class="school-email-status">
+    {% if school.last_check_at %}Last checked <strong>{{ school.last_check_ago }}</strong>
+      <span class="admin-meta">({{ school.last_check_at.strftime("%a %d %b, %H:%M") }})</span> ·
+      {% if school.result_ok %}{{ school.emails_read }} new email{{ '' if school.emails_read == 1 else 's' }}, {{ school.items_found }} item{{ '' if school.items_found == 1 else 's' }} found
+      {%- else %}<span class="school-email-problem">{{ school.result_text }}</span>{% if school.emails_read %} ({{ school.emails_read }} email{{ '' if school.emails_read == 1 else 's' }} read, {{ school.items_found }} item{{ '' if school.items_found == 1 else 's' }} found){% endif %}{% endif %}
+      {%- if school.skipped_count %} · <span class="admin-meta">{{ school.skipped_count }} skipped (not from the school, or mentioning an excluded address)</span>{% endif %}
+    {%- else %}Not checked yet{% endif %}
+    <br><span class="admin-meta">{% if school.next_check_at %}Next check {{ school.next_check_at.strftime("%a %d %b, %H:%M") }}{% else %}Scheduled checks are off{% endif %}
+      · at most {{ school.per_run_cap }} emails a check, {{ school.daily_cap }} documents read by Claude a day ({{ school.calls_left }} left today)</span>
+  </p>
+</div>

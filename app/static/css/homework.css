@@ -145,6 +145,8 @@
 .inbox-event { margin: 8px 0 2px; overflow-wrap: anywhere; }
 .inbox-evidence { margin: 8px 0 0; font-size: 0.82rem; font-style: italic; color: var(--ink-soft); overflow-wrap: anywhere; }
 .inbox-processed .inbox-source { opacity: 0.85; }
+/* A school email Gmail couldn't authenticate (no SPF/DKIM/DMARC verdict). */
+.inbox-unverified { font-size: 0.8rem; font-weight: 700; padding: 3px 9px; border-radius: 999px; background: var(--sunken); color: var(--danger); }
 
 /* --- Admin: School email panel (settings.html #school-email) ---
    Status line, Check now, then the schedule / sender forms side by side

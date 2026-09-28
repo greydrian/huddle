@@ -779,6 +779,18 @@ async def inbox_approve_all(request: Request, source_id: int):
     return await _inbox_done(request, source_id)
 
 
+@router.post("/inbox/sources/{source_id}/retry", dependencies=[Depends(require_admin)])
+async def inbox_retry_source(request: Request, source_id: int):
+    """A school email Claude gave up on: read it again (a check starts now)."""
+    async with get_db() as db:
+        try:
+            await imports.retry_source(db, source_id)
+        except imports.CandidateError as exc:
+            return await _inbox_done(request, source_id, exc.code)
+    school_email.start_check()
+    return await _inbox_done(request, source_id)
+
+
 @router.post("/inbox/sources/{source_id}/delete", dependencies=[Depends(require_admin)])
 async def inbox_delete_source(request: Request, source_id: int):
     async with get_db() as db:
@@ -835,12 +847,19 @@ async def save_school_events_calendar(calendar_id: str = Form("")):
 
 @router.post("/school-email/check", dependencies=[Depends(require_admin)])
 async def check_school_email_now():
-    """Runs one check now. If the scheduled check is mid-run this doesn't
-    start a second one (they share a lock); Admin says so instead."""
-    async with get_db() as db:
-        result = await school_email.check_now(db)
-    status = "done" if result.ran else "busy"
+    """Starts one check in the background (it can take minutes: up to
+    MAX_MESSAGES_PER_RUN Claude reads). If a check is already running, this
+    doesn't start a second one; Admin says so instead."""
+    status = "started" if school_email.start_check() else "busy"
     return RedirectResponse(url=f"/admin?school_email={status}#school-email", status_code=303)
+
+
+@router.get("/school-email/status", response_class=HTMLResponse, dependencies=[Depends(require_admin)])
+async def school_email_status(request: Request):
+    """The School email status line: polled while a check is running."""
+    async with get_db() as db:
+        school = await school_email.summary(db)
+    return templates.TemplateResponse(request, "admin/_school_email_status.html", {"school": school})
 
 
 # --- Google Tasks sync ---

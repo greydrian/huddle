@@ -286,9 +286,17 @@ emails from the connected Gmail account and puts what Claude finds in them
 (spellings, homework, events) in Admin's **School inbox** to approve. Only
 emails from the listed school senders are read, and only those are sent to
 the Anthropic API. `sen@gresham.croydon.sch.uk` (private SENDCo
-conversations) is never fetched, whatever the lists say. Approved events go
-into a Google calendar you pick. Code: `app/school_email.py`,
-`app/google_gmail.py`, `app/services/school_events.py`.
+conversations) is never fetched, whatever the lists say, and an email that
+forwards, quotes or mentions it is dropped whole. Quoted reply history is
+stripped before anything is sent, and emails whose sender fails Gmail's
+DMARC/SPF/DKIM checks are dropped (ones with no verdict are marked "Sender
+not verified"). Approved events go into a Google calendar you pick. Code:
+`app/school_email.py`, `app/google_gmail.py`, `app/services/school_events.py`.
+
+Cost caps: at most 25 emails are sent to Claude per check (oldest first; the
+rest follow 15 minutes later), and at most 60 documents a day across the
+whole School inbox, uploads included. An email Claude can't read is retried
+at the next checks and given up after 3 tries; Admin offers Retry.
 
 Setup, once:
 

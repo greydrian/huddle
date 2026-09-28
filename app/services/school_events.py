@@ -9,7 +9,10 @@ called, so a double submit can't create two events. A Calendar failure puts
 it back to pending with a clear error; success stores the new event's id.
 The event id is chosen here, deterministically per candidate, so even a
 crash between the insert and the final update can't lead to a second
-event: the retry gets HTTP 409 (already exists), which counts as done.
+event: the retry gets HTTP 409 (already exists), which counts as done. The
+calendar is fixed at the first claim too (claim_calendar_id), so changing
+the School events calendar in between can't put it in two calendars; it's
+only forgotten when Google definitely refused the insert.
 """
 
 import hashlib
@@ -113,14 +116,21 @@ def _failure_code(exc: httpx.HTTPError) -> str:
     return "import-calendar-offline"
 
 
-async def _release(db, candidate_id: int):
-    """Back to pending after a failed insert (only if still claimed by us)."""
+async def _release(db, candidate_id: int, forget_calendar: bool = False):
+    """Back to pending after a failed insert (only if still claimed by us).
+    The claimed calendar is kept unless Google definitely didn't create the
+    event (a timeout or 5xx might have)."""
     await db.execute(
-        """UPDATE import_candidates SET status = 'pending', updated_at = datetime('now')
+        """UPDATE import_candidates SET status = 'pending', updated_at = datetime('now'),
+               claim_calendar_id = CASE WHEN ? THEN NULL ELSE claim_calendar_id END
            WHERE id = ? AND status = 'approving'""",
-        (candidate_id,),
+        (int(forget_calendar), candidate_id),
     )
     await db.commit()
+
+
+def _definitely_not_created(exc: BaseException) -> bool:
+    return isinstance(exc, httpx.HTTPStatusError) and 400 <= exc.response.status_code < 500         and exc.response.status_code not in (408, 409, 429)
 
 
 async def approve_event(db, candidate_id: int, form: dict) -> str:
@@ -147,18 +157,22 @@ async def approve_event(db, candidate_id: int, form: dict) -> str:
     # of pending. Committed before Google is called, so the write lock isn't
     # held across the network.
     claimed = await db.execute(
-        """UPDATE import_candidates SET status = 'approving', updated_at = datetime('now')
+        """UPDATE import_candidates SET status = 'approving', updated_at = datetime('now'),
+               claim_calendar_id = COALESCE(claim_calendar_id, ?)
            WHERE id = ? AND status = 'pending'""",
-        (candidate_id,),
+        (target["id"], candidate_id),
     )
     await db.commit()
     if claimed.rowcount != 1:
         raise CandidateError("import-missing")
+    calendar_id = (await (await db.execute(
+        "SELECT claim_calendar_id FROM import_candidates WHERE id = ?", (candidate_id,)
+    )).fetchone())["claim_calendar_id"]
 
     resource = event_resource(candidate, fields, tz)
     try:
         try:
-            created = await google_calendar.insert_event(access_token, target["id"], resource)
+            created = await google_calendar.insert_event(access_token, calendar_id, resource)
             created_id = created.get("id") or resource["id"]
         except httpx.HTTPStatusError as exc:
             if exc.response.status_code != 409:  # 409: this very event already exists
@@ -168,7 +182,7 @@ async def approve_event(db, candidate_id: int, form: dict) -> str:
         code = _failure_code(exc)
         http_client.report_failure(logger, "Google Calendar (add event)", "Couldn't add a school event: %s",
                                    http_client.describe(exc))
-        await _release(db, candidate_id)
+        await _release(db, candidate_id, forget_calendar=_definitely_not_created(exc))
         raise CandidateError(code) from None
     except BaseException:
         await _release(db, candidate_id)

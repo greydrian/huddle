@@ -132,9 +132,9 @@ class Mailbox:
 
     def add(self, mid, sender="Year 4 <year4@gresham.croydon.sch.uk>", subject="Homework this week",
             text="Please read chapter 3.", html=None, to="family@example.com", cc=None, attachments=(),
-            received=NOW - timedelta(hours=3)):
+            received=NOW - timedelta(hours=3), auth="mx.google.com; dkim=pass; spf=pass; dmarc=pass"):
         self.messages[mid] = {"from": sender, "subject": subject, "text": text, "html": html, "to": to,
-                              "cc": cc, "attachments": list(attachments), "received": received}
+                              "cc": cc, "attachments": list(attachments), "received": received, "auth": auth}
         return mid
 
     def _ids(self):
@@ -156,6 +156,8 @@ class Mailbox:
         headers = [("From", msg["from"]), ("To", msg["to"]), ("Subject", msg["subject"])]
         if msg["cc"]:
             headers.append(("Cc", msg["cc"]))
+        for value in [msg["auth"]] if isinstance(msg["auth"], str) else msg["auth"] or []:
+            headers.append(("Authentication-Results", value))
         return [{"name": n, "value": v} for n, v in headers if names is None or n in names]
 
     def _get(self, request, **_groups):
@@ -164,7 +166,8 @@ class Mailbox:
         if request.url.params.get("format") == "metadata":
             self.metadata_fetches.append(mid)
             names = request.url.params.get_list("metadataHeaders")
-            return httpx.Response(200, json={"id": mid, "payload": {"headers": self._headers(msg, names)}})
+            return httpx.Response(200, json={"id": mid, "internalDate": self._internal(msg),
+                                             "payload": {"headers": self._headers(msg, names)}})
         self.full_fetches.append(mid)
         parts = []
         if msg["text"] is not None:
@@ -175,8 +178,11 @@ class Mailbox:
             parts.append({"mimeType": mime, "filename": filename,
                           "body": {"attachmentId": f"{mid}-a{index}", "size": size if size is not None else len(data)}})
         payload = {"mimeType": "multipart/mixed", "headers": self._headers(msg), "parts": parts}
-        internal = str(int(msg["received"].timestamp() * 1000))
-        return httpx.Response(200, json={"id": mid, "internalDate": internal, "payload": payload})
+        return httpx.Response(200, json={"id": mid, "internalDate": self._internal(msg), "payload": payload})
+
+    @staticmethod
+    def _internal(msg):
+        return str(int(msg["received"].timestamp() * 1000))
 
     def _attachment(self, request, **_groups):
         match = ATTACHMENT_URL.match(str(request.url))
@@ -211,12 +217,12 @@ def test_query_has_allowlist_exclusions_and_checkpoint():
     assert query == (
         "from:(office@greshamprimary.school OR @gresham.croydon.sch.uk) "
         "-from:sen@gresham.croydon.sch.uk -to:sen@gresham.croydon.sch.uk -cc:sen@gresham.croydon.sch.uk "
-        "after:1790000000"
+        '-"sen@gresham.croydon.sch.uk" after:1790000000'
     )
     # The SENDCo address is excluded even when the editable list doesn't name it, and only once when it does.
     query = school_email.build_query(["office@greshamprimary.school"], ["*@spam.example", "sen@gresham.croydon.sch.uk"], 5)
     assert query.count("-from:sen@gresham.croydon.sch.uk") == 1
-    assert "-from:@spam.example -to:@spam.example -cc:@spam.example" in query
+    assert "-from:@spam.example -to:@spam.example -cc:@spam.example after:5" in query  # no text term for a domain
     with pytest.raises(ValueError):
         school_email.build_query([], [], 5)
 
@@ -322,7 +328,7 @@ async def test_every_page_of_the_search_is_read(db, gmail, claude, mailbox):
     result = await school_email.check_now(db, NOW)
     assert result.emails == 5
     assert mailbox.list_route.call_count == 3
-    # Oldest first, so a capped run keeps its place.
+    # Read oldest first (Gmail lists newest first).
     assert [s["source_ref"] for s in await _sources(db)] == ["m0", "m1", "m2", "m3", "m4"]
 
 
@@ -417,7 +423,7 @@ async def test_checkpoint_advances_only_after_success(db, gmail, claude, mailbox
     assert mailbox.queries[-1].endswith(f"after:{int((NOW + timedelta(hours=1, days=-1)).timestamp())}")
 
 
-async def test_a_gmail_failure_mid_run_keeps_the_checkpoint(db, gmail, claude, mailbox):
+async def test_a_gmail_failure_mid_run_keeps_what_was_settled(db, gmail, claude, mailbox):
     mailbox.add("m1", received=NOW - timedelta(hours=5))
     mailbox.add("m2", received=NOW - timedelta(hours=4))
     real_get = mailbox._get
@@ -430,8 +436,16 @@ async def test_a_gmail_failure_mid_run_keeps_the_checkpoint(db, gmail, claude, m
     mailbox.message_route.mock(side_effect=flaky)
     result = await school_email.check_now(db, NOW)
     assert (result.result, result.emails) == ("offline", 1)
-    assert await school_email.get_checkpoint(db) is None
-    assert [s["source_ref"] for s in await _sources(db)] == ["m1"]  # kept; not re-read next time
+    # Up to m1 (the last message settled), less the overlap: m2 is listed again.
+    m1 = NOW - timedelta(hours=5)
+    assert await school_email.get_checkpoint(db) == int((m1 - school_email.CHECKPOINT_OVERLAP).timestamp())
+    assert [s["source_ref"] for s in await _sources(db)] == ["m1"]
+
+    mailbox.message_route.mock(side_effect=real_get)
+    again = await school_email.check_now(db, NOW + timedelta(hours=1))
+    assert (again.result, again.emails) == ("ok", 1)
+    assert [s["source_ref"] for s in await _sources(db)] == ["m1", "m2"]
+    assert mailbox.full_fetches.count("m1") == 1  # not fetched again
 
 
 async def test_a_transient_claude_failure_is_retried_next_time(db, gmail, claude, mailbox, monkeypatch):
@@ -444,7 +458,8 @@ async def test_a_transient_claude_failure_is_retried_next_time(db, gmail, claude
     monkeypatch.setattr(imports, "extract", offline)
     first = await school_email.check_now(db, NOW)
     assert first.result == "extract_failed"
-    assert await school_email.get_checkpoint(db) is None
+    # One failed email doesn't hold the checkpoint back: it's retried from the inbox.
+    assert await school_email.get_checkpoint(db) == int((NOW - school_email.CHECKPOINT_OVERLAP).timestamp())
 
     monkeypatch.setattr(imports, "extract", real_extract)
     second = await school_email.check_now(db, NOW + timedelta(hours=1))
@@ -687,11 +702,24 @@ async def test_check_now_and_the_lock(db, admin_client, monkeypatch):
     release.set()
     assert (await scheduled).result == "ok"
 
+    # Check now runs in the background: the request returns at once, and
+    # the status line polls itself while the check runs.
+    release.clear()
+    started.clear()
     r = await admin_client.post("/admin/school-email/check")
-    assert r.headers["location"] == "/admin?school_email=done#school-email"
-    assert len(calls) == 2
-    page = (await admin_client.get("/admin?school_email=done")).text
-    assert "2 new emails, 3 items found" in page and "Checked just now" in page
+    assert r.headers["location"] == "/admin?school_email=started#school-email"
+    await started.wait()
+    assert school_email.check_in_progress()
+    page = (await admin_client.get("/admin?school_email=started")).text
+    assert "Checking school email" in page and 'hx-get="/admin/school-email/status"' in page
+    assert "Checking in the background" in page
+    r = await admin_client.post("/admin/school-email/check")
+    assert r.headers["location"] == "/admin?school_email=busy#school-email"
+    release.set()
+    await school_email.wait_for_background()
+    assert len(calls) == 2 and not school_email.check_in_progress()
+    fragment = (await admin_client.get("/admin/school-email/status")).text
+    assert "2 new emails, 3 items found" in fragment and "hx-get" not in fragment  # stops polling
 
 
 async def test_a_crash_is_recorded_not_raised(db, monkeypatch, caplog):
@@ -911,6 +939,325 @@ async def test_admin_panel_shows_status(db, gmail, google, admin_client):
     page = (await admin_client.get("/admin")).text
     assert 'id="school-email"' in page and "Not checked yet" in page and "Next check" in page
     assert "office@greshamprimary.school" in page and "sen@gresham.croydon.sch.uk is never read" in page
-    await school_email._record(db, NOW, "offline")
+    await school_email._record(db, NOW, school_email.CheckResult("offline"))
     page = (await admin_client.get("/admin")).text
     assert "Couldn&#39;t reach Google" in page
+
+
+# --- Review fixes: caps, poison messages, privacy, hostile entries, auth, calendar pinning ---
+
+async def _source(db, ref):
+    row = await (await db.execute("SELECT * FROM import_sources WHERE source_ref = ?", (ref,))).fetchone()
+    return dict(row) if row else None
+
+
+async def test_a_capped_run_reads_the_oldest_and_carries_on(db, gmail, claude, mailbox, monkeypatch):
+    monkeypatch.setattr(school_email, "MAX_MESSAGES_PER_RUN", 3)
+    for i in range(7):
+        mailbox.add(f"m{i}", received=NOW - timedelta(hours=20 - i))
+
+    first = await school_email.check_now(db, NOW)
+    assert (first.result, first.emails, first.remaining) == ("capped", 3, 4)
+    assert [s["source_ref"] for s in await _sources(db)] == ["m0", "m1", "m2"]  # the oldest three
+    m2 = NOW - timedelta(hours=18)
+    assert await school_email.get_checkpoint(db) == int((m2 - school_email.CHECKPOINT_OVERLAP).timestamp())
+    summary = await school_email.summary(db, NOW)
+    assert summary["result_text"] == "Capped at 3 emails: 4 remaining, continuing next check"
+    # It comes back sooner than the next scheduled time.
+    status = await school_email.get_status(db)
+    daily = await school_email.get_schedule(db)
+    assert not school_email.is_due(status, daily, NOW + timedelta(minutes=5), LONDON)
+    assert school_email.is_due(status, daily, NOW + school_email.CONTINUE_AFTER, LONDON)
+
+    second = await school_email.check_now(db, NOW + timedelta(minutes=15))
+    assert (second.result, second.emails, second.remaining) == ("capped", 3, 1)
+    third = await school_email.check_now(db, NOW + timedelta(minutes=30))
+    assert (third.result, third.emails) == ("ok", 1)
+    assert [s["source_ref"] for s in await _sources(db)] == [f"m{i}" for i in range(7)]
+    assert len(claude.calls) == 7
+    assert sorted(mailbox.full_fetches) == [f"m{i}" for i in range(7)]  # each fetched once
+
+
+def test_the_caps_are_named_constants():
+    assert school_email.MAX_MESSAGES_PER_RUN == 25
+    assert imports.DAILY_CLAUDE_CAP == 60
+    assert imports.MAX_ATTEMPTS == 3
+
+
+async def test_a_poison_email_is_given_up_after_three_tries(db, gmail, claude, mailbox, monkeypatch, admin_client):
+    mailbox.add("poison", received=NOW - timedelta(hours=5))
+    mailbox.add("fine", received=NOW - timedelta(hours=4))
+    calls = []
+    real_extract = imports.extract
+
+    async def flaky(doc, *args):
+        calls.append(doc.source_ref)
+        if doc.source_ref == "poison":
+            raise extraction.ExtractionFailed("error")
+        return await real_extract(doc, *args)
+
+    monkeypatch.setattr(imports, "extract", flaky)
+    first = await school_email.check_now(db, NOW)
+    assert first.result == "extract_failed" and first.emails == 2
+    # The checkpoint isn't held back by it.
+    assert await school_email.get_checkpoint(db) == int((NOW - school_email.CHECKPOINT_OVERLAP).timestamp())
+    for hour in (2, 4):
+        await school_email.check_now(db, NOW + timedelta(hours=hour))
+    source = await _source(db, "poison")
+    assert (source["status"], source["attempts"]) == ("failed_permanently", 3)
+    fourth = await school_email.check_now(db, NOW + timedelta(hours=6))
+    assert fourth.result == "ok"
+    assert calls.count("poison") == 3 and calls.count("fine") == 1
+
+    # Admin shows it with Retry, which reads it once more (in the background).
+    fragment = (await admin_client.get(f"/admin/inbox/sources/{source['id']}")).text
+    assert "Retry" in fragment and "after 3 tries" in fragment
+    await admin_client.post(f"/admin/inbox/sources/{source['id']}/retry", headers={"HX-Request": "true"})
+    await school_email.wait_for_background()
+    assert calls.count("poison") == 4
+    assert (await _source(db, "poison"))["attempts"] == 1
+
+
+async def test_retry_only_works_on_failed_school_emails(db, admin_client):
+    cursor = await db.execute(
+        "INSERT INTO import_sources (kind, source_ref, status) VALUES ('upload', 'u1', 'failed')")
+    await db.commit()
+    r = await admin_client.post(f"/admin/inbox/sources/{cursor.lastrowid}/retry")
+    assert r.headers["location"] == "/admin?error=import-missing#inbox"
+
+
+async def test_a_database_crash_while_storing_counts_as_an_attempt(db, gmail, claude, mailbox, monkeypatch):
+    mailbox.add("m1")
+
+    async def boom(*args):
+        raise RuntimeError("database is locked")
+
+    monkeypatch.setattr(imports, "_store_candidate", boom)
+    for hour in range(4):
+        await school_email.check_now(db, NOW + timedelta(hours=2 * hour))
+    source = await _source(db, "m1")
+    assert (source["status"], source["attempts"]) == ("failed_permanently", 3)
+    assert len(claude.calls) == 3
+
+
+@pytest.mark.parametrize("code", ["rejected", "too_large", "no_result", "pdf_too_long"])
+async def test_permanent_failures_are_not_sent_again(db, gmail, claude, mailbox, monkeypatch, code):
+    mailbox.add("m1")
+    calls = []
+
+    async def refuse(doc, *args):
+        calls.append(doc.source_ref)
+        raise extraction.ExtractionFailed(code)
+
+    monkeypatch.setattr(imports, "extract", refuse)
+    assert (await school_email.check_now(db, NOW)).result == "ok"
+    await school_email.check_now(db, NOW + timedelta(days=1))
+    assert calls == ["m1"]
+    assert mailbox.full_fetches == ["m1"]
+
+
+async def test_the_daily_claude_cap_covers_every_import(db, gmail, claude, mailbox, monkeypatch, google):
+    monkeypatch.setattr(imports, "DAILY_CLAUDE_CAP", 2)
+    for i in range(3):
+        mailbox.add(f"m{i}", received=NOW - timedelta(hours=10 - i))
+    first = await school_email.check_now(db, NOW)
+    assert (first.result, first.emails) == ("daily_cap", 2)
+    assert len(claude.calls) == 2 and await _source(db, "m2") is None
+
+    # The rest of the day: no Gmail calls at all, and a manual upload is refused too.
+    before = len(google.calls)
+    again = await school_email.check_now(db, NOW + timedelta(hours=2))
+    assert again.result == "daily_cap" and len(google.calls) == before
+    upload = await imports.ingest(db, imports.SourceDocument(kind="paste", source_ref="p1", text="Spellings"))
+    assert (upload.status, (await _source(db, "p1"))["error_code"]) == ("failed", "daily_cap")
+    assert len(claude.calls) == 2
+    assert "Reached today's limit" in (await school_email.summary(db, NOW))["result_text"]
+
+    # Tomorrow it carries on.
+    async def tomorrow(db):
+        return (NOW + timedelta(days=1)).date()
+
+    monkeypatch.setattr(imports, "family_today", tomorrow)
+    later = await school_email.check_now(db, NOW + timedelta(days=1))
+    assert later.result == "ok" and (await _source(db, "m2"))["status"] == "extracted"
+
+
+async def test_concurrent_calls_cannot_exceed_the_daily_cap(db, monkeypatch):
+    from app.database import get_db
+
+    monkeypatch.setattr(imports, "DAILY_CLAUDE_CAP", 5)
+
+    async def take():
+        async with get_db() as conn:
+            return await imports.take_claude_call(conn)
+
+    results = await asyncio.gather(*(take() for _ in range(12)))
+    assert results.count(True) == 5
+    assert await imports.claude_calls_left(db) == 0
+
+
+# Privacy
+
+async def test_mentions_of_the_sendco_address_drop_the_whole_email(db, gmail, claude, mailbox, caplog):
+    mailbox.add("fwd", text="---------- Forwarded message ---------\nFrom: SENDCo <sen@gresham.croydon.sch.uk>\n"
+                            "PRIVATE-FORWARDED")
+    mailbox.add("quoted", text="Thanks!\n\nOn Mon, 28 Sep 2026 at 10:00, SEN+notes@Gresham.Croydon.sch.uk wrote:\n"
+                               "> PRIVATE-QUOTED")
+    mailbox.add("html", text=None, html='<p>See <a href="mailto:sen%40gresham.croydon.sch.uk">the SENDCo</a></p>')
+    mailbox.add("ok", text="Non-uniform day on Friday")
+    with caplog.at_level(logging.DEBUG):
+        result = await school_email.check_now(db, NOW)
+    assert (result.emails, result.skipped) == (1, 3)
+    assert [s["source_ref"] for s in await _sources(db)] == ["ok"]
+    assert "PRIVATE" not in claude.text_sent()
+    rows = [dict(r) for r in await (await db.execute(
+        "SELECT message_id, code FROM gmail_skipped ORDER BY message_id")).fetchall()]
+    assert rows == [{"message_id": m, "code": "excluded"} for m in ("fwd", "html", "quoted")]
+    assert "PRIVATE" not in caplog.text and "sen@" not in caplog.text
+    # Not fetched again.
+    await school_email.check_now(db, NOW + timedelta(days=1))
+    assert sorted(mailbox.full_fetches) == ["fwd", "html", "ok", "quoted"]
+
+
+def test_mentions_excluded_matching():
+    ex = []
+    assert school_email.mentions_excluded("write to SEN@gresham.croydon.sch.uk.", ex)
+    assert school_email.mentions_excluded("sen+x@gresham.croydon.sch.uk", ex)
+    assert school_email.mentions_excluded("sen [at] gresham.croydon.sch.uk", ex)
+    assert not school_email.mentions_excluded("tsen@gresham.croydon.sch.uk", ex)
+    assert not school_email.mentions_excluded("sen@gresham.croydon.sch.uk.evil.com", ex)
+    assert not school_email.mentions_excluded("year4@gresham.croydon.sch.uk", ex)
+    assert school_email.mentions_excluded("ask head@x.org", ["head@x.org"])
+    assert not school_email.mentions_excluded("someone@x.org", ["*@x.org"])  # a whole domain isn't text-matched
+
+
+def test_quoted_history_is_stripped():
+    strip = google_gmail.strip_quoted
+    assert strip("Trip on Friday.\n\n> Can Riley come?\n> PRIVATE") == "Trip on Friday."
+    assert strip("Yes.\n\nOn Mon, 28 Sep 2026 at 10:00, Mum <mum@example.com> wrote:\nPRIVATE") == "Yes."
+    assert strip("Yes.\nOn Mon, 28 Sep 2026 at 10:00, Mum <mum@example.com>\nwrote:\nPRIVATE") == "Yes."
+    assert strip("Yes.\n-----Original Message-----\nFrom: Mum\nPRIVATE") == "Yes."
+    assert strip("Yes.\n________________________________\nFrom: Mum <m@e.com>\nSent: Monday\nPRIVATE") == "Yes."
+    assert strip("Yes.\nFrom: Mum <m@e.com>\nSent: Monday 28 September\nTo: Year 4\nPRIVATE") == "Yes."
+    # Ordinary text that merely looks similar is kept.
+    assert strip("On Friday we wrote:\nstories") == "On Friday we wrote:\nstories"
+    assert strip("From: the office\nClubs start Monday") == "From: the office\nClubs start Monday"
+    fwd = "---------- Forwarded message ---------\nNewsletter: trip on Friday"
+    assert strip(fwd) == fwd
+
+
+def test_quoted_history_is_left_out_of_html():
+    to_text = google_gmail.html_to_text
+    assert to_text('<div>Yes.</div><div class="gmail_quote"><div>On Mon wrote:</div>'
+                   '<blockquote class="gmail_quote"><div>PRIVATE</div></blockquote></div><p>Sign-off</p>') == \
+        "Yes.\n\nSign-off"
+    assert to_text("<p>Yes.</p><blockquote>PRIVATE<blockquote>MORE</blockquote>STILL</blockquote>") == "Yes."
+    assert to_text('<p>Yes.</p><div id="appendonsend"></div><hr><div id="divRplyFwdMsg">From: Mum</div>'
+                   "<div>PRIVATE</div>") == "Yes."
+
+
+async def test_replies_reach_claude_without_the_quoted_message(db, gmail, claude, mailbox):
+    mailbox.add("reply", text="The trip is on Friday.\n\nOn Mon, 28 Sep 2026 at 10:00, Parent <p@example.com> wrote:\n"
+                              "> PRIVATE-PARENT-MESSAGE")
+    await school_email.check_now(db, NOW)
+    assert "The trip is on Friday." in claude.text_sent() and "PRIVATE" not in claude.text_sent()
+    assert "PRIVATE" not in ((await _source(db, "reply"))["excerpt"] or "")
+
+
+# Hostile Admin entries and normalisation
+
+@pytest.mark.parametrize("entry", [
+    "-foo@evil.com", ".foo@evil.com", "foo@-evil.com", "foo@evil-.com", "(foo@evil.com", "foo@evil.com)",
+    '"foo"@evil.com', "a:b@evil.com", "{a@evil.com}", "*a@evil.com", "a*@evil.com", "*@*.evil.com",
+    "foo.@evil.com", "a..b@evil.com", "OR", "from:x@evil.com", "x@evil.com)OR(y@z.com",
+])
+def test_hostile_entries_are_rejected(entry):
+    with pytest.raises(school_email.InvalidEntry):
+        school_email.parse_entries(entry)
+
+
+def test_ordinary_entries_are_accepted():
+    assert school_email.parse_entries("year-4@st-marys.sch.uk o.brien+news@x.co.uk *@gresham.croydon.sch.uk") == [
+        "year-4@st-marys.sch.uk", "o.brien+news@x.co.uk", "*@gresham.croydon.sch.uk"]
+
+
+def test_plus_tags_and_case_are_normalised():
+    senders = list(school_email.DEFAULT_SENDERS)
+    ok = {"from": ["year4@gresham.croydon.sch.uk"], "to": ["family@example.com"]}
+    assert not school_email.allowed({"from": ["SEN+x@Gresham.Croydon.sch.uk"]}, senders, [])
+    assert not school_email.allowed({**ok, "cc": ["sen+private@gresham.croydon.sch.uk"]}, senders, [])
+    assert school_email.allowed({"from": ["Office+News@GreshamPrimary.School"]}, senders, [])
+    assert not school_email.allowed(ok, senders, ["Year4+X@gresham.croydon.sch.uk"])
+    assert school_email.normalise("A+b+c@X.com") == "a@x.com"
+
+
+# Sender authentication
+
+def test_sender_verdict():
+    parse = google_gmail.auth_results
+    verdict = school_email.sender_verdict
+    assert verdict(parse(["mx.google.com; dkim=pass; spf=pass; dmarc=pass"])) is True
+    assert verdict(parse(["mx.google.com; dkim=pass; spf=fail; dmarc=fail (p=NONE)"])) is False
+    assert verdict(parse(["mx.google.com; dkim=fail; spf=softfail"])) is False
+    assert verdict(parse(["mx.google.com; dkim=fail; spf=pass"])) is True
+    assert verdict(parse(["mx.google.com; spf=neutral"])) is None
+    assert verdict(parse([])) is None
+    # A header a sender added themselves is ignored.
+    assert parse(["evil.example; dkim=pass; spf=pass; dmarc=pass"]) is None
+
+
+async def test_unverified_senders_are_dropped_or_marked(db, gmail, claude, mailbox, admin_client, google):
+    mailbox.add("spoof", auth="mx.google.com; dkim=none; spf=fail; dmarc=fail", text="SPOOFED")
+    mailbox.add("forged", auth=["evil.example; dmarc=pass", "mx.google.com; spf=softfail; dkim=fail"], text="FORGED")
+    mailbox.add("unknown", auth=None, text="Harvest assembly on Friday")
+    result = await school_email.check_now(db, NOW)
+    assert (result.emails, result.skipped) == (1, 2)
+    assert "SPOOFED" not in claude.text_sent() and "FORGED" not in claude.text_sent()
+    codes = {r["message_id"]: r["code"] for r in await (await db.execute("SELECT * FROM gmail_skipped")).fetchall()}
+    assert codes == {"spoof": "unverified_sender", "forged": "unverified_sender"}
+    assert (await _source(db, "unknown"))["sender_unverified"] == 1
+    google.get(google_oauth.CALENDAR_LIST_ENDPOINT).respond(200, json={"items": []})
+    google.get("https://tasks.googleapis.com/tasks/v1/users/@me/lists").respond(200, json={"items": []})
+    page = (await admin_client.get("/admin")).text
+    assert page.count(">Sender not verified<") == 1
+
+
+# Event approval: the calendar is fixed at the first claim
+
+async def test_a_retry_after_a_crash_uses_the_first_calendar(db, school_calendar, google):
+    candidate_id = await _event_candidate(db)
+    # Crashed mid-approve with the Family calendar...
+    await db.execute("UPDATE import_candidates SET status = 'approving', claim_calendar_id = ? WHERE id = ?",
+                     ("family@group.calendar.google.com", candidate_id))
+    await db.commit()
+    await imports.fail_interrupted(db)
+    # ...then the School events calendar was changed before approving again.
+    await school_events.set_target_calendar(db, {"id": "other-calendar", "summary": "Other"})
+    insert = google.post(url__regex=EVENTS_URL.pattern).respond(409, json={"error": {"code": 409}})
+    await school_events.approve_event(db, candidate_id, _form())
+    assert insert.call_count == 1
+    assert "family%40group.calendar.google.com" in str(insert.calls[0].request.url)
+
+
+async def test_a_definite_refusal_frees_the_calendar_choice(db, school_calendar, google):
+    candidate_id = await _event_candidate(db)
+    route = google.post(url__regex=EVENTS_URL.pattern).respond(404)
+    with pytest.raises(imports.CandidateError):
+        await school_events.approve_event(db, candidate_id, _form())
+    assert (await _candidate(db, candidate_id))["claim_calendar_id"] is None
+    await school_events.set_target_calendar(db, {"id": "other-calendar", "summary": "Other"})
+    route.respond(200, json={"id": "e2"})
+    await school_events.approve_event(db, candidate_id, _form())
+    assert "other-calendar" in str(route.calls[-1].request.url)
+
+
+async def test_an_uncertain_failure_keeps_the_calendar_choice(db, school_calendar, google):
+    candidate_id = await _event_candidate(db)
+    route = google.post(url__regex=EVENTS_URL.pattern).mock(side_effect=httpx.ReadTimeout("slow"))
+    with pytest.raises(imports.CandidateError):
+        await school_events.approve_event(db, candidate_id, _form())
+    assert (await _candidate(db, candidate_id))["claim_calendar_id"] == "family@group.calendar.google.com"
+    await school_events.set_target_calendar(db, {"id": "other-calendar", "summary": "Other"})
+    route.mock(side_effect=None, return_value=httpx.Response(200, json={"id": "e3"}))
+    await school_events.approve_event(db, candidate_id, _form())
+    assert "family%40group.calendar.google.com" in str(route.calls[-1].request.url)

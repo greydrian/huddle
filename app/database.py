@@ -366,6 +366,25 @@ async def init_db():
         # event goes to Google Calendar rather than a local table, and its
         # Calendar event id is kept here (created_table = 'google_calendar').
         await _add_column_if_missing(db, "import_candidates", "external_id", "TEXT")
+        # The calendar an event approval was claimed for: a retry after a
+        # crash goes to the same one (services/school_events.py).
+        await _add_column_if_missing(db, "import_candidates", "claim_calendar_id", "TEXT")
+        # Claude calls made for a source (automatic retries give up after
+        # imports.MAX_ATTEMPTS), and whether a Gmail sender went unverified.
+        await _add_column_if_missing(db, "import_sources", "attempts", "INTEGER NOT NULL DEFAULT 0")
+        await _add_column_if_missing(db, "import_sources", "sender_unverified", "INTEGER NOT NULL DEFAULT 0")
+        # Gmail messages the school email check decided not to read (not
+        # from an allowed sender, mentions an excluded address, sender
+        # failed verification): ids, a neutral code and Gmail's timestamp
+        # only, never content, so they aren't fetched again.
+        await db.execute(
+            """CREATE TABLE IF NOT EXISTS gmail_skipped (
+                   message_id TEXT PRIMARY KEY,
+                   code TEXT NOT NULL,
+                   internal_date INTEGER,            -- Gmail internalDate, epoch ms
+                   created_at TEXT NOT NULL DEFAULT (datetime('now'))
+               )"""
+        )
         await db.commit()
 
         await load_onscreen_keyboard(db)

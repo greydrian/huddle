@@ -12,7 +12,13 @@
   <div class="inbox-source-head">
     <span class="inbox-source-label">{{ source.label }}</span>
     <span class="admin-meta">· added {{ source.created_at[:10] }}</span>
+    {% if source.sender_unverified %}<span class="inbox-unverified" title="Gmail couldn't confirm this email really came from the school">Sender not verified</span>{% endif %}
     <span class="inbox-source-actions">
+      {% if source.retryable %}
+      <form method="post" action="/admin/inbox/sources/{{ source.id }}/retry" hx-post="/admin/inbox/sources/{{ source.id }}/retry">
+        <button type="submit" class="btn btn-small">Retry</button>
+      </form>
+      {% endif %}
       {% if source.approvable > 1 %}
       <form method="post" action="/admin/inbox/sources/{{ source.id }}/approve-all" hx-post="/admin/inbox/sources/{{ source.id }}/approve-all">
         <button type="submit" class="btn btn-small">Approve all ({{ source.approvable }})</button>
@@ -30,8 +36,9 @@
 
   {% if source.status == 'pending' %}
   <p class="inbox-reading" role="status"><span class="inbox-spinner" aria-hidden="true"></span>Reading… this can take up to a minute.</p>
-  {% elif source.status in ('failed', 'not_configured') %}
+  {% elif source.status in ('failed', 'not_configured', 'failed_permanently') %}
   <p class="admin-error">{{ source.error_message }}</p>
+  {% if source.kind == 'gmail' and source.status != 'failed_permanently' and source.error_code != 'retry' %}<p class="admin-meta">School emails are tried again at the next check.</p>{% endif %}
   {% elif source.processed %}
   <p class="admin-meta">{% if source.approved_count or source.discarded_count %}{{ source.approved_count }} added to the wall · {{ source.discarded_count }} discarded{% else %}Nothing to add was found in this.{% endif %}</p>
   {% endif %}
