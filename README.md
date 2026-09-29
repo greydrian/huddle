@@ -97,6 +97,12 @@ which adds `--reload` and bind-mounts `app/` for live code edits. Rebuild
 whenever the requirements change. For a clean run without hot-reload, use
 `docker compose -f docker-compose.yml up --build`.
 
+**For the live family display, always use production mode:**
+`docker compose -f docker-compose.yml up -d --build`. With plain `docker compose up`, the
+override's bind mount and `--reload` make any `git pull` in that folder go live instantly, and
+run database migrations with no snapshot first. Take a database snapshot before each deploy
+(see "Backups and restore").
+
 Run **a single uvicorn process** (no `--workers`): the Google sync and daily
 reset run on an in-process scheduler.
 
@@ -446,7 +452,7 @@ Setup, once:
    Library → Gmail API → Enable**). Without it Admin says "The Gmail API
    isn't enabled".
 3. **Add `ANTHROPIC_API_KEY`** to `.env` (a key from console.anthropic.com),
-   then `docker compose up -d`. Optional: `ANTHROPIC_MODEL`.
+   then `docker compose -f docker-compose.yml up -d`. Optional: `ANTHROPIC_MODEL`.
 4. **Reconnect Google in Admin**: Google Account → **Disconnect**, then
    **Connect Google Account**, and approve the new Gmail and calendar
    permissions. Until then Calendar and Tasks keep working as before, and

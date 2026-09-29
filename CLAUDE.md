@@ -9,13 +9,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ```bash
-# Dev (preferred) — docker-compose.override.yml auto-applies: --reload + ./app bind-mounted
-docker compose up -d --build          # rebuild needed whenever the requirements change
-docker compose logs --tail 50 family-display
-docker compose exec family-display python -c "..."   # poke the live DB / app modules
-
-# Production-style run (skips the override file)
+# The LIVE display runs in production mode (since 2026-09-29): the code is baked into the image,
+# with no --reload and no bind-mounted ./app. Deploy = snapshot the DB, then:
 docker compose -f docker-compose.yml up -d --build
+docker compose -f docker-compose.yml logs --tail 50 family-display
+docker compose -f docker-compose.yml exec family-display python -c "..."   # poke the live DB (read-only!)
+# Never use plain `docker compose up` on the live machine: it merges docker-compose.override.yml
+# (--reload + ./app bind mount), which makes every `git pull` in the main checkout deploy instantly
+# and run migrations with no snapshot. The override is for local dev on a separate port/DATA_DIR.
 
 # Bare metal (./venv is Python 3.14, like Docker and CI; Windows Git Bash shown)
 # Rebuild: py -3.14 -m venv venv && venv/Scripts/pip install -r requirements.txt -r requirements-dev.txt
