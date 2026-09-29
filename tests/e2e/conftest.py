@@ -135,6 +135,13 @@ class Server:
         )
         subprocess.run([sys.executable, "-c", code], cwd=ROOT, env=self._env, check=True)
 
+    def seed_calendar(self):
+        """A connected calendar with a saved copy of this month (seed_calendar.py).
+        Google stays out of reach (the dead proxy), so every view is drawn
+        from that copy with a "Last updated" note, and an add fails as offline."""
+        subprocess.run([sys.executable, str(Path(__file__).with_name("seed_calendar.py"))],
+                       cwd=ROOT, env=self._env, check=True)
+
 
 @pytest.fixture
 def start_server(tmp_path):

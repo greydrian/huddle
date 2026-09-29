@@ -680,6 +680,58 @@
     </p>
     {% endif %}
     {% if google_account %}
+    {#- Calendar options (spec 10.5, services/calendar_prefs.py). -#}
+    <div class="admin-subsection" id="calendar-options">
+      <h3>Calendar on the wall</h3>
+      {{ section_error("calendar-options") }}
+      <form class="admin-form" method="post" action="/admin/google/calendar-view">
+        <label class="admin-hint admin-label" for="calendar-default-view">Shows, and goes back to after 3 minutes untouched:</label>
+        <select id="calendar-default-view" name="view">
+          {% for key, label in calendar_views.items() %}<option value="{{ key }}" {{ 'selected' if calendar_default_view == key else '' }}>{{ label }}</option>{% endfor %}
+        </select>
+        <button type="submit" class="btn btn-small">Save</button>
+      </form>
+
+      <p class="admin-hint admin-label">Adding events from the wall (the calendar's "+") always goes into one shared Family calendar:</p>
+      {% if not calendar_events_scope %}
+      <p class="admin-hint">Reconnect to allow adding events: Disconnect, then Connect Google Account.</p>
+      {% endif %}
+      {% if family_choices %}
+      <form class="admin-form" method="post" action="/admin/google/family-calendar">
+        <select name="calendar_id" aria-label="Family calendar">
+          <option value="">Don't add events from the wall</option>
+          {% for cal in family_choices %}<option value="{{ cal.id }}" {{ 'selected' if family_calendar and family_calendar.id == cal.id else '' }}>{{ cal.summary }}{% if cal.primary %} (primary){% endif %}</option>{% endfor %}
+        </select>
+        <button type="submit" class="btn btn-small">Save</button>
+      </form>
+      {% elif family_calendar %}
+      <p>Using <strong>{{ family_calendar.summary }}</strong> <span class="admin-meta">(couldn't load the calendar list just now)</span></p>
+      {% else %}
+      <p class="admin-meta">No calendar to pick: tick a calendar this account can edit under "Calendars shown on the dashboard" first.</p>
+      {% endif %}
+      {% if not family_calendar_active %}
+      <p class="admin-hint">{% if family_calendar %}{{ family_calendar.summary }} isn't shown on the wall any more, so{% else %}No Family calendar is chosen, so{% endif %} the wall has no "+" for adding events.</p>
+      {% endif %}
+
+      {% if selected_calendars %}
+      <form method="post" action="/admin/google/calendar-people">
+        <p class="admin-hint admin-label">Whose events each calendar holds (the person filter). On an Everyone calendar, an event counts for whoever its title names, like "Riley: Swimming".</p>
+        {% for cal in selected_calendars %}
+        <div class="tasklist-row">
+          <input type="hidden" name="calendar_{{ loop.index }}" value="{{ cal.id }}">
+          <span class="tasklist-person"><span class="calendar-swatch" style="--cal: {{ cal.color }};"></span>{{ cal.summary }}</span>
+          {% set owner = calendar_people.get(cal.id, 'everyone') %}
+          <select name="owner_{{ loop.index }}" aria-label="Whose events are in {{ cal.summary }}">
+            <option value="everyone">Everyone</option>
+            {% for p in profiles %}<option value="{{ p.id }}" {{ 'selected' if owner == p.id else '' }}>{{ p.name }}</option>{% endfor %}
+          </select>
+        </div>
+        {% endfor %}
+        <button type="submit" class="btn btn-small admin-submit">Save</button>
+      </form>
+      {% endif %}
+    </div>
+
     <div class="admin-subsection" id="task-lists">
       <h3>Task Sync</h3>
       {% if google_offline %}

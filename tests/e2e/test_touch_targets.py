@@ -96,8 +96,13 @@ async def test_dashboard_touch_targets(start_server, page):
     server = start_server(keyboard=True)
     _seed_content(server)
     server.seed_banners()
+    server.seed_calendar()  # the month grid (not the "not connected" stub), with bars and "+N more"
     await page.goto(server.url + "/")
     await page.wait_for_selector("#widget-tasks >> text=Feed the cat")
+    await page.wait_for_selector("#widget-calendar .cal-bar")
+    assert await page.locator("#widget-calendar .cal-more >> text=more").count()
+    await page.click("#widget-calendar .cal-add-toggle")  # measure the add form too
+    await page.wait_for_selector("#cal-add-form:not([hidden])")
     if await page.locator("#banner-bar [data-more]").count():  # none in the seeded quiet minutes
         await page.click("#banner-bar [data-more]")  # measure every banner, and "Show less"
         await page.wait_for_selector("#banner-bar .banner-extra:visible")
@@ -108,6 +113,28 @@ async def test_dashboard_touch_targets(start_server, page):
     await page.wait_for_selector(".osk.osk--open", state="visible")
     found = await _too_small(page)
     assert not found, "Under 48 px:\n" + "\n".join(found)
+
+
+async def test_calendar_views_touch_targets(start_server, page):
+    """The week, agenda and day views, filtered by a person."""
+    server = start_server()
+    server.seed_calendar()
+    await page.goto(server.url + "/")
+    await page.wait_for_selector("#widget-calendar .cal-bar")
+    problems = []
+    for view in ("Week", "Agenda"):
+        await page.click(f"#widget-calendar .cal-view-btn >> text={view}")
+        await page.wait_for_selector(f"#widget-calendar[data-view={view.lower()}]")
+        problems += await _too_small(page)
+    await page.click("#widget-calendar .cal-person >> text=Riley")
+    await page.wait_for_selector("#widget-calendar[data-person]")
+    problems += await _too_small(page)
+    await page.click("#widget-calendar .cal-view-btn >> text=Week")
+    await page.wait_for_selector("#widget-calendar[data-view=week]")
+    await page.click("#widget-calendar .cal-day-hit >> nth=2")
+    await page.wait_for_selector("#widget-calendar[data-view=day]")
+    problems += await _too_small(page)
+    assert not problems, "Under 48 px:\n" + "\n".join(problems)
 
 
 @pytest.mark.parametrize("mode", ["day", "night"])

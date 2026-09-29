@@ -41,6 +41,7 @@ SECTIONS = {
     "device": "display",
     "google": "google",
     "calendars": "google",
+    "calendar-options": "google",
     "task-lists": "google",
     "sync": "google",
     "assistant": "assistant",

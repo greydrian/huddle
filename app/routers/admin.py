@@ -52,7 +52,17 @@ from app.security import (
     lockout_seconds_for,
     verify_pin,
 )
-from app.services import banners, extraction, homework, imports, layout, school_events, term_dates, weather
+from app.services import (
+    banners,
+    calendar_prefs,
+    extraction,
+    homework,
+    imports,
+    layout,
+    school_events,
+    term_dates,
+    weather,
+)
 from app.services import tasks as task_service
 from app.templating import templates
 from app.widgets import WIDGETS
@@ -129,6 +139,9 @@ ADMIN_ERRORS = {
                                        f"(at most {school_email.MAX_ENTRIES}). Nothing was changed."),
     "school-schedule": ("school-email", "Pick one of the schedule options and a time like 18:00."),
     "school-calendar": ("school-email", "Pick a calendar this Google account can add events to."),
+    "calendar-family": ("calendar-options", "Pick a calendar that's shown on the wall and that this Google "
+                                            "account can add events to. Nothing was changed."),
+    "calendar-view": ("calendar-options", "Pick Month, Week or Agenda."),
     "import-busy": ("inbox", "That's still being read. Try again in a moment."),
     "import-pdf-pages": ("classroom", f"That PDF has more than {extraction.MAX_PDF_PAGES} pages. "
                                       "Try just the pages you need."),
@@ -452,8 +465,23 @@ async def _render_admin(
             context.update(await _google_lists(db, google_account))
             context["sync"] = await sync_status.summary(db)
             if google_account:
-                context["selected_calendar_ids"] = [c["id"] for c in await google_oauth.get_selected_calendars(db)]
+                selected = await google_oauth.get_selected_calendars(db)
+                context["selected_calendar_ids"] = [c["id"] for c in selected]
                 context["shopping_tasklist"] = await task_sync.get_shopping_tasklist(db)
+                # Calendar options (spec 10.5): the Family calendar is picked from
+                # the shown calendars this account can write to.
+                selected_ids = set(context["selected_calendar_ids"])
+                context.update({
+                    "selected_calendars": selected,
+                    "family_choices": [c for c in context["available_calendars"]
+                                       if c.get("writable") and c["id"] in selected_ids],
+                    "family_calendar": await calendar_prefs.get_family_setting(db),
+                    "family_calendar_active": await calendar_prefs.get_family_calendar(db),
+                    "calendar_events_scope": await google_oauth.has_scope(db, google_oauth.CALENDAR_EVENTS_SCOPE),
+                    "calendar_default_view": await calendar_prefs.get_default_view(db),
+                    "calendar_views": calendar_prefs.VIEWS,
+                    "calendar_people": await calendar_prefs.get_people_links(db),
+                })
         elif tab == "assistant":
             context["assistant_model"] = extraction.model_name()
         elif tab == "system":
@@ -1098,6 +1126,62 @@ async def save_school_events_calendar(calendar_id: str = Form("")):
             return _admin_error("school-calendar")
         await school_events.set_target_calendar(db, match)
     return RedirectResponse(url=admin_url("school-email"), status_code=303)
+
+
+# --- Calendar options (spec 10.5): the Family calendar, default view, whose calendar ---
+
+@router.post("/google/family-calendar", dependencies=[Depends(require_admin)])
+async def save_family_calendar(calendar_id: str = Form("")):
+    """The one calendar the wall's "+" adds to: shown on the wall and
+    writable, re-checked with Google rather than trusting the form. Blank
+    turns adding off."""
+    async with get_db() as db:
+        if not calendar_id:
+            await calendar_prefs.set_family_calendar(db, None)
+            return RedirectResponse(url=admin_url("calendar-options"), status_code=303)
+        selected = {cal.get("id") for cal in await google_oauth.get_selected_calendars(db)}
+        try:
+            access_token = await google_oauth.get_valid_access_token(db)
+            available = await google_oauth.fetch_calendar_list(access_token) if access_token else []
+        except httpx.HTTPError:
+            available = []
+        match = next((c for c in available if c["id"] == calendar_id and c["writable"] and c["id"] in selected), None)
+        if match is None:
+            return _admin_error("calendar-family")
+        await calendar_prefs.set_family_calendar(db, match)
+    return RedirectResponse(url=admin_url("calendar-options"), status_code=303)
+
+
+@router.post("/google/calendar-view", dependencies=[Depends(require_admin)])
+async def save_calendar_view(view: str = Form("")):
+    async with get_db() as db:
+        try:
+            await calendar_prefs.set_default_view(db, view)
+        except ValueError:
+            return _admin_error("calendar-view")
+    return RedirectResponse(url=admin_url("calendar-options"), status_code=303)
+
+
+@router.post("/google/calendar-people", dependencies=[Depends(require_admin)])
+async def save_calendar_people(request: Request):
+    """Whose events each shown calendar holds: owner_<n> is a profile id or
+    "everyone" for calendar_<n>. Only calendars shown on the wall and
+    profiles that exist are kept; anything else counts as Everyone."""
+    form = await request.form()
+    async with get_db() as db:
+        selected = {cal.get("id") for cal in await google_oauth.get_selected_calendars(db)}
+        profile_ids = {row["id"] for row in await (await db.execute("SELECT id FROM profiles")).fetchall()}
+        links: dict[str, int | str] = {}
+        for key, cal_id in form.multi_items():
+            if not key.startswith("calendar_") or not isinstance(cal_id, str) or cal_id not in selected:
+                continue
+            owner = str(form.get("owner_" + key.removeprefix("calendar_")) or "")
+            if owner.isdigit() and int(owner) in profile_ids:
+                links[cal_id] = int(owner)
+            else:
+                links[cal_id] = calendar_prefs.EVERYONE
+        await calendar_prefs.set_people_links(db, links)
+    return RedirectResponse(url=admin_url("calendar-options"), status_code=303)
 
 
 @router.post("/school-email/check", dependencies=[Depends(require_admin)])
