@@ -5,6 +5,7 @@ from fastapi.templating import Jinja2Templates
 
 from app import database
 from app.appearance import person_ink
+from app.services.homework import SUBJECTS
 
 
 def onscreen_keyboard_context(request: Request) -> dict:
@@ -20,3 +21,5 @@ templates = Jinja2Templates(
 )
 
 templates.env.filters["person_ink"] = person_ink
+# The fixed homework subjects (key -> (label, icon)) for the Admin and inbox selects.
+templates.env.globals["homework_subjects"] = SUBJECTS

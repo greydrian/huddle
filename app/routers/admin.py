@@ -410,6 +410,8 @@ async def _render_admin(
                 "term_dates_missing": await term_dates.missing_years(db, today),
                 "homework_items": homework_items,
                 "finished_homework": finished_homework,
+                "homework_events": await homework.get_recent_homework_events(db),
+                "reading_history": await homework.get_reading_history(db, today),
                 "homework_form": homework_form,
                 "homework_error": homework_error,
                 "word_lists": await homework.get_admin_word_lists(db),
@@ -598,6 +600,7 @@ async def add_homework(
     request: Request,
     profile_id: str = Form(""),
     subject: str = Form(""),
+    subject_key: str = Form(""),
     title: str = Form(""),
     details: str = Form(""),
     due_date: str = Form(""),
@@ -605,14 +608,15 @@ async def add_homework(
     homework_id = None
     async with get_db() as db:
         try:
-            fields = await homework.homework_fields(db, profile_id, subject, title, details, due_date)
+            fields = await homework.homework_fields(db, profile_id, subject, title, details, due_date, subject_key)
         except homework.ValidationError as exc:
             return await _render_admin(request, tab="family", homework_error=str(exc), status_code=400, homework_form={
-                "id": homework_id, "profile_id": profile_id, "subject": subject, "title": title,
-                "details": details, "due_date": due_date,
+                "id": homework_id, "profile_id": profile_id, "subject": subject, "subject_pick": subject_key,
+                "title": title, "details": details, "due_date": due_date,
             })
         await db.execute(
-            "INSERT INTO homework (profile_id, subject, title, details, due_date) VALUES (?, ?, ?, ?, ?)", fields
+            "INSERT INTO homework (profile_id, subject, title, details, due_date, subject_key) VALUES (?, ?, ?, ?, ?, ?)",
+            fields,
         )
         await db.commit()
     return RedirectResponse(url=admin_url("homework"), status_code=303)
@@ -624,6 +628,7 @@ async def edit_homework(
     homework_id: int,
     profile_id: str = Form(""),
     subject: str = Form(""),
+    subject_key: str = Form(""),
     title: str = Form(""),
     details: str = Form(""),
     due_date: str = Form(""),
@@ -632,15 +637,15 @@ async def edit_homework(
         if not await (await db.execute("SELECT 1 FROM homework WHERE id = ?", (homework_id,))).fetchone():
             return _admin_error("homework-missing")
         try:
-            fields = await homework.homework_fields(db, profile_id, subject, title, details, due_date)
+            fields = await homework.homework_fields(db, profile_id, subject, title, details, due_date, subject_key)
         except homework.ValidationError as exc:
             return await _render_admin(request, tab="family", homework_error=str(exc), status_code=400, homework_form={
-                "id": homework_id, "profile_id": profile_id, "subject": subject, "title": title,
-                "details": details, "due_date": due_date,
+                "id": homework_id, "profile_id": profile_id, "subject": subject, "subject_pick": subject_key,
+                "title": title, "details": details, "due_date": due_date,
             })
         await db.execute(
             """UPDATE homework SET profile_id = ?, subject = ?, title = ?, details = ?, due_date = ?,
-                   updated_at = datetime('now') WHERE id = ?""",
+                   subject_key = ?, updated_at = datetime('now') WHERE id = ?""",
             (*fields, homework_id),
         )
         await db.commit()
@@ -874,6 +879,7 @@ async def inbox_approve(
     profile_id: str = Form(""),
     title: str = Form(""),
     subject: str = Form(""),
+    subject_key: str = Form(""),
     details: str = Form(""),
     due_date: str = Form(""),
     words: str = Form(""),
@@ -885,8 +891,8 @@ async def inbox_approve(
     notes: str = Form(""),
 ):
     form = {
-        "profile_id": profile_id, "title": title, "subject": subject, "details": details,
-        "due_date": due_date, "words": words, "starts_on": starts_on, "ends_on": ends_on,
+        "profile_id": profile_id, "title": title, "subject": subject, "subject_key": subject_key,
+        "details": details, "due_date": due_date, "words": words, "starts_on": starts_on, "ends_on": ends_on,
         "date": event_date, "start_time": start_time, "end_time": end_time, "notes": notes,
     }
     source_id, kind = await _candidate_row(candidate_id)
