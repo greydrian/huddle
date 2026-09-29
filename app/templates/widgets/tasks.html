@@ -7,32 +7,80 @@
                       reveal_on=".task-row", aria_label="Mark not done" if task.is_completed else "Mark done") -%}
     {{ icon("check", 20) }}
   {%- endcall %}
-  <span class="task-title">{{ task.title }}</span>
+  <span class="task-title">{{ task.title }}{% if task.late %} <span class="task-late">{{ task.late }}</span>{% endif %}</span>
+  {#- Synced tasks show no marker; this one won't appear on anyone's phone. -#}
+  {% if task.local_only %}<span class="task-local" role="img" aria-label="On this display only" title="On this display only">{{ icon("cloud-off", 18) }}</span>{% endif %}
 </div>
 {% endmacro %}
-{#- Re-fetched by static/js/fresh.js when /api/rev says it changed. -#}
+{% macro person_tasks(profile, headless) %}
+{% set open_tasks = profile.tasks | rejectattr('is_completed') | list %}
+{% set done_tasks = profile.tasks | selectattr('is_completed') | list %}
+<div class="task-group">
+  {{ person_pill(profile.name, profile.colour_hex) }}
+  {% for task in open_tasks %}{{ task_row(task) }}{% endfor %}
+  {% if not profile.tasks %}
+  <div class="widget-note">No tasks yet{% if profile.linked %} — add some here or in Google Tasks{% endif %}.</div>
+  {% elif not open_tasks %}
+  <div class="task-all-done">{{ 'All done for today' if headless else 'All done' }}</div>
+  {% endif %}
+  {% if done_tasks %}
+  {# Finished tasks are tucked away, but still reachable to undo a mis-tap. #}
+  <details class="task-done">
+    <summary>✓ {{ done_tasks | length }} done</summary>
+    {% for task in done_tasks %}{{ task_row(task) }}{% endfor %}
+  </details>
+  {% endif %}
+</div>
+{% endmacro %}
+{% set f = add_form or {} %}
+{#- Re-fetched by static/js/fresh.js when /api/rev says it changed (its hash
+    includes current_group, so the highlight moves at each boundary). -#}
 <div class="widget-card" id="widget-tasks" data-refresh="/widgets/tasks" data-rev-key="tasks">
-  {{ widget_header("list-checks", "Today's Tasks") }}
+  {#- split: only the icon + title are the drag handle; "+ Add" sits beside it. -#}
+  {% call widget_header("list-checks", "Today's Tasks", split=true, cls="tasks-header") %}
+  <button type="button" class="task-add-toggle" aria-controls="task-add-form"
+          aria-expanded="{{ 'true' if add_error else 'false' }}"
+          hx-on:click="var f = document.getElementById('task-add-form'); f.hidden = !f.hidden; this.setAttribute('aria-expanded', String(!f.hidden)); if (!f.hidden) f.closest('.widget-body').scrollTop = 0;">
+    {{- icon("plus", 20) }}<span>Add</span></button>
+  {% endcall %}
   <div class="widget-body">
-    {% for profile in profiles %}
-    {% set open_tasks = profile.tasks | rejectattr('is_completed') | list %}
-    {% set done_tasks = profile.tasks | selectattr('is_completed') | list %}
-    <div class="task-group">
-      {{ person_pill(profile.name, profile.colour_hex) }}
-      {% for task in open_tasks %}{{ task_row(task) }}{% endfor %}
-      {% if not profile.tasks %}
-      <div class="widget-note">No tasks yet — add some in Google Tasks.</div>
-      {% elif not open_tasks %}
-      <div class="task-all-done">All done for today</div>
-      {% endif %}
-      {% if done_tasks %}
-      {# Finished tasks are tucked away, but still reachable to undo a mis-tap. #}
-      <details class="task-done">
-        <summary>✓ {{ done_tasks | length }} done</summary>
-        {% for task in done_tasks %}{{ task_row(task) }}{% endfor %}
-      </details>
-      {% endif %}
-    </div>
+    {#- PIN-free quick add: a one-off for today. data-panel: fresh.js holds its
+        refresh while this is open and in use. -#}
+    <form id="task-add-form" class="task-add-form" data-panel{% if not add_error %} hidden{% endif %}
+          hx-post="/api/tasks" hx-target="#widget-tasks" hx-swap="outerHTML">
+      {% if add_error %}<p class="task-add-error" role="alert">{{ add_error }}</p>{% endif %}
+      <div class="task-add-chips" role="radiogroup" aria-label="Who is it for?">
+        {% for p in profiles %}
+        <label class="task-chip task-chip-person ink-{{ p.colour_hex | person_ink }}" style="--person: {{ p.colour_hex }};">
+          <input type="radio" name="profile_id" value="{{ p.id }}" required{% if f.profile_id | string == p.id | string %} checked{% endif %}><span>{{ p.name }}</span>
+        </label>
+        {% endfor %}
+      </div>
+      <input type="text" name="title" class="task-add-title" aria-label="New task" placeholder="What needs doing?"
+             maxlength="200" required autocomplete="off" value="{{ f.title or '' }}"{% if onscreen_keyboard %} data-osk="text"{% endif %}>
+      <div class="task-add-chips" role="radiogroup" aria-label="Time of day">
+        <label class="task-chip"><input type="radio" name="time_of_day" value=""{% if not f.time_of_day %} checked{% endif %}><span>Any time</span></label>
+        {% for key, label in task_groups %}
+        <label class="task-chip"><input type="radio" name="time_of_day" value="{{ key }}"{% if f.time_of_day == key %} checked{% endif %}><span>{{ label }}</span></label>
+        {% endfor %}
+      </div>
+      <div class="task-add-actions">
+        <button type="submit" class="task-add-submit">Add task</button>
+        <button type="button" class="task-add-cancel"
+                hx-on:click="var f = this.closest('form'); f.reset(); f.hidden = true; document.querySelector('#widget-tasks .task-add-toggle').setAttribute('aria-expanded', 'false');">Cancel</button>
+      </div>
+    </form>
+    {% for section in task_sections %}
+    {% if section.headless %}
+    {% for profile in section.profiles %}{{ person_tasks(profile, true) }}{% endfor %}
+    {% else %}
+    <section class="task-section{{ ' is-current' if section.current else '' }}{{ ' is-earlier' if section.earlier else '' }}"
+             data-group="{{ section.key or 'any' }}">
+      <h3 class="task-section-title">{{ section.label }}{% if section.current %} <span class="task-now">Now</span>{% elif section.earlier %} <span class="task-section-note">earlier</span>{% endif %}</h3>
+      {% for profile in section.profiles %}{{ person_tasks(profile, false) }}{% endfor %}
+      {% if not section.profiles %}<div class="widget-note">Nothing for now.</div>{% endif %}
+    </section>
+    {% endif %}
     {% endfor %}
   </div>
 </div>

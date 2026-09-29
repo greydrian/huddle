@@ -9,8 +9,9 @@
  * RETRY_MS) while
  *   - an input/textarea/select inside it has focus, or the on-screen
  *     keyboard is open anywhere;
- *   - a <details> inside it is open (e.g. the tasks "✓ N done" fold) and
- *     it was touched in the last ABANDONED_MS — a fold left open and walked
+ *   - a <details> inside it is open (e.g. the tasks "✓ N done" fold), or a
+ *     panel marked data-panel is showing (the tasks "+ Add" form), and it
+ *     was touched in the last ABANDONED_MS — a fold left open and walked
  *     away from doesn't freeze the widget for good;
  *   - a request of its own is in flight or a tick's 450ms reveal is pending;
  *   - a finger/mouse is down, or a Gridstack drag/resize is in progress.
@@ -69,7 +70,7 @@
     if (card.matches(ownRequest ? '.htmx-swapping' : '.htmx-request, .htmx-swapping')) return true;
     if (card.querySelector('.htmx-request, .just-ticked')) return true;
     if (grid && grid.querySelector('.ui-draggable-dragging, .ui-resizable-resizing')) return true;
-    if (card.querySelector('details[open]') && Date.now() - (lastTouch[card.dataset.revKey] || 0) < ABANDONED_MS) return true;
+    if (card.querySelector('details[open], [data-panel]:not([hidden])') && Date.now() - (lastTouch[card.dataset.revKey] || 0) < ABANDONED_MS) return true;
     return false;
   }
 

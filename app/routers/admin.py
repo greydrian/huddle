@@ -74,6 +74,9 @@ ADMIN_ERRORS = {
     "task-unknown-person": ("tasks", "That family member no longer exists."),
     "task-no-list": ("tasks", "That family member has no Google list linked yet, so the task can't move to "
                               "them. Link one under Google & Sync → Task Sync first."),
+    "task-group": ("tasks", "Pick Any time, Morning, After school or Evening."),
+    "task-group-times": ("tasks", "Use times like 12:00, with After school starting after midnight and "
+                                  "before Evening. Nothing was changed."),
     "homework-missing": ("homework", "That homework no longer exists. It may have just been deleted."),
     "words-missing": ("practice-words", "That word list no longer exists. It may have just been deleted."),
     "handwriting-style": ("practice-words", "Pick one of the handwriting styles."),
@@ -385,6 +388,9 @@ async def _render_admin(
             context.update({
                 "tasks": await task_service.get_admin_tasks(db),
                 "weekdays": recurrence.WEEKDAYS,
+                "task_groups": [(g, task_service.GROUP_LABELS[g]) for g in task_service.GROUPS],
+                "task_group_bounds": await task_service.get_group_boundaries(db),
+                "term_dates_missing": await term_dates.missing_years(db, today),
                 "homework_items": homework_items,
                 "finished_homework": finished_homework,
                 "homework_form": homework_form,
@@ -487,24 +493,43 @@ async def edit_task(
     profile_id: int = Form(...),
     is_recurring: bool = Form(False),
     days: list[str] = Form(default=[]),
+    school_days: bool = Form(False),
+    time_of_day: str | None = Form(None),
 ):
-    # Ticking any day implies the task repeats; "Repeats" with no days ticked
-    # means every day. Rules are only stored for recurring tasks.
-    recurring = is_recurring or bool(days)
-    rule = recurrence.normalize_rule(days) if recurring else None
+    # Ticking any day (or School days) implies the task repeats; "Repeats"
+    # with no days ticked means every day. Rules are only stored for
+    # recurring tasks. No time_of_day field at all leaves the group as it is.
+    recurring = is_recurring or bool(days) or school_days
+    rule: str | None = None
+    if school_days:
+        rule = recurrence.SCHOOL_DAYS
+    elif recurring:
+        rule = recurrence.normalize_rule(days)
+    try:
+        group = task_service.clean_group(time_of_day)
+    except ValueError:
+        return _admin_error("task-group")
     async with get_db() as db:
         task = await (await db.execute(
-            "SELECT profile_id FROM tasks WHERE id = ? AND archived = 0", (task_id,)
+            "SELECT profile_id, is_recurring, time_of_day, due_on FROM tasks WHERE id = ? AND archived = 0",
+            (task_id,),
         )).fetchone()
         if task is None:
             return _admin_error("task-missing")
+        if time_of_day is None:
+            group = task["time_of_day"]
+        # A task made a one-off is due from today, not marked late for the
+        # days it spent repeating.
+        due_on = task["due_on"]
+        if not recurring and (task["is_recurring"] or not due_on):
+            due_on = (await family_today(db)).isoformat()
         if profile_id == task["profile_id"]:
-            # The schedule is local-only (never pushed, never reconciled), so
-            # don't bump updated_at or queue a push: that would overwrite a
-            # newer rename/tick in Google with this row's stale copy.
+            # The schedule and group are local-only (never pushed, never
+            # reconciled), so don't bump updated_at or queue a push: that would
+            # overwrite a newer rename/tick in Google with this row's stale copy.
             await db.execute(
-                "UPDATE tasks SET is_recurring = ?, recurrence_rule = ? WHERE id = ?",
-                (int(recurring), rule, task_id),
+                "UPDATE tasks SET is_recurring = ?, recurrence_rule = ?, time_of_day = ?, due_on = ? WHERE id = ?",
+                (int(recurring), rule, group, due_on, task_id),
             )
         else:
             target = await (await db.execute(
@@ -517,12 +542,24 @@ async def edit_task(
                 return _admin_error("task-no-list")
             await task_sync.detach_from_profile_list(db, task_id)
             await db.execute(
-                """UPDATE tasks SET profile_id = ?, is_recurring = ?, recurrence_rule = ?,
-                       updated_at = datetime('now') WHERE id = ?""",
-                (profile_id, int(recurring), rule, task_id),
+                """UPDATE tasks SET profile_id = ?, is_recurring = ?, recurrence_rule = ?, time_of_day = ?,
+                       due_on = ?, updated_at = datetime('now') WHERE id = ?""",
+                (profile_id, int(recurring), rule, group, due_on, task_id),
             )
             await task_sync.queue_sync(db, "tasks", {"task_id": task_id})
         await db.commit()
+    return RedirectResponse(url=admin_url("tasks"), status_code=303)
+
+
+@router.post("/tasks/groups", dependencies=[Depends(require_admin)])
+async def save_task_groups(after_school_start: str = Form(""), evening_start: str = Form("")):
+    """When the widget's After school and Evening groups start (Morning runs
+    from midnight)."""
+    async with get_db() as db:
+        try:
+            await task_service.set_group_boundaries(db, after_school_start, evening_start)
+        except ValueError:
+            return _admin_error("task-group-times")
     return RedirectResponse(url=admin_url("tasks"), status_code=303)
 
 

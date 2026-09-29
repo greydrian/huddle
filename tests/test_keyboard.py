@@ -66,7 +66,8 @@ async def test_enabled_dashboard_includes_assets_and_marks_inputs(db, client):
     assert 'placeholder="Add an item…" required autocomplete="off" data-osk="text"' in html
     meal_inputs = html.count('class="meal-desc-input"')
     assert meal_inputs == 7
-    assert html.count('data-osk="text"') == meal_inputs + 1  # + the shopping input
+    assert html.count('data-osk="text"') == meal_inputs + 2  # + the shopping and task quick-add inputs
+    assert 'class="task-add-title"' in html
     # keyboard.js sets inputmode="none" only once it has started, so a
     # broken keyboard never leaves the kiosk without the native one.
     assert 'inputmode="none"' not in html

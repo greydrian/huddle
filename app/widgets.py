@@ -21,10 +21,6 @@ class Widget(NamedTuple):
     load: Callable[..., Awaitable[dict]]
 
 
-async def _tasks(db) -> dict:
-    return {"profiles": await tasks.get_profiles_with_tasks(db)}
-
-
 async def _shopping(db) -> dict:
     return {"items": await shopping.get_shopping_items(db)}
 
@@ -50,7 +46,7 @@ async def _homework(db) -> dict:
 
 
 WIDGETS: dict[str, Widget] = {
-    "tasks": Widget("tasks.html", _tasks),
+    "tasks": Widget("tasks.html", tasks.widget_context),
     "shopping": Widget("shopping.html", _shopping),
     "meals": Widget("meals.html", _meals),
     "calendar": Widget("calendar.html", _calendar),

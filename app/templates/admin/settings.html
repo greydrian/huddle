@@ -61,14 +61,24 @@
   <div class="admin-panel" id="tasks">
     <h2>Task Schedules</h2>
     {{ section_error("tasks") }}
-    <p class="admin-meta">Add, rename or delete tasks in Google Tasks — they sync here within a minute. Set which days each one repeats below.</p>
+    <p class="admin-meta">Add, rename or delete tasks in Google Tasks — they sync here within a minute. Quick one-offs can also be added from the dashboard's Tasks widget. Set which days each one repeats, and its time of day, below.</p>
+    {#- Spec 10.4: the widget groups tasks by time of day; the current group comes first. -#}
+    <form class="admin-form task-group-times" method="post" action="/admin/tasks/groups">
+      <label class="hw-field">After school from <input type="time" name="after_school_start" value="{{ task_group_bounds[0] }}" required></label>
+      <label class="hw-field">Evening from <input type="time" name="evening_start" value="{{ task_group_bounds[1] }}" required></label>
+      <button type="submit" class="btn btn-quiet btn-small">Save times</button>
+      <span class="admin-meta admin-form-note">Morning runs until After school starts.</span>
+    </form>
+    {% if term_dates_missing and tasks | selectattr("school_days") | list %}
+    <p class="admin-meta" role="note">Term dates missing for {{ term_dates_missing | join(" and ") }}: "School days" tasks use Mon–Fri minus bank holidays until they're added (<a class="inline-link" href="/admin?tab=school#term-dates">School → Term dates</a>).</p>
+    {% endif %}
     {% for p in profiles %}
     {% set person_tasks = tasks | selectattr("profile_id", "equalto", p.id) | list %}
     <div class="schedule-person">
       <h3>{{ person_avatar(p.name, p.colour_hex) }}{{ p.name }}{% if not p.google_tasklist_id %} <span class="admin-meta">· {% if person_tasks %}These stay on this display only until a Google list is linked (<a class="inline-link" href="/admin?tab=google#task-lists">Google &amp; Sync → Task Sync</a>){% else %}Link a Google list under <a class="inline-link" href="/admin?tab=google#task-lists">Google &amp; Sync → Task Sync</a> to give them tasks{% endif %}</span>{% endif %}</h3>
       {% for t in person_tasks %}
       <div class="admin-row admin-item">
-        <span class="admin-item-label">{{ t.title }} <span class="admin-meta">· {{ 'repeats ' ~ t.schedule if t.schedule else 'one-off' }}</span></span>
+        <span class="admin-item-label">{{ t.title }} <span class="admin-meta">· {{ 'repeats ' ~ t.schedule if t.schedule else 'one-off' }}{% if t.group_label %} · {{ t.group_label }}{% endif %}</span></span>
         <details class="task-edit">
           <summary class="btn"><span class="task-edit-open">Schedule</span><span class="task-edit-close">Cancel</span></summary>
           <form class="admin-form" method="post" action="/admin/tasks/{{ t.id }}/edit">
@@ -79,6 +89,15 @@
               <span class="admin-meta">or only:</span>
               {% for d in weekdays %}
               <label class="day-chip"><input type="checkbox" name="days" value="{{ d }}" {{ 'checked' if d in t.days else '' }}><span>{{ d }}</span></label>
+              {% endfor %}
+              {#- Follows the term dates (Mon–Fri minus bank holidays without them); wins over the day chips. -#}
+              <label class="day-chip"><input type="checkbox" name="school_days" value="true" {{ 'checked' if t.school_days else '' }}><span>School days</span></label>
+            </div>
+            <div class="day-picker" role="radiogroup" aria-label="Time of day">
+              <span class="admin-meta">Time of day:</span>
+              <label class="day-chip"><input type="radio" name="time_of_day" value="" {{ 'checked' if not t.group_label else '' }}><span>Any time</span></label>
+              {% for key, label in task_groups %}
+              <label class="day-chip"><input type="radio" name="time_of_day" value="{{ key }}" {{ 'checked' if t.time_of_day == key else '' }}><span>{{ label }}</span></label>
               {% endfor %}
             </div>
             <label class="admin-check">Person

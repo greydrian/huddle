@@ -464,11 +464,23 @@ async def m0003_term_dates(db):
     )
 
 
+async def m0004_task_groups(db):
+    """Spec 10.4: two local-only task columns, never pushed to Google (like
+    recurrence_rule). time_of_day is 'morning' / 'after_school' / 'evening'
+    or NULL (no group). due_on is the family-local ISO date a one-off was
+    due, for "from yesterday" carry-over labels; Google's own `due` is a
+    date with no time and is often unset, so it can't be relied on. Existing
+    rows keep NULL in both: no group, and never marked late."""
+    await database._add_column_if_missing(db, "tasks", "time_of_day", "TEXT")
+    await database._add_column_if_missing(db, "tasks", "due_on", "TEXT")
+
+
 # Append only: see the module docstring.
 MIGRATIONS: list[Migration] = [
     Migration(1, "baseline", m0001_baseline),
     Migration(2, "profile_parents", m0002_profile_parents),
     Migration(3, "term_dates", m0003_term_dates),
+    Migration(4, "task_groups", m0004_task_groups),
 ]
 
 

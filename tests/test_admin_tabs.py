@@ -83,6 +83,7 @@ ROUTES: dict[tuple[str, str], tuple[str, dict | str]] = {
     ("POST", "/admin/profiles/{profile_id}/details"): (TAB, {"email": "not an email"}),
     ("POST", "/admin/profiles/{profile_id}/delete"): (TAB, {}),
     ("POST", "/admin/tasks/{task_id}/edit"): (TAB, {"profile_id": "1"}),
+    ("POST", "/admin/tasks/groups"): (TAB, {"after_school_start": "18:00", "evening_start": "12:00"}),
     ("POST", "/admin/homework"): (TAB, {"profile_id": "1", "title": "Fractions"}),
     ("POST", "/admin/homework/{homework_id}/edit"): (TAB, {}),
     ("POST", "/admin/homework/{homework_id}/archive"): (TAB, {}),
