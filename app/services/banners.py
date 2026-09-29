@@ -178,10 +178,19 @@ async def dismiss(db, key: str, now: datetime | None = None) -> bool:
     if len(key) > MAX_KEY or not KEY_PATTERN.fullmatch(key):
         return False
     now = (now or datetime.now(UTC)).astimezone(UTC)
-    dismissed = _read_dismissed(await get_setting(db, DISMISSED_KEY))
-    dismissed[key] = now.isoformat()
-    await set_setting(db, DISMISSED_KEY, json.dumps(_prune(dismissed, now)))
-    await db.commit()
+    if db.in_transaction:
+        await db.commit()
+    # Read-modify-write under SQLite's write lock: two quick taps (two
+    # requests) can't both read the old list and lose one dismissal.
+    await db.execute("BEGIN IMMEDIATE")
+    try:
+        dismissed = _read_dismissed(await get_setting(db, DISMISSED_KEY))
+        dismissed[key] = now.isoformat()
+        await set_setting(db, DISMISSED_KEY, json.dumps(_prune(dismissed, now)))
+        await db.commit()
+    except BaseException:
+        await db.rollback()
+        raise
     return True
 
 

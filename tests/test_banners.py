@@ -2,6 +2,7 @@
 timing windows, quiet hours, dismissals, ordering, sounds, Admin and the
 /api/rev component. Every test uses a frozen clock in the family's zone."""
 
+import asyncio
 import json
 import re
 import time
@@ -10,7 +11,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from app import calendar_cache, google_calendar, google_oauth
+from app import calendar_cache, database, google_calendar, google_oauth
 from app.admin_tabs import admin_url
 from app.routers import admin
 from app.security import create_session_token
@@ -337,6 +338,16 @@ async def test_old_dismissals_are_pruned(db):
     assert await banners.dismissed_keys(db) == {"chores:1:2026-10-05", "chores:1:2026-10-06"}
     await banners.dismiss(db, "chores:1:2026-10-08", t0 + timedelta(days=2, seconds=1))
     assert await banners.dismissed_keys(db) == {"chores:1:2026-10-06", "chores:1:2026-10-08"}
+
+
+async def test_concurrent_dismissals_are_all_kept(db):
+    """Quick taps are separate requests on separate connections: none is lost."""
+    async def tap(n):
+        async with database.get_db() as conn:
+            assert await banners.dismiss(conn, f"term:{n}:2026-10-05")
+
+    await asyncio.gather(*(tap(n) for n in range(12)))
+    assert await banners.dismissed_keys(db) == {f"term:{n}:2026-10-05" for n in range(12)}
 
 
 async def test_dismissals_are_capped(db, monkeypatch):
