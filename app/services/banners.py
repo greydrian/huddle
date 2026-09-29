@@ -31,7 +31,7 @@ from datetime import UTC, datetime, time, timedelta
 
 from app import google_calendar
 from app.database import family_timezone, get_setting, set_setting
-from app.services import homework, term_dates
+from app.services import homework, people, term_dates
 from app.services import tasks as task_service
 
 SETTINGS_KEY = "banner_settings"
@@ -207,18 +207,6 @@ def _person(profile: dict | None) -> dict | None:
     return {"name": profile["name"], "colour": profile["colour_hex"]} if profile else None
 
 
-def _split_person(title: str, profiles: list[dict]) -> tuple[dict | None, str]:
-    """"Alanna: Dentist" -> (Alanna's profile, "Dentist") when the part
-    before the first colon is a family member's name (quick-add titles, spec
-    10.5); otherwise (None, title), i.e. Everyone."""
-    name, sep, rest = title.partition(":")
-    if sep and rest.strip():
-        for profile in profiles:
-            if profile["name"].strip().casefold() == name.strip().casefold():
-                return profile, rest.strip()
-    return None, title
-
-
 def _in_words(minutes: int) -> str:
     if minutes < 60:
         return f"in {minutes} min"
@@ -255,7 +243,7 @@ async def _event_banners(db, now: datetime, lead_default: int, profiles: list[di
         lead = min(lead, MAX_LEAD)
         if not start - timedelta(minutes=lead) <= now < start:
             continue
-        person, title = _split_person(event.get("title") or "(untitled)", profiles)
+        person, title = people.split_person(event.get("title") or "(untitled)", profiles)
         minutes = max(1, math.ceil((start - now).total_seconds() / 60))
         # Google's own offset for the time, never the container's clock.
         text = f"{title} at {start:%H:%M} ({_in_words(minutes)})"
