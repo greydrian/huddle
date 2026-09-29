@@ -907,7 +907,6 @@ html:has(.admin-shell), html:has(.admin-shell) body { height: auto; overflow-y: 
 .admin-form input[type="color"] { padding: 4px; width: 56px; }
 .admin-panel input[type="checkbox"], .admin-panel input[type="radio"] { width: 20px; height: 20px; accent-color: var(--accent); }
 .admin-check { display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 2px 0; font-size: 1rem; }
-<<<<<<< HEAD
 /* Admin → Display → Widgets: Show / School days only switches (one-button forms). */
 .widget-row { flex-wrap: wrap; padding: 4px 0; }
 .widget-row:last-of-type { border-bottom: none; }
@@ -929,11 +928,9 @@ html:has(.admin-shell), html:has(.admin-shell) body { height: auto; overflow-y: 
 .widget-switch[aria-checked="true"] .widget-switch-track { background: var(--accent); border-color: var(--accent); }
 .widget-switch[aria-checked="true"] .widget-switch-knob { transform: translateX(18px); background: var(--on-accent); }
 .widget-switch:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; border-radius: 8px; }
-=======
 /* Admin → Display → Banners: one row per trigger (Show, Chime). */
 .banner-setting { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; border-bottom: 1px solid var(--line); }
 .banner-setting-name { flex: 1 1 220px; font-weight: 600; }
->>>>>>> 529999e (WIP: notification banner service, bar, admin settings)
 .admin-hint { color: var(--ink-soft); font-size: 0.9rem; margin: 6px 0 10px; }
 .admin-shell a:not(.btn):not(.btn-ghost) { color: var(--accent); }
 .admin-shell code { font-size: 0.9em; background: var(--sunken); padding: 1px 5px; border-radius: 5px; }
