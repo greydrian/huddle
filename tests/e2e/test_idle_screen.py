@@ -115,19 +115,51 @@ async def test_a_mouse_click_wakes_without_clicking_either(start_server, page):
     assert server.query("SELECT is_completed FROM tasks WHERE title = 'Feed the cat'") == [(0,)]
 
 
-async def test_never_idle_while_the_keyboard_is_open(start_server, page):
+async def test_never_idle_while_the_keyboard_is_in_use(start_server, page):
     server = start_server(keyboard=True)
     await _open(page, server)
     await page.click("#widget-shopping input[name=title]")
     await page.wait_for_selector(".osk.osk--open", state="visible")
-    await page.clock.run_for("10:00")
+    for _ in range(10):  # someone typing now and then for 10 minutes
+        await page.clock.run_for("01:00")
+        await page.click('.osk [data-skbtn="{space}"]')
     assert (await _state(page))["idle"] is False
+    assert await page.locator(".osk.osk--open").count() == 1
     await page.click('.osk [data-skbtn="{done}"]')
     await page.wait_for_selector(".osk.osk--open", state="hidden")
     # The full delay starts again once the keyboard is closed.
     await page.clock.run_for("04:30")
     assert (await _state(page))["idle"] is False
     await page.clock.run_for("00:45")
+    assert (await _state(page))["idle"] is True
+
+
+async def test_an_abandoned_keyboard_is_closed_so_the_wall_still_idles(start_server, page):
+    server = start_server(keyboard=True)
+    _settings(server, mode="dim")
+    await _open(page, server)
+    await page.click("#widget-shopping input[name=title]")
+    await page.wait_for_selector(".osk.osk--open", state="visible")
+    await page.click('.osk [data-skbtn="{space}"]')  # typed a little, then walked away
+    await page.clock.run_for("01:50")
+    assert await page.locator(".osk.osk--open").count() == 1  # still within 2 minutes: left alone
+    await page.clock.run_for("00:15")
+    await page.wait_for_selector(".osk.osk--open", state="hidden")
+    assert await page.evaluate("document.activeElement === document.body")
+    assert (await _state(page))["idle"] is False
+    await page.clock.run_for("05:05")  # then the usual delay
+    await page.wait_for_selector("#idle-screen.is-dim", state="visible")
+
+
+async def test_an_abandoned_focused_field_is_let_go(start_server, page):
+    server = start_server()  # the tablet's own keyboard: only the focus holds the wall
+    await _open(page, server)
+    await page.click("#widget-shopping input[name=title]")
+    await page.keyboard.type("Bread")
+    await page.clock.run_for("02:05")
+    assert await page.evaluate("document.activeElement === document.body")
+    assert await page.input_value("#widget-shopping input[name=title]") == "Bread"  # what was typed stays
+    await page.clock.run_for("05:05")
     assert (await _state(page))["idle"] is True
 
 
@@ -190,6 +222,21 @@ async def test_dim_turns_fullys_backlight_down_and_back(start_server, page):
     await page.touchscreen.tap(640, 400)
     await page.wait_for_selector("#idle-screen", state="hidden")
     assert await page.evaluate("window.__brightness") == [26, 180]
+
+
+@pytest.mark.parametrize("reading", ["0", "undefined", "'n/a'"])
+async def test_an_unknown_brightness_is_never_changed(start_server, page, reading):
+    """Fully can't say what the backlight is: nothing to put back on wake, so
+    it isn't touched and the dark overlay dims instead."""
+    await page.add_init_script(FAKE_FULLY.replace("() => 180", f"() => {reading}"))
+    server = start_server()
+    _settings(server, mode="dim")
+    await _open(page, server)
+    await page.clock.run_for("05:05")
+    await page.wait_for_selector("#idle-screen.is-dim", state="visible")
+    await page.touchscreen.tap(640, 400)
+    await page.wait_for_selector("#idle-screen", state="hidden")
+    assert await page.evaluate("window.__brightness") == []
 
 
 async def test_a_reload_while_dim_comes_back_dim_and_restores_later(start_server, page):

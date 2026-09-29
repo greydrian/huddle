@@ -207,6 +207,9 @@
     if (isEligible(evt.target)) open(evt.target);
   });
 
+  // idle.js closes a keyboard left open and untouched, so the wall can idle.
+  document.addEventListener('huddle:osk-close', close);
+
   // Tapping the keyboard itself must not steal focus from the input (touch
   // taps would otherwise blur it).
   panel.addEventListener('pointerdown', (evt) => evt.preventDefault());

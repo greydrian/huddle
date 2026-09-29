@@ -11,7 +11,10 @@
  * Never idle while the wall is in use: fresh.js's busy rules
  * (window.huddleBusy: typing, the on-screen keyboard, a finger down, a drag,
  * a fold open and recently touched, a tick still showing), and not within
- * BANNER_GRACE_MS of a new banner (banners.js fires "huddle:banner").
+ * BANNER_GRACE_MS of a new banner (banners.js fires "huddle:banner"). A
+ * field left focused or the keyboard left open with no touch for
+ * ABANDONED_MS is let go of (blurred, keyboard closed), so an abandoned
+ * quick-add can't keep the wall bright all night.
  *
  * Waking: the first pointerdown/touchstart/key only wakes. It is caught on
  * window in the capture phase, before anything else sees it, and it and the
@@ -42,6 +45,7 @@
   var REFRESH_MS = 60000;
   var SWALLOW_MS = 400;     // after the waking tap lifts, what's left of it is still cancelled
   var RESUME_MS = 120000;   // a reload this soon after going idle comes back idle
+  var ABANDONED_MS = 120000; // an input or keyboard left untouched this long is let go (fresh.js's figure)
   var STORE = 'huddle-idle';
   var FETCH_TIMEOUT_MS = 10000;
 
@@ -146,13 +150,25 @@
   }
 
   var savedBrightness = null;  // what to put back on wake
+  // Turns the backlight down, or returns false without touching it when
+  // Fully can't say what it is now: with nothing real to put back on wake,
+  // the dark overlay dims instead (never guess, e.g. 255, and never leave it low).
   function dimBacklight() {
     if (savedBrightness === null) {
-      var current = null;
-      try { if (typeof window.fully.getScreenBrightness === 'function') current = Number(window.fully.getScreenBrightness()); } catch (err) { current = null; }
-      savedBrightness = isFinite(current) && current > 0 ? current : 255;
+      var current = NaN;
+      try {
+        if (typeof window.fully.getScreenBrightness === 'function') current = Number(window.fully.getScreenBrightness());
+      } catch (err) { current = NaN; }
+      if (!isFinite(current) || current <= 0) return false;
+      savedBrightness = current;
     }
-    try { window.fully.setScreenBrightness(brightnessLevel(Number(cfg.dim_percent) || 8)); } catch (err) { /* stays as it is */ }
+    try {
+      window.fully.setScreenBrightness(brightnessLevel(Number(cfg.dim_percent) || 8));
+    } catch (err) {
+      savedBrightness = null;
+      return false;
+    }
+    return true;
   }
   function restoreBacklight() {
     if (savedBrightness === null) return;
@@ -165,6 +181,7 @@
   var idle = false;
   var kind = null;           // 'slideshow' | 'dim' while idle
   var lastActivity = Date.now();
+  var lastInput = Date.now();  // a real touch or key (lastActivity is also pushed on while busy)
   var lastBannerAt = 0;
   var lastRefresh = 0;
   var swallowing = false;    // the waking gesture is still being cancelled
@@ -233,8 +250,7 @@
     root.classList.add('idle-' + next);
     screen.classList.remove('is-slideshow', 'is-clock', 'is-dim', 'is-dim-backlight');
     if (next === 'dim') {
-      if (fullyOk()) {
-        dimBacklight();
+      if (fullyOk() && dimBacklight()) {
         screen.classList.add('is-dim-backlight');  // transparent: the backlight does the dimming
       } else {
         screen.classList.add('is-dim');
@@ -352,7 +368,22 @@
         return;
       }
     }
-    if (ACTIVITY[evt.type]) lastActivity = now;
+    if (ACTIVITY[evt.type]) lastActivity = lastInput = now;
+  }
+
+  // A quick-add field left focused, or the on-screen keyboard left open,
+  // with nobody touching anything for ABANDONED_MS: let go of it (blur it and
+  // close the keyboard), so the wall can still idle and dim for the night.
+  // What was typed stays in the field.
+  function releaseAbandoned(now) {
+    if (now - lastInput < ABANDONED_MS) return;
+    var active = document.activeElement;
+    var typing = active && active !== document.body && active.matches &&
+      active.matches('input, textarea, select, [contenteditable]');
+    var osk = root.classList.contains('osk-open') || document.querySelector('.osk--open');
+    if (!typing && !osk) return;
+    document.dispatchEvent(new CustomEvent('huddle:osk-close'));
+    if (typing && typeof active.blur === 'function') active.blur();
   }
 
   ['pointerdown', 'pointerup', 'pointercancel', 'pointermove', 'touchstart', 'touchend', 'touchmove',
@@ -376,6 +407,7 @@
       if (now - lastRefresh >= REFRESH_MS) refresh();
       return;
     }
+    releaseAbandoned(now);
     var isBusy = busy();
     if (isBusy) lastActivity = now;  // the full delay starts again once they're done
     if (shouldGoIdle({
