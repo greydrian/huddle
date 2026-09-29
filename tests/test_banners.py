@@ -350,6 +350,25 @@ async def test_concurrent_dismissals_are_all_kept(db):
     assert await banners.dismissed_keys(db) == {f"term:{n}:2026-10-05" for n in range(12)}
 
 
+@pytest.mark.parametrize(("event_id", "title"), [
+    ("x" * 300, "Swimming"),             # an id far longer than a key may be
+    ("id with spaces/and:colons", "Swimming"),
+    (None, "Swimming lessons: with a very long title " * 8),  # no id: the title stands in
+])
+async def test_every_event_key_fits_and_can_be_dismissed(db, calendar, client, frozen, event_id, title):
+    raw = event(title, reminders=popup(30))
+    if event_id is None:
+        del raw["id"]
+    else:
+        raw["id"] = event_id
+    await calendar([raw])
+    [found] = await banners.active_banners(db, at(16, 10), only("events"))
+    assert len(found["key"]) <= banners.MAX_KEY and banners.KEY_PATTERN.fullmatch(found["key"])
+    assert found["key"].endswith(":2026-10-05T16:30:00+01:00")
+    assert (await client.post("/api/banners/dismiss", data={"key": found["key"]})).status_code == 200
+    assert await banners.active_banners(db, at(16, 10), only("events")) == []
+
+
 async def test_dismissals_are_capped(db, monkeypatch):
     monkeypatch.setattr(banners, "MAX_DISMISSED", 3)
     t0 = datetime(2026, 10, 5, 12, tzinfo=TZ)

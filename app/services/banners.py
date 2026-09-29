@@ -23,6 +23,7 @@ Tapping a banner dismisses that occurrence: its key goes into app_settings
 Every time is the family's (a tz-aware `now`), never the container's UTC.
 """
 
+import hashlib
 import json
 import math
 import re
@@ -258,13 +259,22 @@ async def _event_banners(db, now: datetime, lead_default: int, profiles: list[di
         minutes = max(1, math.ceil((start - now).total_seconds() / 60))
         # Google's own offset for the time, never the container's clock.
         text = f"{title} at {start:%H:%M} ({_in_words(minutes)})"
-        key = f"event:{event.get('id') or _slug(event.get('title'))}:{event['sort_key']}"
+        key = f"event:{_key_part(event.get('id') or event.get('title'))}:{event['sort_key']}"
         banners[key] = _banner("events", key, text, _person(person), start)
     return list(banners.values())
 
 
-def _slug(title: str | None) -> str:
-    return re.sub(r"\s+", "-", (title or "untitled").strip())[:60] or "untitled"
+_PLAIN_ID = re.compile(r"[A-Za-z0-9_.@-]{1,64}")
+
+
+def _key_part(value: str | None) -> str:
+    """An event's id as it goes into a key: kept when short and plain (the
+    usual Google id), else a hash, so every key fits MAX_KEY and KEY_PATTERN
+    and stays dismissible (an event with no id uses its title)."""
+    value = value or "untitled"
+    if _PLAIN_ID.fullmatch(value):
+        return value
+    return "h" + hashlib.sha1(value.encode(), usedforsecurity=False).hexdigest()[:24]
 
 
 async def _homework_banners(db, now: datetime, profiles: list[dict]) -> list[dict]:
