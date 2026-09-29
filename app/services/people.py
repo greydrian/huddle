@@ -6,7 +6,12 @@ banners.py) and the calendar's person filter (services/calendar_view.py).
 - A **"Name: Title"** prefix, as the calendar's quick add saves an event for
   one person ("Alanna: Dentist"), names exactly that person.
 - Otherwise, each family member whose **first name appears as a whole word**
-  ("Riley's swimming", "Pick up Riley") is named. Case doesn't matter.
+  ("Riley's swimming", "Pick up Riley") is named. The name must be written
+  as it is in Admin (or capitalised, if Admin has it in lower case), so a
+  name that is also an ordinary word only counts when it's capitalised:
+  "will you..." isn't Will, though "May half term" is still May. A hyphen
+  continues a name ("Riley-Smith" isn't Riley); a possessive ("Riley's")
+  doesn't. The "Name:" prefix ignores case.
 
 Profiles are dicts with at least "name" (and whatever else the caller needs
 back, such as "id" and "colour_hex").
@@ -38,9 +43,11 @@ def split_person(title: str, profiles: list[dict]) -> tuple[dict | None, str]:
 
 
 def _whole_word(word: str) -> re.Pattern:
-    # \w-bounded rather than \b, so a name ending in a non-word character
-    # still matches, and "Riley's" counts as Riley.
-    return re.compile(rf"(?<!\w){re.escape(word)}(?!\w)", re.IGNORECASE)
+    """The name as written in Admin (or capitalised), not inside a longer
+    word or a hyphenated name; case-sensitive on purpose (module docstring)."""
+    spellings = sorted({word, word[:1].upper() + word[1:]})
+    names = "|".join(re.escape(w) for w in spellings)
+    return re.compile(rf"(?<![\w-])(?:{names})(?![\w-])")
 
 
 def named_people(title: str, profiles: list[dict]) -> list[dict]:

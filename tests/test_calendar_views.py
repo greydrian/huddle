@@ -335,8 +335,24 @@ def test_people_helper():
     assert people.split_person("Note: Riley", profiles) == (None, "Note: Riley")
     assert people.split_person("Riley:", profiles) == (None, "Riley:")
     assert people.named_people("Riley: Take Alanna", profiles) == [riley]  # the prefix decides
-    assert people.named_people("ALANNA and riley", profiles) == [alanna, riley]
+    assert people.named_people("Alanna and Riley", profiles) == [alanna, riley]
     assert people.named_people("Rileys", profiles) == []
+
+
+def test_names_match_as_written():
+    """A name that's also a word counts only when capitalised as in Admin."""
+    may, will, riley = {"id": 1, "name": "May"}, {"id": 2, "name": "Will"}, {"id": 3, "name": "Riley"}
+    hyphen, lower = {"id": 4, "name": "Riley-Smith"}, {"id": 5, "name": "jo"}
+    profiles = [may, will, riley, hyphen, lower]
+    assert people.named_people("May half term", profiles) == [may]  # capitalised: accepted
+    assert people.named_people("will you pick up the parcel", profiles) == []
+    assert people.named_people("Tea with Will", profiles) == [will]
+    assert people.named_people("WILL: swim", profiles) == [will]  # the prefix ignores case
+    assert people.named_people("Riley's swim", profiles) == [riley]  # possessive
+    assert people.named_people("Riley-Smith's party", profiles) == [hyphen]  # not Riley
+    assert people.named_people("Party at the Riley-Smiths", profiles) == []
+    assert people.named_people("Jo's party", profiles) == [lower]  # lower case in Admin: capitalised too
+    assert people.named_people("riley swim", profiles) == []
 
 
 def test_banners_use_the_shared_helper():
