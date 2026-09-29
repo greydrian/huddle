@@ -29,6 +29,7 @@ SECTIONS = {
     "classroom": "school",
     "inbox": "school",
     "school-email": "school",
+    "term-dates": "school",
     "weather": "display",
     "display": "display",  # Appearance (its anchor predates the tabs)
     "keyboard": "display",

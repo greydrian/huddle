@@ -91,13 +91,29 @@ def _seed(db_path: Path, *, keyboard: bool) -> None:
 
 
 class Server:
-    def __init__(self, url: str, data_dir: Path):
+    def __init__(self, url: str, data_dir: Path, env: dict):
         self.url = url
         self.db_path = data_dir / "family_display.db"
+        self._env = env
 
     def query(self, sql: str, params=()):
         with sqlite3.connect(self.db_path) as conn:
             return conn.execute(sql, params).fetchall()
+
+    def connect_google(self):
+        """Store an unexpired Google token (encrypted with this server's key)
+        so the calendar renders its month grid. Google itself stays out of
+        reach (the dead proxy), so the grid shows its offline state."""
+        code = (
+            "import asyncio, time\n"
+            "from app import database, google_oauth\n"
+            "async def main():\n"
+            "    async with database.get_db() as db:\n"
+            "        await google_oauth.store_tokens(db, {'access_token': 'tok', 'refresh_token': 'r',"
+            " 'expires_at': time.time() + 86400}, 'family@example.com')\n"
+            "asyncio.run(main())\n"
+        )
+        subprocess.run([sys.executable, "-c", code], cwd=ROOT, env=self._env, check=True)
 
 
 @pytest.fixture
@@ -135,7 +151,7 @@ def start_server(tmp_path):
                 log.flush()
                 pytest.fail("uvicorn didn't start:\n" + (tmp_path / "uvicorn.log").read_text(errors="replace"))
             time.sleep(0.2)
-        return Server(url, data_dir)
+        return Server(url, data_dir, env)
 
     yield start
 

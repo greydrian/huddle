@@ -44,10 +44,18 @@
     {% if day_updated %}<p class="cal-stale">Last updated {{ day_updated }}</p>{% endif %}
     {% if day_events %}
       {% for event in day_events %}
+      {% if event.school %}
+      {#- From the term dates (spec 10.6): local only, never in Google. -#}
+      <div class="event-row all-day cal-school cal-school-{{ event.school }}">
+        <span class="event-time">{{ icon("school", 18) }}School</span>
+        <span class="event-title">{{ event.title }}</span>
+      </div>
+      {% else %}
       <div class="event-row{{ ' all-day' if event.all_day else '' }}" style="--ev: {{ event.color }};">
         <span class="event-time">{{ 'All day' if event.all_day else event.time_label }}</span>
         <span class="event-title">{{ event.title }}</span>
       </div>
+      {% endif %}
       {% endfor %}
     {% else %}
     <div class="widget-note">Nothing scheduled.</div>
@@ -67,18 +75,28 @@
         <div class="cal-day-num{{ ' other-month' if not day.in_month else '' }}{{ ' today' if day.is_today else '' }}{{ ' weekend' if day.is_weekend else '' }}"
              hx-get="/widgets/calendar/day/{{ day.date }}" hx-target="#widget-calendar" hx-swap="outerHTML">
           <span>{{ day.day }}</span>
+          {%- if day.term_marker %}<i class="cal-term-marker" title="{{ day.term_marker }}" aria-label="{{ day.term_marker }}"></i>{% endif %}
         </div>
         {% endfor %}
       </div>
       {% if week.bars %}
       <div class="cal-week-bars" style="grid-template-rows: repeat({{ week.row_count }}, auto);">
         {% for bar in week.bars %}
+        {% if bar.event.school %}
+        {#- A school holiday / half term / INSET day from the term dates: local only. -#}
+        <div class="cal-bar cal-school cal-school-{{ bar.event.school }}"
+             style="grid-column: {{ bar.col_start }} / {{ bar.col_end + 1 }}; grid-row: {{ bar.slot + 1 }};"
+             hx-get="/widgets/calendar/day/{{ bar.event.date }}" hx-target="#widget-calendar" hx-swap="outerHTML">
+          {{ icon("school", 14) }}<span class="cal-bar-title">{{ bar.event.title }}</span>
+        </div>
+        {% else %}
         <div class="cal-bar{{ ' all-day' if bar.event.all_day else '' }}"
              style="grid-column: {{ bar.col_start }} / {{ bar.col_end + 1 }}; grid-row: {{ bar.slot + 1 }}; --ev: {{ bar.event.color }};"
              hx-get="/widgets/calendar/day/{{ bar.event.date }}" hx-target="#widget-calendar" hx-swap="outerHTML">
           {% if not bar.event.all_day %}<span class="cal-bar-time">{{ bar.event.time_label }}</span>{% endif %}
           <span class="cal-bar-title">{{ bar.event.title }}</span>
         </div>
+        {% endif %}
         {% endfor %}
       </div>
       {% endif %}

@@ -20,6 +20,7 @@ from app import (
     admin_tabs,
     appearance,
     backup,
+    bank_holidays,
     google_oauth,
     google_tasks,
     recurrence,
@@ -49,7 +50,7 @@ from app.security import (
     lockout_seconds_for,
     verify_pin,
 )
-from app.services import extraction, homework, imports, school_events, weather
+from app.services import extraction, homework, imports, school_events, term_dates, weather
 from app.services import tasks as task_service
 from app.templating import templates
 
@@ -111,6 +112,18 @@ ADMIN_ERRORS = {
     "import-busy": ("inbox", "That's still being read. Try again in a moment."),
     "import-pdf-pages": ("classroom", f"That PDF has more than {extraction.MAX_PDF_PAGES} pages. "
                                       "Try just the pages you need."),
+    "import-term-none": ("inbox", "Tick at least one period to add, or Discard the term dates."),
+    "term-kind": ("term-dates", "Pick what kind of period it is: term, half term, holiday, INSET day or closure."),
+    "term-dates": ("term-dates", "Enter a start and an end date, with the end on or after the start. "
+                                 "Nothing was saved."),
+    "term-length": ("term-dates", "That's too long for its kind (at most: term "
+                                  f"{term_dates.MAX_DAYS['term']} days, half term {term_dates.MAX_DAYS['half_term']}, "
+                                  f"holiday {term_dates.MAX_DAYS['holiday']}, INSET {term_dates.MAX_DAYS['inset']}, "
+                                  f"closure {term_dates.MAX_DAYS['closure']}). Check the dates; nothing was saved."),
+    "term-label": ("term-dates", f"A name can be at most {term_dates.MAX_LABEL} characters. Nothing was saved."),
+    "term-overlap": ("term-dates", "That overlaps a period it can't: only half terms, INSET days and closures "
+                                   "may fall inside a term, and nothing else may overlap. Nothing was saved."),
+    "term-missing": ("term-dates", "That period no longer exists. It may have just been deleted."),
 }
 
 # The login form only takes digits (inputmode=numeric, maxlength=8), so a PIN
@@ -333,6 +346,7 @@ async def _render_admin(
     words_form: dict | None = None,
     inbox_form: dict | None = None,
     inbox_error: str | None = None,
+    term_form: dict | None = None,
     status_code: int = 200,
 ):
     """Renders one Admin tab (app/admin_tabs.py), loading only what that
@@ -387,6 +401,8 @@ async def _render_admin(
                 "school": await school_email.summary(db),
                 "event_setup": await _event_setup(db),
                 "writable_calendars": [c for c in lists["available_calendars"] if c.get("writable")],
+                **await _term_dates_context(db),
+                "term_form": term_form,
             })
         elif tab == "display":
             context.update({
@@ -751,7 +767,8 @@ async def _source_fragment(request: Request, source_id: int, **extra) -> HTMLRes
         return HTMLResponse("")
     return templates.TemplateResponse(
         request, "admin/_inbox_source.html",
-        {"source": source, "profiles": profiles, "event_setup": event_setup, **extra},
+        {"source": source, "profiles": profiles, "event_setup": event_setup, "term_kinds": term_dates.KINDS,
+         **extra},
     )
 
 
@@ -805,6 +822,8 @@ async def inbox_approve(
         "date": event_date, "start_time": start_time, "end_time": end_time, "notes": notes,
     }
     source_id, kind = await _candidate_row(candidate_id)
+    if kind == "term_dates":
+        return await _approve_term_dates(request, candidate_id, source_id)
     async with get_db() as db:
         try:
             if kind == "event":
@@ -820,6 +839,36 @@ async def inbox_approve(
                 return await _source_fragment(request, source_id, inbox_form=inbox_form, inbox_error=str(exc))
             return await _render_admin(request, tab="school", inbox_error=str(exc), inbox_form=inbox_form, status_code=400)
     return await _inbox_done(request, source_id)
+
+
+MAX_TERM_ROWS = extraction.MAX_TERM_PERIODS
+
+
+async def _approve_term_dates(request: Request, candidate_id: int, source_id: int | None):
+    """A term-dates candidate's rows (period_kind/start/end/label, with
+    period_include naming the ticked rows) into the term dates."""
+    form = await request.form()
+    columns = [form.getlist(f"period_{name}")[:MAX_TERM_ROWS] for name in ("kind", "start", "end", "label")]
+    included = set(form.getlist("period_include"))
+    rows = [
+        {"kind": str(k), "start_date": str(s), "end_date": str(e), "label": str(lab), "include": str(i) in included}
+        for i, (k, s, e, lab) in enumerate(zip(*columns, strict=False))
+    ]
+    async with get_db() as db:
+        try:
+            await imports.approve_term_dates(db, candidate_id, [r for r in rows if r["include"]])
+        except imports.CandidateError as exc:
+            if exc.code != "import-term-none":
+                return await _inbox_done(request, source_id, exc.code)
+            error = ADMIN_ERRORS[exc.code][1]
+        except term_dates.PeriodError as exc:
+            error = ADMIN_ERRORS[exc.code][1]
+        else:
+            return await _inbox_done(request, source_id)
+    inbox_form = {"id": candidate_id, "periods": rows}
+    if _is_htmx(request) and source_id is not None:
+        return await _source_fragment(request, source_id, inbox_form=inbox_form, inbox_error=error)
+    return await _render_admin(request, tab="school", inbox_error=error, inbox_form=inbox_form, status_code=400)
 
 
 @router.post("/inbox/candidates/{candidate_id}/discard", dependencies=[Depends(require_admin)])
@@ -863,6 +912,64 @@ async def inbox_delete_source(request: Request, source_id: int):
         except imports.CandidateError as exc:
             return await _inbox_done(request, source_id, exc.code)
     return await _inbox_done(request, source_id)
+
+
+# --- Term dates (app/services/term_dates.py, spec 10.6) ---
+
+async def _term_dates_context(db) -> dict:
+    """The School tab's Term dates panel: periods by school year, the years
+    with none (the warning), and when the bank holidays were last updated."""
+    holidays = await bank_holidays.status(db)
+    if holidays["updated_at"]:
+        local = holidays["updated_at"].astimezone(await family_timezone(db))
+        holidays["updated_label"] = f"{local.day} {local:%b %Y}"
+    return {
+        "term_years": term_dates.group_by_school_year(await term_dates.list_periods(db)),
+        "term_missing_years": await term_dates.missing_years(db, await family_today(db)),
+        "term_kinds": term_dates.KINDS,
+        "bank_holidays": holidays,
+    }
+
+
+def _term_form(period_id: int | None, kind: str, start_date: str, end_date: str, label: str) -> dict:
+    return {"id": period_id, "kind": kind, "start_date": start_date, "end_date": end_date, "label": label}
+
+
+@router.post("/term-dates", dependencies=[Depends(require_admin)])
+async def add_term_period(
+    request: Request, kind: str = Form(""), start_date: str = Form(""), end_date: str = Form(""),
+    label: str = Form(""),
+):
+    async with get_db() as db:
+        try:
+            await term_dates.add_period(db, kind, start_date, end_date, label)
+        except term_dates.PeriodError as exc:
+            return await _render_admin(request, tab="school", error=exc.code, status_code=400,
+                                       term_form=_term_form(None, kind, start_date, end_date, label))
+    return RedirectResponse(url=admin_url("term-dates"), status_code=303)
+
+
+@router.post("/term-dates/{period_id}/edit", dependencies=[Depends(require_admin)])
+async def edit_term_period(
+    request: Request, period_id: int, kind: str = Form(""), start_date: str = Form(""),
+    end_date: str = Form(""), label: str = Form(""),
+):
+    async with get_db() as db:
+        try:
+            await term_dates.update_period(db, period_id, kind, start_date, end_date, label)
+        except term_dates.PeriodError as exc:
+            if exc.code == "term-missing":
+                return _admin_error(exc.code)
+            return await _render_admin(request, tab="school", error=exc.code, status_code=400,
+                                       term_form=_term_form(period_id, kind, start_date, end_date, label))
+    return RedirectResponse(url=admin_url("term-dates"), status_code=303)
+
+
+@router.post("/term-dates/{period_id}/delete", dependencies=[Depends(require_admin)])
+async def delete_term_period(period_id: int):
+    async with get_db() as db:
+        await term_dates.delete_period(db, period_id)
+    return RedirectResponse(url=admin_url("term-dates"), status_code=303)
 
 
 # --- School email (app/school_email.py) ---

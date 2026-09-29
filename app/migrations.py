@@ -433,10 +433,42 @@ async def m0002_profile_parents(db):
     await database._add_column_if_missing(db, "profiles", "email", "TEXT")
 
 
+async def m0003_term_dates(db):
+    """Spec 10.6: the school's term dates (one set per household) and the
+    GOV.UK bank holidays (England and Wales). Bank holidays get their own
+    table rather than a kind in school_periods: they're a feed, refreshed
+    wholesale and keyed by date, so a refresh can never touch a parent's
+    own entries, and Admin's term-date list, edits and inbox dedupe never
+    see feed rows. See app/services/term_dates.py."""
+    await db.execute(
+        """CREATE TABLE IF NOT EXISTS school_periods (
+                   id INTEGER PRIMARY KEY AUTOINCREMENT,
+                   kind TEXT NOT NULL,          -- term / holiday / half_term / inset / closure
+                   start_date TEXT NOT NULL,    -- ISO date, inclusive
+                   end_date TEXT NOT NULL,      -- ISO date, inclusive
+                   label TEXT NOT NULL DEFAULT '',
+                   source TEXT NOT NULL DEFAULT 'manual',  -- manual / import
+                   created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+               )"""
+    )
+    await db.execute(
+        "CREATE INDEX IF NOT EXISTS school_periods_dates ON school_periods (start_date, end_date)"
+    )
+    await db.execute(
+        """CREATE TABLE IF NOT EXISTS bank_holidays (
+                   date TEXT PRIMARY KEY,       -- ISO date
+                   title TEXT NOT NULL,
+                   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+               )"""
+    )
+
+
 # Append only: see the module docstring.
 MIGRATIONS: list[Migration] = [
     Migration(1, "baseline", m0001_baseline),
     Migration(2, "profile_parents", m0002_profile_parents),
+    Migration(3, "term_dates", m0003_term_dates),
 ]
 
 

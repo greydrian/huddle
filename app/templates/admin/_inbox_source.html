@@ -5,8 +5,10 @@
     bring back what was typed, and `source_error` is an ADMIN_ERRORS message for it.
     Its buttons post via HTMX and swap only this block (hx-target="this" is inherited),
     so unsaved edits elsewhere in the inbox survive. `event_setup` ({calendar, scope})
-    says whether events can be approved into Google Calendar yet. -#}
-{% set kind_labels = {"word_list": "Spellings", "homework": "Homework", "event": "Event"} %}
+    says whether events can be approved into Google Calendar yet. A term-dates candidate
+    (the whole set of periods) needs `term_kinds`; after a failed approve,
+    inbox_form.periods brings its rows back. -#}
+{% set kind_labels = {"word_list": "Spellings", "homework": "Homework", "event": "Event", "term_dates": "Term dates"} %}
 <div class="inbox-source{{ ' is-processed' if source.processed else '' }}" id="inbox-source-{{ source.id }}" hx-target="this" hx-swap="outerHTML"
      {%- if source.status == 'pending' %} hx-get="/admin/inbox/sources/{{ source.id }}" hx-trigger="every 3s"{% endif %}>
   <div class="inbox-source-head">
@@ -54,7 +56,8 @@
     <div class="inbox-candidate-head">
       <span class="inbox-kind inbox-kind-{{ c.kind }}">{{ kind_labels[c.kind] }}</span>
       {% if c.kind == 'event' %}<span class="admin-meta">{{ 'Whole school' if p.whole_school else (c.profile_name or 'No child chosen') }}</span>{% endif %}
-      {% if c.duplicate %}<span class="inbox-duplicate">Already on the wall</span>{% endif %}
+      {% if c.kind == 'term_dates' %}<span class="admin-meta">Whole school · {{ p.periods | length }} dates</span>{% endif %}
+      {% if c.duplicate %}<span class="inbox-duplicate">{{ 'Already added' if c.kind == 'term_dates' else 'Already on the wall' }}</span>{% endif %}
     </div>
     {% if editing and inbox_error %}<p class="admin-error" role="alert">{{ inbox_error }}</p>{% endif %}
 
@@ -78,6 +81,32 @@
     <p class="admin-hint">{% if not event_setup.connected %}Connect a Google account to add school events to your calendar.{% elif not event_setup.scope %}Reconnect to allow adding to your calendar (Google Account: Disconnect, then Connect).{% else %}Pick the calendar school events go to in the School email panel to add this to it.{% endif %}</p>
     <form method="post" action="/admin/inbox/candidates/{{ c.id }}/discard" hx-post="/admin/inbox/candidates/{{ c.id }}/discard">
       <button type="submit" class="btn btn-quiet btn-small">Discard</button>
+    </form>
+    {% elif c.kind == 'term_dates' %}
+    {#- The whole set, one row per period, approved together into Admin's term dates
+        (services/imports.approve_term_dates). Untick a row to leave it out; rows already
+        in the term dates start unticked and are skipped anyway. -#}
+    <form class="term-import" method="post" action="/admin/inbox/candidates/{{ c.id }}/approve" hx-post="/admin/inbox/candidates/{{ c.id }}/approve">
+      {% set rows = inbox_form.periods if editing else p.periods %}
+      {% for r in rows %}
+      {% set already = p.periods[loop.index0].already if loop.index0 < p.periods | length else false %}
+      <div class="term-import-row{{ ' is-already' if already else '' }}">
+        <label class="term-import-include"><input type="checkbox" name="period_include" value="{{ loop.index0 }}"
+          {{- ' checked' if (r.include if editing else not already) else '' }} aria-label="Add this one"></label>
+        <select name="period_kind" aria-label="Kind">
+          {% for value, name in term_kinds.items() %}<option value="{{ value }}" {{ 'selected' if value == r.kind else '' }}>{{ name }}</option>{% endfor %}
+        </select>
+        <input type="date" name="period_start" value="{{ r.start_date or '' }}" aria-label="From">
+        <input type="date" name="period_end" value="{{ r.end_date or '' }}" aria-label="Until">
+        <input type="text" name="period_label" value="{{ r.label or '' }}" maxlength="80" aria-label="Name" autocomplete="off"{% if onscreen_keyboard %} data-osk="text"{% endif %}>
+        {% if already %}<span class="inbox-duplicate">Already added</span>{% endif %}
+      </div>
+      {% endfor %}
+      <span class="inbox-buttons">
+        <button type="submit" class="btn">Add ticked to term dates</button>
+        <button type="submit" class="btn btn-quiet" formaction="/admin/inbox/candidates/{{ c.id }}/discard" hx-post="/admin/inbox/candidates/{{ c.id }}/discard" formnovalidate>Discard</button>
+      </span>
+      <span class="admin-meta">Check every date against the letter: term-date grids are easy to misread, and the council's dates don't include INSET days.</span>
     </form>
     {% else %}
     <form class="admin-form" method="post" action="/admin/inbox/candidates/{{ c.id }}/approve" hx-post="/admin/inbox/candidates/{{ c.id }}/approve">

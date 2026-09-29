@@ -146,6 +146,31 @@
 /* A school email Gmail couldn't authenticate (no SPF/DKIM/DMARC verdict). */
 .inbox-unverified { font-size: 0.8rem; font-weight: 700; padding: 3px 9px; border-radius: 999px; background: var(--sunken); color: var(--danger); }
 
+/* --- Admin: Term dates (settings.html #term-dates) and a term-dates inbox
+   candidate (.term-import: one row per period, ticked ones are added). --- */
+.term-warning { margin: 4px 0 12px; padding: 10px 14px; border-radius: var(--radius-control); background: var(--warn-soft); border: 1px solid color-mix(in srgb, var(--warn) 40%, transparent); }
+.term-warning p { margin: 4px 0; }
+.term-warning strong { color: var(--warn); }
+.term-year { margin: 16px 0 2px; font-size: 1rem; color: var(--ink-soft); }
+.term-kind { display: inline-block; margin-right: 6px; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; padding: 2px 8px; border-radius: 999px; background: var(--sunken); color: var(--ink-soft); vertical-align: 1px; }
+.term-kind-term { background: var(--accent-soft); color: var(--accent); }
+.term-kind-inset, .term-kind-closure { background: var(--warn-soft); color: var(--warn); }
+.term-label-field { flex: 1 1 200px; }
+.term-label-field input { width: 100%; }
+.term-bank-holidays { margin-top: 14px; }
+.term-import { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.term-import-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.term-import-row input:not([type="checkbox"]) {
+  min-height: 48px; padding: 9px 12px; border-radius: var(--radius-control); border: 1px solid var(--line);
+  background: var(--sunken); color: var(--ink); font-size: 1rem;
+}
+.term-import-row input[type="text"] { flex: 1; min-width: 160px; }
+.term-import-row.is-already { opacity: 0.7; }
+.term-import-include { display: inline-flex; align-items: center; justify-content: center; width: 48px; height: 48px; cursor: pointer; }
+.term-import-include input { width: 22px; height: 22px; }
+.term-import .inbox-buttons { align-self: flex-start; margin-top: 4px; }
+.term-import .btn-quiet { background: var(--sunken); color: var(--ink); }
+
 /* --- Admin: School email panel (settings.html #school-email) ---
    Status line, Check now, then the schedule / sender forms side by side
    where there's room; the two sender lists share a row and wrap on phones. */
