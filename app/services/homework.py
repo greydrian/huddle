@@ -11,6 +11,7 @@ night's reading counts for.
 import re
 from datetime import date, datetime, timedelta
 
+from app import avatars
 from app.database import family_timezone, family_today, get_setting
 from app.services import term_dates
 
@@ -231,8 +232,8 @@ def is_visible(item: dict, today: date) -> bool:
 
 async def get_homework_groups(db) -> list[dict]:
     today = await family_today(db)
-    profiles = [dict(r) for r in await (await db.execute(
-        "SELECT id, name, colour_hex FROM profiles ORDER BY sort_order"
+    profiles = [avatars.attach(dict(r)) for r in await (await db.execute(
+        f"SELECT id, name, colour_hex, {avatars.COLUMNS} FROM profiles ORDER BY sort_order"
     )).fetchall()]
     rows = await (await db.execute(
         """SELECT * FROM homework WHERE archived = 0
@@ -361,8 +362,8 @@ _READER = "is_parent = 0 AND TRIM(COALESCE(school_year, '')) != ''"
 
 
 async def _children(db) -> list[dict]:
-    return [dict(r) for r in await (await db.execute(
-        f"SELECT id, name, colour_hex FROM profiles WHERE {_READER} ORDER BY sort_order, id"
+    return [avatars.attach(dict(r)) for r in await (await db.execute(
+        f"SELECT id, name, colour_hex, {avatars.COLUMNS} FROM profiles WHERE {_READER} ORDER BY sort_order, id"
     )).fetchall()]
 
 
@@ -433,7 +434,7 @@ def is_active(word_list: dict, today: date) -> bool:
 async def get_practice_lists(db) -> list[dict]:
     today = await family_today(db)
     rows = await (await db.execute(
-        """SELECT l.*, p.name AS profile_name, p.colour_hex,
+        f"""SELECT l.*, p.name AS profile_name, p.colour_hex, {avatars.columns("p")},
                   EXISTS (SELECT 1 FROM practice_log g WHERE g.list_id = l.id AND g.practised_on = ?)
                       AS practised_today
            FROM practice_word_lists l JOIN profiles p ON p.id = l.profile_id
@@ -446,6 +447,7 @@ async def get_practice_lists(db) -> list[dict]:
         word_list = dict(row)
         if is_active(word_list, today):
             word_list["word_items"] = [w for w in word_list["words"].split("\n") if w]
+            avatars.attach(word_list, id_key="profile_id")
             lists.append(word_list)
     return lists
 

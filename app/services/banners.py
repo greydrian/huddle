@@ -29,7 +29,7 @@ import math
 import re
 from datetime import UTC, datetime, time, timedelta
 
-from app import google_calendar
+from app import avatars, google_calendar
 from app.database import family_timezone, get_setting, set_setting
 from app.services import homework, people, term_dates
 from app.services import tasks as task_service
@@ -199,12 +199,14 @@ async def dismiss(db, key: str, now: datetime | None = None) -> bool:
 
 async def _profiles(db) -> list[dict]:
     return [dict(r) for r in await (await db.execute(
-        "SELECT id, name, colour_hex FROM profiles ORDER BY sort_order"
+        f"SELECT id, name, colour_hex, {avatars.COLUMNS} FROM profiles ORDER BY sort_order"
     )).fetchall()]
 
 
 def _person(profile: dict | None) -> dict | None:
-    return {"name": profile["name"], "colour": profile["colour_hex"]} if profile else None
+    if not profile:
+        return None
+    return {"name": profile["name"], "colour": profile["colour_hex"], "avatar": avatars.avatar_of(profile)}
 
 
 def _in_words(minutes: int) -> str:

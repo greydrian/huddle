@@ -7,7 +7,7 @@
     {% for wl in practice_lists %}
     <section class="pw-list ink-{{ wl.colour_hex | person_ink }}" style="--person: {{ wl.colour_hex }};">
       <div class="pw-list-head">
-        {{ person_pill(wl.profile_name, wl.colour_hex) }}
+        {{ person_pill(wl.profile_name, wl.colour_hex, wl.avatar) }}
         <span class="pw-list-title">{{ wl.title }}</span>
         {% call tick_button("/api/practice-words/" ~ wl.id ~ "/practised", "#widget-practice_words", wl.practised_today,
                             "pw-practised" ~ (" on" if wl.practised_today else ""), "on", pressed=true) %}

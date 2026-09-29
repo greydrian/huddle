@@ -1,4 +1,4 @@
-{% from "_icons.html" import icon, person_pill %}
+{% from "_icons.html" import icon, person_face, person_pill %}
 {% from "widgets/_widget.html" import widget_header, stub_empty, tick_button %}
 {#- Re-fetched by static/js/fresh.js when /api/rev says it changed. -#}
 <div class="widget-card" id="widget-homework" data-refresh="/widgets/homework" data-rev-key="homework">
@@ -16,7 +16,7 @@
       {%- call tick_button("/api/reading/" ~ child.id ~ "/toggle", "#widget-homework", child.read_today,
                           "rd-tick" ~ (" on" if child.read_today else ""), "on",
                           aria_label=child.name ~ " read tonight", pressed=true) %}
-        <span class="rd-dot" aria-hidden="true"><span class="rd-initial">{{ child.name[:1] | upper }}</span>{{ icon("check", 16) }}</span>
+        <span class="rd-dot" aria-hidden="true">{{ person_face(child.name, child.colour_hex, child.avatar, "rd-initial") }}{{ icon("check", 16) }}</span>
         <span class="rd-name">{{ child.name }}</span>
       {% endcall -%}
       </span>
@@ -25,7 +25,7 @@
     {% endif %}
     {% for child in homework_groups %}
     <div class="hw-group">
-      {{ person_pill(child.name, child.colour_hex) }}
+      {{ person_pill(child.name, child.colour_hex, child.avatar) }}
       {% for hw in child.homework %}
       {% call tick_button("/api/homework/" ~ hw.id ~ "/toggle", "#widget-homework", hw.done,
                           "hw-item" ~ (" done" if hw.done else "") ~ (" overdue" if hw.overdue else "") ~ (" due-soon" if hw.due_soon else ""),

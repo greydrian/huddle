@@ -481,7 +481,8 @@ async def test_migration_6_adds_the_photos_table_and_is_a_no_op_again(tmp_path, 
     with sqlite3.connect(path) as conn:
         columns = [row[1] for row in conn.execute("PRAGMA table_info(photos)")]
         versions = {row[0] for row in conn.execute("SELECT version FROM schema_migrations")}
-        assert conn.execute("SELECT * FROM profiles ORDER BY id").fetchall() == before
+        # (later migrations may add columns: the ones that were there are unchanged)
+        assert [row[:len(before[0])] for row in conn.execute("SELECT * FROM profiles ORDER BY id")] == before
     assert columns == ["id", "filename", "thumb", "width", "height", "bytes", "created_at"]
     assert 6 in versions
     with sqlite3.connect(path) as conn:

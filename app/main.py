@@ -61,6 +61,7 @@ from app import appearance, freshness, google_photos, idle, scheduler
 from app.database import get_db, init_db
 from app.routers import (
     admin,
+    avatars,
     banners,
     calendar,
     dashboard,
@@ -144,3 +145,4 @@ app.include_router(banners.router)
 app.include_router(pen_test.router)
 app.include_router(idle.router)
 app.include_router(photos.router)
+app.include_router(avatars.router)

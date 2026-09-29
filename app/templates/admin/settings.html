@@ -34,7 +34,7 @@
     {{ section_error("family") }}
     {% for p in profiles %}
     <div class="admin-row family-row">
-      <span class="admin-person">{{ person_avatar(p.name, p.colour_hex) }}{{ p.name }}{% if p.is_parent %}<span class="admin-badge">Parent</span>{% endif %}</span>
+      <span class="admin-person">{{ person_avatar(p.name, p.colour_hex, p.avatar) }}{{ p.name }}{% if p.is_parent %}<span class="admin-badge">Parent</span>{% endif %}</span>
       <form method="post" action="/admin/profiles/{{ p.id }}/delete">
         <button type="submit" class="btn btn-danger btn-small">Remove</button>
       </form>
@@ -47,6 +47,46 @@
         <input type="text" name="email" value="{{ p.email or '' }}" maxlength="254" placeholder="Email (optional)" aria-label="{{ p.name }}'s email" autocomplete="off" autocapitalize="off" spellcheck="false"{% if onscreen_keyboard %} data-osk="text"{% endif %}>
         <button type="submit" class="btn btn-quiet btn-small">Save</button>
       </form>
+      {#- Spec 10.9: the avatar shown on their name pill everywhere. One tap on an
+          emoji uses it; the photo is cropped round, 256 px, stored in the database. -#}
+      <details class="task-edit avatar-edit">
+        <summary class="btn"><span class="task-edit-open">Avatar</span><span class="task-edit-close">Close</span></summary>
+        <div class="avatar-panel">
+          <form class="admin-form avatar-kinds" method="post" action="/admin/profiles/{{ p.id }}/avatar">
+            <span class="admin-meta admin-form-note">Show:</span>
+            <button type="submit" name="kind" value="initial" class="btn btn-quiet btn-small avatar-kind" aria-pressed="{{ 'true' if p.avatar.kind == 'initial' else 'false' }}">{{ person_avatar(p.name, p.colour_hex) }}Initial</button>
+            {% if p.avatar_hash %}
+            <button type="submit" name="kind" value="photo" class="btn btn-quiet btn-small avatar-kind" aria-pressed="{{ 'true' if p.avatar.kind == 'photo' else 'false' }}">{{ person_avatar(p.name, p.colour_hex, {"kind": "photo", "url": "/avatars/" ~ p.id ~ "-" ~ p.avatar_hash}) }}Photo</button>
+            {% endif %}
+            {% if p.avatar_emoji %}
+            <button type="submit" name="kind" value="emoji" class="btn btn-quiet btn-small avatar-kind" aria-pressed="{{ 'true' if p.avatar.kind == 'emoji' else 'false' }}">{{ person_avatar(p.name, p.colour_hex, {"kind": "emoji", "emoji": p.avatar_emoji}) }}Emoji</button>
+            {% endif %}
+          </form>
+          <form class="emoji-grid" method="post" action="/admin/profiles/{{ p.id }}/avatar" role="group" aria-label="{{ p.name }}'s emoji">
+            <input type="hidden" name="kind" value="emoji">
+            {% for e in curated_emoji %}
+            <button type="submit" name="emoji" value="{{ e }}" class="emoji-choice" aria-pressed="{{ 'true' if p.avatar.kind == 'emoji' and p.avatar_emoji == e else 'false' }}">{{ e }}</button>
+            {% endfor %}
+          </form>
+          <form class="admin-form" method="post" action="/admin/profiles/{{ p.id }}/avatar">
+            <input type="hidden" name="kind" value="emoji">
+            <input type="text" name="custom_emoji" class="avatar-custom-emoji" maxlength="32" placeholder="Or type one emoji" aria-label="{{ p.name }}'s emoji (one emoji)" autocomplete="off" spellcheck="false"
+                   value="{{ p.avatar_emoji if p.avatar_emoji and p.avatar_emoji not in curated_emoji else '' }}">
+            <button type="submit" class="btn btn-quiet btn-small">Use emoji</button>
+          </form>
+          <form class="admin-form avatar-photo-form" method="post" action="/admin/profiles/{{ p.id }}/avatar/photo" enctype="multipart/form-data">
+            {% if p.avatar_hash %}<img class="avatar-preview" src="/avatars/{{ p.id }}-{{ p.avatar_hash }}" alt="{{ p.name }}'s photo" width="96" height="96" style="--person: {{ p.colour_hex }};">{% endif %}
+            <input type="file" name="photo" accept="image/*,.heic,.heif" required aria-label="{{ p.name }}'s photo">
+            <button type="submit" class="btn btn-small">{{ 'Replace photo' if p.avatar_hash else 'Upload photo' }}</button>
+            <span class="admin-meta admin-form-note">JPEG, PNG, WebP or HEIC, up to 8 MB. Cropped to a circle; location and camera details are removed.</span>
+          </form>
+          {% if p.avatar_hash %}
+          <form method="post" action="/admin/profiles/{{ p.id }}/avatar/photo/remove">
+            <button type="submit" class="btn btn-danger btn-small">Remove photo</button>
+          </form>
+          {% endif %}
+        </div>
+      </details>
     </div>
     {% endfor %}
     <form class="admin-form" method="post" action="/admin/profiles">
@@ -75,7 +115,7 @@
     {% for p in profiles %}
     {% set person_tasks = tasks | selectattr("profile_id", "equalto", p.id) | list %}
     <div class="schedule-person">
-      <h3>{{ person_avatar(p.name, p.colour_hex) }}{{ p.name }}{% if not p.google_tasklist_id %} <span class="admin-meta">· {% if person_tasks %}These stay on this display only until a Google list is linked (<a class="inline-link" href="/admin?tab=google#task-lists">Google &amp; Sync → Task Sync</a>){% else %}Link a Google list under <a class="inline-link" href="/admin?tab=google#task-lists">Google &amp; Sync → Task Sync</a> to give them tasks{% endif %}</span>{% endif %}</h3>
+      <h3>{{ person_avatar(p.name, p.colour_hex, p.avatar) }}{{ p.name }}{% if not p.google_tasklist_id %} <span class="admin-meta">· {% if person_tasks %}These stay on this display only until a Google list is linked (<a class="inline-link" href="/admin?tab=google#task-lists">Google &amp; Sync → Task Sync</a>){% else %}Link a Google list under <a class="inline-link" href="/admin?tab=google#task-lists">Google &amp; Sync → Task Sync</a> to give them tasks{% endif %}</span>{% endif %}</h3>
       {% for t in person_tasks %}
       <div class="admin-row admin-item">
         <span class="admin-item-label">{{ t.title }} <span class="admin-meta">· {{ 'repeats ' ~ t.schedule if t.schedule else 'one-off' }}{% if t.group_label %} · {{ t.group_label }}{% endif %}</span></span>
@@ -208,7 +248,7 @@
     <p class="admin-hint">Children tick “Read tonight” on the Homework widget. Here are the last 4 weeks, to help fill in the school reading record.</p>
     {% for child in reading_history.children %}
     <div class="rd-history">
-      <h3 class="rd-history-name">{{ person_avatar(child.name, child.colour_hex) }}{{ child.name }}</h3>
+      <h3 class="rd-history-name">{{ person_avatar(child.name, child.colour_hex, child.avatar) }}{{ child.name }}</h3>
       <div class="rd-grid-scroll">
       <table class="rd-grid">
         <thead><tr>{% for d in reading_history.weekdays %}<th scope="col">{{ d }}</th>{% endfor %}</tr></thead>
@@ -764,7 +804,7 @@
         </label>
         {% for p in profiles %}
         <div class="tasklist-row">
-          <span class="admin-person tasklist-person">{{ person_avatar(p.name, p.colour_hex) }}{{ p.name }}</span>
+          <span class="admin-person tasklist-person">{{ person_avatar(p.name, p.colour_hex, p.avatar) }}{{ p.name }}</span>
           <select name="tasklist_{{ p.id }}">
             <option value="">Not synced</option>
             {% for tl in available_tasklists %}
