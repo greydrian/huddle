@@ -263,15 +263,22 @@ async def toggle_homework(db, homework_id: int) -> bool:
     # Only what the widget shows can be tapped: a stale page can't revive dropped-off homework.
     if row is None or not is_visible(dict(row), await family_today(db)):
         return False
-    done = not row["done"]
     now = datetime.now(await family_timezone(db)).isoformat(timespec="seconds")
-    await db.execute(
-        "UPDATE homework SET done = ?, done_at = ?, updated_at = datetime('now') WHERE id = ?",
-        (int(done), now if done else None, homework_id),
-    )
+    # Flip in one statement and record what it became, so two racing taps
+    # each log the state they actually left (never two "done"s).
+    flipped = await (await db.execute(
+        """UPDATE homework SET done = 1 - done,
+               done_at = CASE WHEN done = 0 THEN ? END,
+               updated_at = datetime('now')
+           WHERE id = ? RETURNING done""",
+        (now, homework_id),
+    )).fetchone()
+    if flipped is None:  # deleted in between
+        await db.rollback()
+        return False
     # The done history (spec 10.10): when, not who (a kiosk tap is anonymous).
     await db.execute(
-        "INSERT INTO homework_events (homework_id, done, at) VALUES (?, ?, ?)", (homework_id, int(done), now)
+        "INSERT INTO homework_events (homework_id, done, at) VALUES (?, ?, ?)", (homework_id, flipped[0], now)
     )
     await db.commit()
     return True
@@ -297,7 +304,7 @@ async def get_recent_homework_events(db, limit: int = 20) -> list[dict]:
            FROM homework_events e
            JOIN homework h ON h.id = e.homework_id
            JOIN profiles p ON p.id = h.profile_id
-           ORDER BY e.at DESC, e.id DESC LIMIT ?""",
+           ORDER BY e.id DESC LIMIT ?  -- insertion order: ISO text with mixed offsets (DST) sorts wrong""",
         (limit,),
     )).fetchall()
     events = []

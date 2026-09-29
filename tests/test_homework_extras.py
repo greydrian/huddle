@@ -366,6 +366,34 @@ async def test_done_history_keeps_the_family_offset(db, client, monkeypatch, tod
     assert homework.event_time_label("2026-06-10T16:40:00+01:00") == "Wed 10 Jun, 16:40"
 
 
+async def test_racing_taps_log_the_state_each_left(db, today):
+    """Two taps at once flip twice and log done, then undone: never two "done"s."""
+    import asyncio
+
+    riley = (await _ids(db))["Riley"]
+    await db.execute("INSERT INTO homework (profile_id, title) VALUES (?, 'Sheet')", (riley,))
+    await db.commit()
+
+    async def tap():
+        async with database.get_db() as conn:
+            return await homework.toggle_homework(conn, 1)
+
+    assert await asyncio.gather(tap(), tap()) == [True, True]
+    assert await _rows(db, "SELECT done FROM homework_events ORDER BY id") == [(1,), (0,)]
+    assert await _rows(db, "SELECT done, done_at FROM homework") == [(0, None)]
+
+
+async def test_recent_events_are_newest_first_across_a_clock_change(db, today):
+    """Ordered by insertion, not by the ISO text: 01:30+01:00 (BST) is before
+    01:10+00:00 (GMT) on the night the clocks go back, though it sorts after."""
+    riley = (await _ids(db))["Riley"]
+    await db.execute("INSERT INTO homework (profile_id, title) VALUES (?, 'Sheet')", (riley,))
+    await db.executemany("INSERT INTO homework_events (homework_id, done, at) VALUES (1, ?, ?)",
+                         [(1, "2026-10-25T01:30:00+01:00"), (0, "2026-10-25T01:10:00+00:00")])
+    await db.commit()
+    assert [e["done"] for e in await homework.get_recent_homework_events(db)] == [0, 1]
+
+
 async def test_deleting_homework_deletes_its_history(db, client, admin_client, today):
     riley = (await _ids(db))["Riley"]
     await admin_client.post("/admin/homework", data={"profile_id": riley, "title": "Sheet"})
