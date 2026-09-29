@@ -347,17 +347,22 @@ async def homework_context(db) -> dict:
 
 
 # --- Reading log (spec 10.10) ---
-# One row per child per family date they read; children only (is_parent =
-# 0). Shown every day, school day or not: school reading records count
-# weekends and holidays too, so hiding the tick then would lose real reading.
+# One row per child per family date they read. A "child" here is a profile
+# that isn't a parent AND has a year group (Admin → Family Members): new
+# installs start with every profile is_parent = 0, so the year group is
+# what tells a pupil from a grown-up nobody has flagged yet. Nobody
+# qualifying means no reading row at all. Shown every day, school day or
+# not: school reading records count weekends and holidays too, so hiding
+# the tick then would lose real reading.
 
 READING_WEEKS = 4
 WEEKDAY_NAMES = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+_READER = "is_parent = 0 AND TRIM(COALESCE(school_year, '')) != ''"
 
 
 async def _children(db) -> list[dict]:
     return [dict(r) for r in await (await db.execute(
-        "SELECT id, name, colour_hex FROM profiles WHERE is_parent = 0 ORDER BY sort_order, id"
+        f"SELECT id, name, colour_hex FROM profiles WHERE {_READER} ORDER BY sort_order, id"
     )).fetchall()]
 
 
@@ -374,9 +379,8 @@ async def get_reading_today(db) -> list[dict]:
 
 async def toggle_reading(db, profile_id: int) -> bool:
     """Tick "Read tonight" for a child, or undo it. False if they aren't a
-    child (or no longer exist)."""
-    row = await (await db.execute("SELECT is_parent FROM profiles WHERE id = ?", (profile_id,))).fetchone()
-    if row is None or row["is_parent"]:
+    child with a year group (or no longer exist)."""
+    if not await (await db.execute(f"SELECT 1 FROM profiles WHERE id = ? AND {_READER}", (profile_id,))).fetchone():
         return False
     today = (await family_today(db)).isoformat()
     deleted = await db.execute("DELETE FROM reading_log WHERE profile_id = ? AND read_on = ?", (profile_id, today))

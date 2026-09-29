@@ -248,9 +248,40 @@ async def test_admin_edit_subject_pick(db, admin_client, today):
 
 # --- Reading log ---
 
-async def test_reading_tick_on_and_off_for_children_only(db, client, today):
-    ids = await _ids(db)
+@pytest.fixture
+async def readers(db):
+    """Riley and Jamie have year groups (so they're readers); Mum and Dad are parents."""
+    await db.execute("UPDATE profiles SET school_year = 'Year 4' WHERE name = 'Riley'")
+    await db.execute("UPDATE profiles SET school_year = 'Year 2' WHERE name = 'Jamie'")
+    await db.commit()
     await _parents(db, "Mum", "Dad")
+
+
+async def test_seeded_profiles_without_year_groups_get_no_reading_row(db, client, admin_client, today):
+    """A fresh install: every profile is is_parent = 0 and none has a year."""
+    html = (await client.get("/widgets/homework")).text
+    assert "rd-row" not in html and "Read tonight" not in html
+    assert (await client.post(f"/api/reading/{(await _ids(db))['Riley']}/toggle")).status_code == 404
+    page = (await admin_client.get("/admin?tab=family")).text
+    assert "Set a year group for each child in Family Members to start the reading log." in page
+    assert 'class="rd-grid"' not in page
+
+
+async def test_only_non_parents_with_a_year_group_are_readers(db, client, today):
+    ids = await _ids(db)
+    await db.execute("UPDATE profiles SET school_year = 'Year 4' WHERE name IN ('Riley', 'Mum')")
+    await db.execute("UPDATE profiles SET school_year = '   ' WHERE name = 'Jamie'")  # blank counts as none
+    await db.commit()
+    await _parents(db, "Mum")
+    html = (await client.get("/widgets/homework")).text
+    assert 'aria-label="Riley read tonight"' in html
+    assert "Mum read tonight" not in html and "Jamie read tonight" not in html and "Dad read tonight" not in html
+    assert (await client.post(f"/api/reading/{ids['Mum']}/toggle")).status_code == 404
+    assert (await client.post(f"/api/reading/{ids['Dad']}/toggle")).status_code == 404
+
+
+async def test_reading_tick_on_and_off_for_children_only(db, client, today, readers):
+    ids = await _ids(db)
     html = (await client.get("/widgets/homework")).text
     assert "Read tonight" in html and ">Riley<" in html and ">Jamie<" in html
     assert ">Mum<" not in html and ">Dad<" not in html
@@ -270,12 +301,12 @@ async def test_reading_tick_on_and_off_for_children_only(db, client, today):
     assert await _rows(db, "SELECT * FROM reading_log") == []
 
 
-async def test_reading_row_shows_without_homework(db, client, today):
+async def test_reading_row_shows_without_homework(db, client, today, readers):
     html = (await client.get("/widgets/homework")).text
     assert "Read tonight" in html and "No homework right now" in html
 
 
-async def test_reading_day_rolls_over_in_the_family_timezone(db, client, monkeypatch):
+async def test_reading_day_rolls_over_in_the_family_timezone(db, client, monkeypatch, readers):
     """23:30 UTC on 10 June is 00:30 on the 11th in London (BST): a tick then
     is the 11th's, and the 10th's tick no longer shows as today's."""
     riley = (await _ids(db))["Riley"]
@@ -291,7 +322,7 @@ async def test_reading_day_rolls_over_in_the_family_timezone(db, client, monkeyp
         ("2026-06-10",), ("2026-06-11",)]
 
 
-async def test_rev_changes_when_reading_is_ticked(db, client):
+async def test_rev_changes_when_reading_is_ticked(db, client, readers):
     riley = (await _ids(db))["Riley"]
     before = (await client.get("/api/rev")).json()["widgets"]
     await client.post(f"/api/reading/{riley}/toggle")
@@ -300,7 +331,7 @@ async def test_rev_changes_when_reading_is_ticked(db, client):
     assert "homework" in freshness.REFRESHED
 
 
-async def test_reading_history_grid(db, admin_client, today):
+async def test_reading_history_grid(db, admin_client, today, readers):
     ids = await _ids(db)
     await _parents(db, "Mum", "Dad")
     for day in ("2026-02-16", "2026-03-09", "2026-03-11", "2026-02-15"):  # the last is before the grid
@@ -420,7 +451,7 @@ async def test_admin_homework_routes_require_admin(db, client, method, path):
     assert await _rows(db, "SELECT title, subject_key, archived FROM homework") == [("Sheet", "other", 0)]
 
 
-async def test_kiosk_taps_need_no_pin(db, client, today):
+async def test_kiosk_taps_need_no_pin(db, client, today, readers):
     riley = (await _ids(db))["Riley"]
     await db.execute("INSERT INTO homework (profile_id, title) VALUES (?, 'Sheet')", (riley,))
     await db.commit()
