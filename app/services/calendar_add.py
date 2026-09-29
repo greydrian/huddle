@@ -245,7 +245,7 @@ def _reasons(resp: httpx.Response) -> set[str]:
     """Google's error `reason`s from an error body (empty if unreadable)."""
     try:
         errors = resp.json().get("error", {}).get("errors") or []
-        return {e.get("reason") for e in errors if isinstance(e, dict)}
+        return {str(e.get("reason")) for e in errors if isinstance(e, dict)}
     except (ValueError, AttributeError):
         return set()
 
