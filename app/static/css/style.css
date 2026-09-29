@@ -569,7 +569,9 @@ body:has(> .dashboard-scroll) > .topbar, body:has(> .dashboard-scroll) > .banner
   color: var(--ink-soft);
 }
 
-.cal-week { border-top: 1px solid var(--line); padding: 3px 0 4px; }
+/* A week is at least one 48px target tall: each day's hit area
+   (.cal-day-hit) covers its whole column of it. */
+.cal-week { position: relative; min-height: 48px; border-top: 1px solid var(--line); padding: 3px 0 4px; }
 .cal-week-days {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
@@ -580,7 +582,6 @@ body:has(> .dashboard-scroll) > .topbar, body:has(> .dashboard-scroll) > .banner
   justify-content: center;
   padding: 1px 0;
   border-radius: 8px;
-  cursor: pointer;
 }
 .cal-day-num span {
   width: 30px; height: 30px; line-height: 30px;
@@ -590,7 +591,6 @@ body:has(> .dashboard-scroll) > .topbar, body:has(> .dashboard-scroll) > .banner
   font-weight: 500;
   color: var(--ink);
 }
-.cal-day-num:hover { background: var(--sunken); }
 .cal-day-num.other-month span { color: var(--ink-soft); font-weight: 400; }
 .cal-day-num.today span {
   background: var(--accent);
@@ -620,7 +620,6 @@ body:has(> .dashboard-scroll) > .topbar, body:has(> .dashboard-scroll) > .banner
   line-height: 1.7;
   overflow: hidden;
   white-space: nowrap;
-  cursor: pointer;
 }
 .cal-bar-time { font-size: 0.8rem; font-weight: 700; flex-shrink: 0; }
 .cal-bar-title { overflow: hidden; text-overflow: ellipsis; }
@@ -663,9 +662,117 @@ body:has(> .dashboard-scroll) > .topbar, body:has(> .dashboard-scroll) > .banner
   font-size: 0.8rem;
   font-weight: 600;
   color: var(--ink-soft);
-  cursor: pointer;
 }
-.cal-more-empty { cursor: default; }
+
+/* Day hit areas (spec 10.0: 48px targets): a transparent button per day
+   over its whole column (number, bars, "+N more"), so the small visuals
+   keep their size and packing and a tap anywhere in the column opens that
+   day. They're the top layer; the visuals underneath aren't tapped. */
+.cal-day-hits {
+  position: absolute; inset: 0; z-index: 1;
+  display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px;
+}
+.cal-day-hit {
+  min-width: 0; min-height: 48px; margin: 0; padding: 0;
+  border: none; border-radius: 8px; background: transparent; cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.cal-day-hit:hover, .cal-day-hit:active { background: color-mix(in srgb, var(--ink) 6%, transparent); }
+.cal-day-hit:focus-visible { outline: 2px solid var(--ink); outline-offset: -2px; }
+
+/* View switch and person filter: outside the drag handle, above the body. */
+.cal-toolbar {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px;
+  padding: 0 20px 8px;
+}
+.cal-views { display: inline-flex; padding: 3px; gap: 2px; border-radius: 999px; background: var(--sunken); }
+.cal-view-btn {
+  min-width: 48px; min-height: 48px; padding: 0 18px;
+  border: none; border-radius: 999px; background: transparent;
+  color: var(--ink); font-size: 0.95rem; font-weight: 600; cursor: pointer;
+}
+.cal-view-btn[aria-pressed="true"] { background: var(--card); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15); }
+.cal-people { display: flex; flex-wrap: wrap; gap: 6px; }
+.cal-person {
+  min-width: 48px; min-height: 48px; padding: 0 16px;
+  border-radius: 999px; border: 2px solid var(--person); background: transparent;
+  color: var(--ink); font-size: 0.95rem; font-weight: 600; cursor: pointer;
+}
+.cal-person[aria-pressed="true"] { background: var(--person); color: var(--person-ink); }
+.cal-add-toggle {
+  display: inline-flex; align-items: center; justify-content: center; gap: 4px; flex-shrink: 0;
+  min-width: 48px; min-height: 48px; padding: 0 14px;
+  border: none; border-radius: 999px; background: var(--accent); color: var(--on-accent);
+  font-size: 1rem; font-weight: 600; cursor: pointer;
+}
+.cal-add-toggle[aria-expanded="true"] { background: var(--accent-soft); color: var(--accent); }
+
+/* The "+" form (services/calendar_add.py). Chips and actions reuse the tasks'. */
+.cal-add-form {
+  display: flex; flex-direction: column; gap: 8px;
+  margin: 0 0 12px; padding: 10px; border-radius: 16px; background: var(--sunken);
+}
+.cal-add-form[hidden] { display: none; }
+.cal-add-error { margin: 0; color: var(--danger); font-weight: 600; font-size: 0.95rem; }
+.cal-add-title {
+  min-width: 0; min-height: 48px; padding: 10px 8px;
+  border-radius: var(--radius-control); border: 1px solid var(--line);
+  background: var(--card); color: var(--ink); font-size: 1rem;
+}
+.cal-add-title::placeholder { color: var(--ink-soft); opacity: 1; }
+.cal-add-when { display: flex; flex-wrap: wrap; gap: 8px; }
+.cal-add-field { display: flex; flex-direction: column; gap: 2px; font-size: 0.85rem; font-weight: 600; color: var(--ink-soft); }
+.cal-add-field select {
+  min-width: 128px; min-height: 48px; padding: 0 8px;
+  border-radius: var(--radius-control); border: 1px solid var(--line);
+  background: var(--card); color: var(--ink); font-size: 1rem;
+}
+.cal-added {
+  display: flex; align-items: center; gap: 6px;
+  margin: 0 0 8px; padding: 6px 12px; border-radius: var(--radius-control);
+  background: var(--accent-soft); color: var(--ink); font-size: 0.9rem; font-weight: 600;
+}
+
+/* Week view: a 7-day header, an all-day row (bars packed like the month
+   grid) and timed events placed on an hour grid (google_calendar.get_week). */
+.cal-wk { position: relative; --gutter: 52px; --hour-h: 40px; }
+.cal-wk-row { display: grid; grid-template-columns: var(--gutter) repeat(7, 1fr); gap: 0 2px; }
+.cal-wk-gutter { font-size: 0.8rem; font-weight: 600; color: var(--ink-soft); }
+.cal-wk-head { padding-bottom: 4px; }
+.cal-wk-day { position: relative; display: flex; align-items: baseline; justify-content: center; gap: 6px; min-height: 30px; }
+.cal-wk-dow { font-size: 0.8rem; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-soft); }
+.cal-wk-num { min-width: 30px; height: 30px; line-height: 30px; border-radius: 50%; text-align: center; font-weight: 600; }
+.cal-wk-day.today .cal-wk-num { background: var(--accent); color: var(--on-accent); font-weight: 700; }
+.cal-wk-allday { border-top: 1px solid var(--line); padding: 3px 0 4px; }
+.cal-wk-allday .cal-wk-gutter { align-self: center; }
+.cal-wk-allday-bars { grid-column: 2 / -1; min-width: 0; }
+.cal-wk-allday-bars .cal-week-bars { margin-top: 0; }
+.cal-wk-grid { border-top: 1px solid var(--line); height: calc(var(--hours) * var(--hour-h)); }
+.cal-wk-hours { display: flex; flex-direction: column; }
+.cal-wk-hours span { height: var(--hour-h); line-height: 1; transform: translateY(-0.2em); font-variant-numeric: tabular-nums; }
+.cal-wk-hours span:first-child { transform: none; }
+.cal-wk-col {
+  position: relative; min-width: 0;
+  background: repeating-linear-gradient(to bottom, transparent 0 calc(var(--hour-h) - 1px), var(--line) calc(var(--hour-h) - 1px) var(--hour-h));
+}
+.cal-wk-col.today { background-color: color-mix(in srgb, var(--accent) 6%, transparent); }
+.cal-wk-event {
+  position: absolute; box-sizing: border-box; overflow: hidden;
+  padding: 2px 6px 2px 8px; border: 1px solid var(--card); border-radius: 6px;
+  background: color-mix(in srgb, var(--ev) var(--event-tint), var(--card));
+  box-shadow: inset 4px 0 0 var(--ev);
+  color: var(--ink); font-size: 0.85rem; font-weight: 500; line-height: 1.25;
+}
+.cal-wk-title { overflow-wrap: anywhere; }
+.cal-wk > .cal-day-hits { left: calc(var(--gutter) + 2px); }
+
+/* Agenda: today, tomorrow and the week ahead as a list. */
+.cal-agenda-day { margin-bottom: 10px; }
+.cal-agenda-label {
+  margin: 4px 0 6px; font-size: 0.85rem; font-weight: 700; letter-spacing: 0.04em;
+  text-transform: uppercase; color: var(--ink-soft);
+}
+.cal-agenda-day.is-today .cal-agenda-label { color: var(--accent); }
 
 .cal-offline {
   margin: 0 0 8px;

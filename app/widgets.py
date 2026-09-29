@@ -13,8 +13,7 @@ placeholder was removed in migration 5, spec 10.2.)
 from collections.abc import Awaitable, Callable
 from typing import NamedTuple
 
-from app import google_calendar
-from app.services import homework, shopping, tasks, weather
+from app.services import calendar_view, homework, shopping, tasks, weather
 from app.services.meals import get_week_meal_plan
 
 
@@ -33,7 +32,7 @@ async def _meals(db) -> dict:
 
 
 async def _calendar(db) -> dict:
-    return {"view": "month", "calendar_month": await google_calendar.get_month_grid(db)}
+    return await calendar_view.widget_context(db)
 
 
 async def _weather(db) -> dict:

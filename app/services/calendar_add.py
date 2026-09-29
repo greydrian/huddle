@@ -276,25 +276,20 @@ async def add_family_event(
     if not await google_oauth.has_scope(db, google_oauth.CALENDAR_EVENTS_SCOPE):
         raise AddEventError("scope")
 
-    # Check and reserve the rate slot with no await in between, so
-    # concurrent adds can't all pass the check before any of them counts.
-    slot = _time.monotonic()
-    if _rate_limited(slot):
-        raise AddEventError("rate")
-    _recent_adds.append(slot)
-    try:
-        existing = await _claim(db, request_key)
-    except BaseException:
-        _give_back(slot)
-        raise
-    if existing is not None:
-        _give_back(slot)
+    existing = await _claim(db, request_key)
+    if existing is not None:  # a repeat of an add: never a second event, never counted
         if existing.get("state") == "done":
             return {"id": existing.get("id"), "summary": existing.get("summary", summary),
                     "date": existing.get("date", the_day.isoformat()),
                     "calendar": existing.get("calendar", family["summary"]), "duplicate": True}
         raise AddEventError("busy")
-
+    # Check and reserve the rate slot with no await in between, so
+    # concurrent adds can't all pass the check before any of them counts.
+    slot = _time.monotonic()
+    if _rate_limited(slot):
+        await _finish(db, request_key, None)
+        raise AddEventError("rate")
+    _recent_adds.append(slot)
     try:
         created = await _insert(db, request_key, family, summary, the_day, start, end)
     except BaseException:
