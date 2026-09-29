@@ -149,6 +149,54 @@ async def test_event_just_after_midnight_shows_the_evening_before(db, calendar):
         "Night ferry at 00:30 (in 45 min)"]
 
 
+async def test_event_window_across_the_clocks_going_back(db, calendar):
+    """25 Oct 2026: 02:00 BST becomes 01:00 GMT. At 01:50 BST (00:50 UTC)
+    an event at the second 01:20 (GMT, 01:20 UTC) is 30 real minutes away,
+    though its wall-clock time looks earlier."""
+    ferry = {"id": "ferry", "summary": "Late ferry", "start": {"dateTime": "2026-10-25T01:20:00+00:00"},
+             "end": {"dateTime": "2026-10-25T02:00:00+00:00"}, "reminders": popup(45)}
+    await calendar([ferry])
+    s = only("events") | {"quiet_start": "12:00", "quiet_end": "13:00"}
+    bst = datetime(2026, 10, 25, 1, 50, tzinfo=TZ)            # fold=0: the first 01:50, BST
+    assert bst.utcoffset() == timedelta(hours=1)
+    assert await texts(db, bst, s) == ["Late ferry at 01:20 (in 30 min)"]
+    assert await texts(db, datetime(2026, 10, 25, 0, 34, tzinfo=TZ), s) == []  # 76 min before: too early
+    gmt = datetime(2026, 10, 25, 1, 19, tzinfo=TZ, fold=1)     # the second 01:19, GMT
+    assert await texts(db, gmt, s) == ["Late ferry at 01:20 (in 1 min)"]
+    assert await texts(db, datetime(2026, 10, 25, 1, 20, tzinfo=TZ, fold=1), s) == []  # started
+
+
+async def test_recurring_instances_and_a_rescheduled_event_get_new_keys(db, calendar, client, frozen):
+    # singleEvents=true: each instance of a series has its own id and start.
+    await calendar([
+        event("Swimming", reminders=popup(30), event_id="swim_20261005T153000Z"),
+        event("Swimming", reminders=popup(30), event_id="swim_20261006T153000Z", day=DAY + timedelta(days=1)),
+    ])
+    s = only("events")
+    [today] = await banners.active_banners(db, at(16, 10), s)
+    await client.post("/api/banners/dismiss", data={"key": today["key"]})
+    assert await texts(db, at(16, 10), s) == []
+    tomorrow = at(16, 10, day=DAY + timedelta(days=1))
+    assert await texts(db, tomorrow, s) == ["Swimming at 16:30 (in 20 min)"]  # next week's lesson still shows
+
+    # The same event moved an hour later: a new occurrence, so it shows again.
+    await calendar([event("Swimming", start="17:30", reminders=popup(30), event_id="swim_20261005T153000Z")])
+    assert await texts(db, at(17, 10), s) == ["Swimming at 17:30 (in 20 min)"]
+
+
+async def test_a_hostile_event_title_is_escaped(db, calendar, client, frozen):
+    title = """<img src=x onerror="alert(1)">'</button><script>alert(2)</script>"""
+    raw = event(title, reminders=popup(30))
+    del raw["id"]  # so the title also stands in for the key (hx-vals, data-key)
+    await calendar([raw])
+    frozen(at(16, 10))
+    html = (await client.get("/banners")).text
+    assert "&lt;img src=x" in html
+    assert "<img" not in html and "<script" not in html and "</button><script" not in html
+    key = re.search(r'data-key="([^"]+)"', html).group(1)
+    assert banners.KEY_PATTERN.fullmatch(key)
+
+
 async def test_reminders_come_through_from_googles_response(db, connected, google):
     """events.list's defaultReminders reach the cache, and the banner then
     works from the cache alone: no Google call, even with Google down."""
