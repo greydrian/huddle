@@ -41,12 +41,14 @@
   {% endfor %}
 </div>
 </div>
+{% include "_idle.html" %}
 {% endblock %}
 
 {% block scripts %}{% with part = "scripts" %}{% include "_keyboard_assets.html" %}{% endwith %}
 <script src="/static/vendor/gridstack/gridstack-all.js"></script>
 <script src="/static/js/fresh.js"></script>
 <script src="/static/js/banners.js"></script>
+<script src="/static/js/idle.js"></script>
 <script>
   // Gridstack: anyone can drag/resize, no PIN required (Section 4.6).
   const grid = GridStack.init({

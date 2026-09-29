@@ -32,7 +32,7 @@ logging.getLogger("aiosqlite").setLevel(logging.WARNING)
 # APScheduler logs "Running job…"/"executed successfully" every minute at INFO.
 logging.getLogger("apscheduler").setLevel(logging.WARNING)
 
-SENSITIVE_QUERY_PATHS = ("/admin/google/callback",)
+SENSITIVE_QUERY_PATHS = ("/admin/google/callback", "/admin/photos/callback")
 
 
 class RedactOAuthQuery(logging.Filter):
@@ -57,7 +57,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
-from app import appearance, freshness, scheduler
+from app import appearance, freshness, google_photos, idle, scheduler
 from app.database import get_db, init_db
 from app.routers import (
     admin,
@@ -68,6 +68,7 @@ from app.routers import (
     layout,
     meals,
     pen_test,
+    photos,
     shopping,
     sync,
     tasks,
@@ -85,9 +86,13 @@ async def lifespan(app: FastAPI):
     async with get_db() as db:
         # Documents being read when the app stopped are gone from memory.
         await imports.fail_interrupted(db)
+        # A photo import the restart cut off is marked failed; a picker
+        # session still waiting gets its poll back.
+        await google_photos.recover(db)
     scheduler.start()
     yield
     scheduler.stop()
+    google_photos.stop_poller()
 
 
 app = FastAPI(title="Family Display", lifespan=lifespan)
@@ -137,3 +142,5 @@ app.include_router(homework.router)
 app.include_router(sync.router)
 app.include_router(banners.router)
 app.include_router(pen_test.router)
+app.include_router(idle.router)
+app.include_router(photos.router)

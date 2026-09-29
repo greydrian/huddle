@@ -43,6 +43,8 @@ def _server_env(data_dir: Path) -> dict:
         # never overrides a variable that's already present.
         "GOOGLE_CLIENT_ID": "",
         "GOOGLE_CLIENT_SECRET": "",
+        "GOOGLE_PHOTOS_CLIENT_ID": "",
+        "GOOGLE_PHOTOS_CLIENT_SECRET": "",
         "ANTHROPIC_API_KEY": "",
         "ANTHROPIC_MODEL": "",
         # Anything that still tries the internet fails fast instead of leaking.

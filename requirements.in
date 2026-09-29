@@ -16,3 +16,6 @@ apscheduler==3.11.3
 anthropic==1.8.0
 pillow==12.3.0
 pillow-heif==1.8.0
+# Admin → Photos: the Google Photos picker link as a QR code, drawn
+# server-side as inline SVG. Pure Python, no dependencies of its own.
+segno==1.6.6

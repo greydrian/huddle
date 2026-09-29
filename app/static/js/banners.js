@@ -59,8 +59,24 @@
     } catch (err) { /* no audio on this device: the banner still shows */ }
   }
 
+  // A banner new to this page fires "huddle:banner" on document, so the idle
+  // screen (idle.js) waits a minute before starting. Those already showing
+  // when the page loads aren't new.
+  var onPage = null;
+  function announce(bar) {
+    var fresh = false;
+    var keys = {};
+    bar.querySelectorAll('[data-key]').forEach(function (b) {
+      keys[b.dataset.key] = true;
+      if (onPage && !onPage[b.dataset.key]) fresh = true;
+    });
+    onPage = Object.assign(onPage || {}, keys);
+    if (fresh) document.dispatchEvent(new CustomEvent('huddle:banner'));
+  }
+
   function check(bar) {
     if (!bar) return;
+    announce(bar);
     var seen = load();
     var now = Date.now();
     var playing = running();

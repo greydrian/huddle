@@ -154,6 +154,12 @@ Google connection (and signs you out of Admin), so you'd just reconnect Google.
 The backups folder is inside `data/`, which is already in `.gitignore` and
 `.dockerignore`, so backups are never committed or baked into the image.
 
+**Photos are not backed up.** The idle slideshow's copies live in
+`data/family-display/photos/` as plain files; a backup is only the database
+(and the key), so it never includes them. They can be re-picked in Admin.
+A restored backup lists the photos it had, and any whose files are gone are
+simply left out of the slideshow.
+
 ### Restoring a backup
 
 On the G10, from the project folder:
@@ -368,6 +374,43 @@ secret file in `DATA_DIR` that also signs admin sessions. **Disconnect** in
 the same panel revokes and clears them. If the scopes ever change,
 disconnect and reconnect.
 
+## Photos for the idle screen
+
+The idle slideshow (Admin → Display → Idle screen) shows up to 30 photos from
+the family's **personal** Google account. The main connection above is an
+Internal Workspace app and can't reach personal accounts, so Photos use a
+**second OAuth client and a separate sign-in**, with one scope:
+`photospicker.mediaitems.readonly`. It never touches the main connection.
+
+1. In [console.cloud.google.com](https://console.cloud.google.com), create a
+   **second project**. Enable the **Google Photos Picker API**.
+2. **OAuth consent screen**: User type **External**, leave it in **Testing**,
+   and add the personal account under **Test users**. Testing mode's 7-day
+   refresh-token expiry doesn't matter here: the token is only used while
+   picking and downloading, and "Choose photos" simply signs in again.
+3. **Credentials → OAuth client ID → Web application**, with the redirect
+   URIs `http://localhost:8000/admin/photos/callback` and
+   `http://127.0.0.1:8000/admin/photos/callback`. The same rules as the main
+   connection apply: Google matches the string exactly, rejects raw LAN IPs
+   and non-localhost `http://`, so on the G10 either use a real HTTPS
+   hostname (and register that) or do the sign-in through an SSH tunnel
+   (`ssh -L 8000:localhost:8000 <g10>`) and open Admin as `localhost`.
+4. Put the client's ID and secret in `.env` as `GOOGLE_PHOTOS_CLIENT_ID` and
+   `GOOGLE_PHOTOS_CLIENT_SECRET` (`docker-compose.yml` passes them through),
+   and restart. Until they're set, Admin → Photos shows these steps.
+
+**Picking:** Admin → Display → Photos → **Choose photos** (it signs in first if
+needed). Admin shows a QR code and a link: open it on a phone signed in to
+the personal account, pick up to 30 photos and tap Done. Admin notices by
+itself, copies each photo at 2560×1600 (the Lenovo panel; fine on the Tab
+A9+) into `data/family-display/photos/`, replaces the previous set and closes
+the picker session. Videos are skipped. If Google can't be reached part-way
+through, the previous photos stay. **Remove all** deletes them.
+
+The slideshow's order is reshuffled every week (the same order all week).
+Photos are a snapshot, not a live album: Google doesn't let other apps read
+albums any more, so re-pick to change them.
+
 ## School email import
 
 **Setting it up?** Follow the step-by-step checklist in
@@ -422,7 +465,7 @@ Admin → **Add from Classroom** (a screenshot or pasted text).
 Dockerfile                   Python 3.14 image, non-root user, /health check
 docker-compose.yml           Bind-mounted /data, port 8000, restart policy, .env keys
 docker-compose.override.yml  Dev-only: --reload + bind-mounted app/
-.env.example                 GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET / ANTHROPIC_API_KEY
+.env.example                 GOOGLE_CLIENT_ID / _SECRET, GOOGLE_PHOTOS_CLIENT_ID / _SECRET, ANTHROPIC_API_KEY
 .github/workflows/ci.yml     ruff + pytest, lock check, mypy, Playwright e2e, docker build
 .github/dependabot.yml       Weekly Python, monthly Actions + base-image update PRs
 pyproject.toml, pytest.ini   ruff, mypy and pytest config
@@ -445,6 +488,8 @@ app/
   school_email.py    School email import: sender lists, schedule, checkpoint, feeds the School inbox
   scheduler.py       APScheduler: sync every 60s, daily-reset check every 5 min, nightly backup, school email
   backup.py          Nightly SQLite backups (VACUUM INTO + integrity check), retention, key copy
+  idle.py            Idle screen settings, /api/idle (clock, next event, weather, photos), /photos/{id}-{stem}
+  google_photos.py   Photos account sign-in, Photos Picker session + download, local photo files
   routers/
     dashboard.py     Home screen assembly + /health
     layout.py        Gridstack position persistence (/api/layout)
@@ -455,10 +500,12 @@ app/
     weather.py       Open-Meteo geocoding, forecast + cache, Weather widget
     homework.py      Homework and practice-words widgets and their kiosk taps
     admin.py         PIN login + all Admin settings
+    photos.py        Admin → Idle screen and Photos (sign-in, picker QR, status, remove)
   templates/         base, dashboard, _icons, _keyboard_assets, widgets/, admin/
   static/
     css/             style.css (design system), homework.css, keyboard.css
     js/keyboard.js   On-screen keyboard behaviour (loaded only when enabled)
+    js/idle.js       Idle screen: idle detection, wake-only first tap, dim, slideshow
     fonts/           Self-hosted Figtree (UI) + Playwrite (handwriting), OFL
     icons/           Lucide sprite (ISC) + Meteocons weather icons (MIT)
     vendor/          Pinned HTMX 2.0.10, Gridstack 13.2.0, simple-keyboard 3.8.192
@@ -481,8 +528,13 @@ A9+:
    fullscreen/kiosk mode (no Android chrome, no notification shade access).
 2. **Autostart on boot**: use Fully Kiosk Browser's built-in "Start on
    Boot" setting.
-3. **Screen dim/sleep schedule**: use Fully Kiosk Browser's own scheduling
-   (Settings → Screen). The app itself has no idle-screen behaviour yet.
+3. **Idle and overnight**: Huddle does idle itself (Admin → Display → Idle
+   screen: slideshow, dim or stay on the dashboard). In Fully, turn **off**
+   its own screensaver and screen-off timer, and turn on **Enable JavaScript
+   Interface** so Huddle can lower the backlight (without it, or without
+   Fully PLUS, dimming is a dark overlay). For overnight screen-off, set
+   Fully's own **Scheduled Wakeup/Sleep** (needs PLUS). A screen Fully has
+   turned off doesn't wake on a tap, so keep that for the night only.
 4. **Cache/memory management**: use Fully Kiosk Browser's built-in
    auto-reload/cache-clear timer (Settings → Other).
 
@@ -493,5 +545,3 @@ A9+:
    the queue.
 3. **PIN hardening**: stop shipping a default PIN that works forever, e.g.
    force a change on first login.
-5. **Photos**: Google Photos Picker plus a local image cache, replacing the
-   "coming soon" card.

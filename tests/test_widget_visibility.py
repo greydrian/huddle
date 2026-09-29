@@ -217,7 +217,8 @@ async def test_admin_lists_every_widget_with_both_switches(admin_client, db):
         assert f'action="/admin/widgets/{widget_id}/visibility"' in html
         assert f'action="/admin/widgets/{widget_id}/school-days"' in html
         assert f"Show: {escape(widget.label)}" in html
-    assert "Photos" not in html
+    # No Photos widget any more (its photos are on the idle screen: Admin's own Photos panel).
+    assert "Show: Photos" not in html and "/admin/widgets/photos/" not in html
     assert await layout.admin_widgets(db) == [
         {"id": w, "label": widgets.WIDGETS[w].label, "visible": w != "meals", "school_days_only": w == "homework"}
         for w in widgets.WIDGETS

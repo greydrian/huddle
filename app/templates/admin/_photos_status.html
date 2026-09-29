@@ -1,0 +1,64 @@
+{#- Admin → Display → Photos (app/routers/photos.py panel_context). Polls
+    itself (/admin/photos/status) while a picker session is open. -#}
+{%- set status = photos_state.status %}
+{%- set busy = status in ("waiting", "importing") %}
+<div id="photos-status"{% if busy %} hx-get="/admin/photos/status" hx-trigger="every 3s" hx-swap="outerHTML"{% endif %}>
+  {% if not photos_configured %}
+  <p class="admin-hint">Not set up yet. Photos come from a <strong>personal</strong> Google account, through a second sign-in of their own (the main Google connection can't reach personal accounts):</p>
+  <ol class="admin-hint">
+    <li>In Google Cloud Console, make a second project with the <strong>Google Photos Picker API</strong> enabled, an External consent screen in Testing, and the personal account added as a test user.</li>
+    <li>Create a Web application OAuth client with the redirect URI <code>http://localhost:8000/admin/photos/callback</code> (the same localhost / SSH tunnel rules as the main connection).</li>
+    <li>Set <code>GOOGLE_PHOTOS_CLIENT_ID</code> and <code>GOOGLE_PHOTOS_CLIENT_SECRET</code> and restart (see README, "Photos for the idle screen").</li>
+  </ol>
+  {% else %}
+  <p class="admin-hint">
+    {%- if photos_signed_in %}Photos account: signed in.{% else %}Photos account: not signed in. Choose photos signs in first.{% endif %}
+    Up to {{ photos_max }} photos are copied to the display; they stay until you choose again. They're not in backups.
+  </p>
+
+  {% if status == "waiting" and photos_picker_uri %}
+  <div class="photos-picker">
+    <div class="photos-qr" role="img" aria-label="QR code for the Google Photos picker">{{ photos_qr | safe }}</div>
+    <div class="photos-picker-text">
+      <p><strong>Scan this with a phone signed in to the photos account</strong>, pick up to {{ photos_max }} photos, then tap Done. This page carries on by itself.</p>
+      <p><a class="btn btn-quiet" href="{{ photos_picker_uri }}" target="_blank" rel="noopener noreferrer">Open the picker</a></p>
+      <form method="post" action="/admin/photos/cancel"><button type="submit" class="btn btn-quiet btn-small">Cancel</button></form>
+    </div>
+  </div>
+  {% elif status == "importing" %}
+  <p class="admin-hint" role="status">Copying the photos you picked…</p>
+  <form method="post" action="/admin/photos/cancel"><button type="submit" class="btn btn-quiet btn-small">Cancel</button></form>
+  {% else %}
+  {% if status == "done" %}
+  <p class="admin-hint" role="status">Done: {{ photos_state.imported }} photo{{ '' if photos_state.imported == 1 else 's' }} copied{% if photos_state.skipped %} ({{ photos_state.skipped }} skipped: videos, or files too big to show){% endif %}.</p>
+  {% elif status == "failed" and photos_state.message == "signin" %}
+  <p class="admin-error" role="alert">The Photos sign-in has expired. Choose photos again to sign in.</p>
+  {% elif status == "failed" and photos_state.message == "interrupted" %}
+  <p class="admin-error" role="alert">Copying was interrupted (the display restarted). The photos you had are still here; Choose photos to try again.</p>
+  {% elif status == "failed" and photos_state.message == "empty" %}
+  <p class="admin-error" role="alert">None of those could be used (videos aren't shown). The photos you had are still here.</p>
+  {% elif status == "failed" %}
+  <p class="admin-error" role="alert">Couldn't copy the photos from Google just now. The photos you had are still here; try Choose photos again.</p>
+  {% elif status == "expired" %}
+  <p class="admin-hint" role="status">The picker link timed out before any photos were picked. Choose photos to start again.</p>
+  {% endif %}
+  <div class="admin-row">
+    <form method="post" action="/admin/photos/choose"><button type="submit" class="btn">Choose photos</button></form>
+    {% if photos_signed_in %}
+    <form method="post" action="/admin/photos/sign-out"><button type="submit" class="btn btn-quiet btn-small">Sign out of Photos</button></form>
+    {% endif %}
+  </div>
+  {% endif %}
+  {% endif %}
+
+  <p class="admin-hint">{{ photos | length }} photo{{ '' if photos | length == 1 else 's' }} on the display.</p>
+  {% if photos %}
+  <div class="photos-strip">
+    {% for p in photos %}<img src="/photos/{{ p.key }}/thumb" alt="" loading="lazy" width="96" height="60">{% endfor %}
+  </div>
+  {#- Not while picking or copying: the new set would replace it anyway. -#}
+  {% if not busy %}
+  <form method="post" action="/admin/photos/remove"><button type="submit" class="btn btn-danger btn-small">Remove all photos</button></form>
+  {% endif %}
+  {% endif %}
+</div>

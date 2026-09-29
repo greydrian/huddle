@@ -233,3 +233,19 @@ async def _load_cache(db, location: dict, now: datetime) -> dict | None:
     except (KeyError, IndexError, TypeError, ValueError, AttributeError):
         return None
     return {"fetched_at": fetched_at, "weather": weather}
+
+
+async def cached_now(db) -> dict | None:
+    """The current temperature and conditions from the saved forecast only
+    (no fetch), for the idle screen: {"temperature", "category",
+    "condition"}, or None with no location or no forecast from the last
+    STALE_MAX_AGE. The widget's own polling keeps the cache fresh."""
+    location = await get_location(db)
+    if not location:
+        return None
+    now = datetime.now(timezone.utc)
+    cached = await _load_cache(db, location, now)
+    if not cached or now - cached["fetched_at"] >= STALE_MAX_AGE:
+        return None
+    weather = cached["weather"]
+    return {key: weather[key] for key in ("temperature", "category", "condition")}

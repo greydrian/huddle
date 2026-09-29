@@ -10,6 +10,9 @@ services:
       # the app just shows "not configured" in Admin until these are set.
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      # Photos account for the idle slideshow (optional, a second OAuth client).
+      GOOGLE_PHOTOS_CLIENT_ID: ${GOOGLE_PHOTOS_CLIENT_ID:-}
+      GOOGLE_PHOTOS_CLIENT_SECRET: ${GOOGLE_PHOTOS_CLIENT_SECRET:-}
       # School inbox (optional): blank = Admin shows "not set up".
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-}
