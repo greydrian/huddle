@@ -1,15 +1,18 @@
 """
-Homework and handwriting practice words (phase 1: entered by hand in
-Admin). Nothing here is synced to Google and there are no points or rewards.
+Homework, the reading log and handwriting practice words (entered in Admin
+or approved from the School inbox). Nothing here is synced to Google and
+there are no points or rewards (spec 10.10).
 
 "Today" is always family_today(): due-date labels, when done homework
-drops off, which word lists are active, and which day a practice counts for.
+drops off, which word lists are active, and which day a practice or a
+night's reading counts for.
 """
 
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from app.database import family_timezone, family_today, get_setting
+from app.services import term_dates
 
 HANDWRITING_SETTING = "handwriting_style"
 # value -> Admin label. Playwrite GB S is "Playwrite England SemiJoined" and
@@ -75,15 +78,18 @@ def normalise_words(raw: str | None) -> list[str]:
     return words[:MAX_WORDS]
 
 
-async def homework_fields(db, profile_id, subject, title, details, due_date) -> tuple:
-    """Validated (profile_id, subject, title, details, due_date) for an Admin
-    homework form. Raises ValidationError."""
+async def homework_fields(db, profile_id, subject, title, details, due_date, subject_key=None) -> tuple:
+    """Validated (profile_id, subject, title, details, due_date, subject_key)
+    for an Admin or School inbox homework form. A blank subject_key means
+    "match the subject text" (subject_key_for). Raises ValidationError."""
+    subject = clean_text(subject, "Subject", MAX_SUBJECT)
     return (
         await parse_profile_id(db, profile_id),
-        clean_text(subject, "Subject", MAX_SUBJECT),
+        subject,
         clean_text(title, "Title", MAX_TITLE, required=True),
         clean_text(details, "Details", MAX_DETAILS) or None,
         parse_optional_date(due_date, "Due date"),
+        parse_subject_key(subject_key, subject),
     )
 
 
@@ -105,6 +111,78 @@ async def word_list_fields(db, profile_id, title, words, starts_on, ends_on) -> 
 async def get_handwriting_style(db) -> str:
     style = await get_setting(db, HANDWRITING_SETTING)
     return style if style in HANDWRITING_STYLES else DEFAULT_HANDWRITING
+
+
+# --- Subjects (spec 10.10) ---
+# A fixed set, each with a bundled Lucide icon; the colour tints are CSS
+# (.subj-<key> in static/css/homework.css, day and night). The free-text
+# subject (typed in Admin, or read from a school post) is kept for display;
+# subject_key is what picks the icon and colour.
+
+SUBJECTS = {
+    # key: (label, Lucide icon id)
+    "maths": ("Maths", "calculator"),
+    "english": ("English", "spell-check"),
+    "reading": ("Reading", "book-open-text"),
+    "science": ("Science", "flask-conical"),
+    "topic": ("Topic", "globe"),
+    "other": ("Other", "shapes"),
+}
+OTHER = "other"
+
+# Phrases (lower case, whole words) that mean each subject, checked against
+# the free-text subject: the earliest match in the text wins, and the
+# longest phrase on a tie, so "Reading comprehension" is Reading and "Maths:
+# number bonds" is Maths. Anything unmatched is Other.
+SUBJECT_SYNONYMS = {
+    "maths": (
+        "maths", "math", "mathematics", "numeracy", "number", "numbers", "number bonds", "times tables",
+        "times table", "arithmetic", "mental maths", "fractions", "sumdog", "mathletics",
+        "numbots", "tt rockstars", "times tables rock stars",
+    ),
+    "english": (
+        "english", "spelling", "spellings", "phonics", "grammar", "spag", "gps", "punctuation",
+        "writing", "handwriting", "literacy", "vocabulary", "creative writing",
+    ),
+    "reading": (
+        "reading", "read", "reader", "book", "books", "library", "reading book", "reading record",
+        "guided reading", "comprehension", "reading comprehension", "bug club", "oxford owl",
+    ),
+    "science": ("science", "biology", "chemistry", "physics", "experiment", "investigation"),
+    "topic": ("topic", "project", "history", "geography", "humanities", "topic work"),
+}
+
+
+def _words(text: str | None) -> str:
+    return " ".join(re.sub(r"[^0-9a-z]+", " ", (text or "").casefold()).split())
+
+
+def subject_key_for(subject: str | None) -> str:
+    """The fixed subject a free-text subject means ("Spelling" -> english),
+    or "other"."""
+    text = f" {_words(subject)} "
+    best = None  # (position, -length, key): the smallest wins
+    for key, phrases in SUBJECT_SYNONYMS.items():
+        for phrase in phrases:
+            at = text.find(f" {phrase} ")
+            if at >= 0 and (best is None or (at, -len(phrase), key) < best):
+                best = (at, -len(phrase), key)
+    return best[2] if best else OTHER
+
+
+def parse_subject_key(value: str | None, subject: str | None) -> str:
+    """An explicit pick from the Admin / inbox select, else the mapping of
+    the subject text. An unknown value counts as no pick."""
+    value = (value or "").strip()
+    return value if value in SUBJECTS else subject_key_for(subject)
+
+
+def subject_info(key: str | None, subject: str | None = None) -> dict:
+    """{key, label, icon, text} for a homework row's subject chip: `text` is
+    the typed subject when there is one ("Spellings"), else the label."""
+    key = key if key in SUBJECTS else OTHER
+    label, icon = SUBJECTS[key]
+    return {"key": key, "label": label, "icon": icon, "text": (subject or "").strip() or label}
 
 
 # --- Homework ---
@@ -157,6 +235,7 @@ async def get_homework_groups(db) -> list[dict]:
         item["overdue"] = bool(due and due < today and not item["done"])
         item["label"] = None if item["done"] and due and due < today else due_label(due, today)
         item["due_soon"] = bool(due and 0 <= (due - today).days <= 1 and not item["done"])
+        item["subj"] = subject_info(item["subject_key"], item["subject"])
         items.append(item)
     groups = []
     for profile in profiles:
@@ -173,13 +252,49 @@ async def toggle_homework(db, homework_id: int) -> bool:
     if row is None or not is_visible(dict(row), await family_today(db)):
         return False
     done = not row["done"]
-    done_at = datetime.now(await family_timezone(db)).isoformat() if done else None
+    now = datetime.now(await family_timezone(db)).isoformat(timespec="seconds")
     await db.execute(
         "UPDATE homework SET done = ?, done_at = ?, updated_at = datetime('now') WHERE id = ?",
-        (int(done), done_at, homework_id),
+        (int(done), now if done else None, homework_id),
+    )
+    # The done history (spec 10.10): when, not who (a kiosk tap is anonymous).
+    await db.execute(
+        "INSERT INTO homework_events (homework_id, done, at) VALUES (?, ?, ?)", (homework_id, int(done), now)
     )
     await db.commit()
     return True
+
+
+def event_time_label(at: str | None) -> str:
+    """"Tue 16:40" for a family-tz ISO timestamp. Its own offset is kept (no
+    astimezone), so it reads in the family's time whatever the container's."""
+    if not at:
+        return ""
+    try:
+        moment = datetime.fromisoformat(at)
+    except ValueError:
+        return ""
+    return f"{moment.strftime('%a')} {moment.day} {moment.strftime('%b')}, {moment.strftime('%H:%M')}"
+
+
+async def get_recent_homework_events(db, limit: int = 20) -> list[dict]:
+    """Admin's "Recently ticked" list, newest first. A deleted homework's
+    events go with it (ON DELETE CASCADE)."""
+    rows = await (await db.execute(
+        """SELECT e.done, e.at, h.subject, h.subject_key, h.title, p.name AS profile_name
+           FROM homework_events e
+           JOIN homework h ON h.id = e.homework_id
+           JOIN profiles p ON p.id = h.profile_id
+           ORDER BY e.at DESC, e.id DESC LIMIT ?""",
+        (limit,),
+    )).fetchall()
+    events = []
+    for row in rows:
+        event = dict(row)
+        event["when"] = event_time_label(event["at"])
+        event["subj"] = subject_info(event["subject_key"], event["subject"])
+        events.append(event)
+    return events
 
 
 async def get_admin_homework(db, today: date) -> tuple[list[dict], list[dict]]:
@@ -194,8 +309,91 @@ async def get_admin_homework(db, today: date) -> tuple[list[dict], list[dict]]:
         "ORDER BY homework.done, homework.due_date IS NULL, homework.due_date, homework.id"
     )).fetchall():
         item = dict(row)
+        item["subj"] = subject_info(item["subject_key"], item["subject"])
+        # The edit form's subject select shows "Match the subject" unless the
+        # stored key was an explicit pick that differs from the text's.
+        item["subject_pick"] = "" if item["subject_key"] == subject_key_for(item["subject"]) else item["subject_key"]
+        item["done_when"] = event_time_label(item["done_at"]) if item["done"] else ""
         (homework_items if is_visible(item, today) else finished_homework).append(item)
     return homework_items, finished_homework
+
+
+async def homework_context(db) -> dict:
+    """Template context for widgets/homework.html (the dashboard include and
+    its own routes): the homework, and the reading log row."""
+    return {
+        "homework_groups": await get_homework_groups(db),
+        "reading_children": await get_reading_today(db),
+    }
+
+
+# --- Reading log (spec 10.10) ---
+# One row per child per family date they read; children only (is_parent =
+# 0). Shown every day, school day or not: school reading records count
+# weekends and holidays too, so hiding the tick then would lose real reading.
+
+READING_WEEKS = 4
+WEEKDAY_NAMES = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+
+
+async def _children(db) -> list[dict]:
+    return [dict(r) for r in await (await db.execute(
+        "SELECT id, name, colour_hex FROM profiles WHERE is_parent = 0 ORDER BY sort_order, id"
+    )).fetchall()]
+
+
+async def get_reading_today(db) -> list[dict]:
+    today = (await family_today(db)).isoformat()
+    read = {r[0] for r in await (await db.execute(
+        "SELECT profile_id FROM reading_log WHERE read_on = ?", (today,)
+    )).fetchall()}
+    children = await _children(db)
+    for child in children:
+        child["read_today"] = child["id"] in read
+    return children
+
+
+async def toggle_reading(db, profile_id: int) -> bool:
+    """Tick "Read tonight" for a child, or undo it. False if they aren't a
+    child (or no longer exist)."""
+    row = await (await db.execute("SELECT is_parent FROM profiles WHERE id = ?", (profile_id,))).fetchone()
+    if row is None or row["is_parent"]:
+        return False
+    today = (await family_today(db)).isoformat()
+    deleted = await db.execute("DELETE FROM reading_log WHERE profile_id = ? AND read_on = ?", (profile_id, today))
+    if deleted.rowcount == 0:
+        await db.execute("INSERT INTO reading_log (profile_id, read_on) VALUES (?, ?)", (profile_id, today))
+    await db.commit()
+    return True
+
+
+async def get_reading_history(db, today: date, weeks: int = READING_WEEKS) -> dict:
+    """Admin's reading grid: the last `weeks` whole weeks, Monday to Sunday,
+    ending with this one, so it reads like a school reading record.
+
+    {"weekdays": (...), "children": [{name, colour_hex, weeks: [[cell] * 7] * weeks}]}
+    Each cell is {date, day, label, read, future, today, school_day}; days
+    off school are shaded so the school week stands out."""
+    start = today - timedelta(days=today.weekday() + 7 * (weeks - 1))
+    days = [start + timedelta(days=n) for n in range(7 * weeks)]
+    school = {d: await term_dates.is_school_day(db, d) for d in days}
+    read = {(r[0], r[1]) for r in await (await db.execute(
+        "SELECT profile_id, read_on FROM reading_log WHERE read_on BETWEEN ? AND ?",
+        (days[0].isoformat(), days[-1].isoformat()),
+    )).fetchall()}
+    children = await _children(db)
+    for child in children:
+        cells = [{
+            "date": d.isoformat(),
+            "day": d.day,
+            "label": f"{d.strftime('%a')} {d.day} {d.strftime('%b')}",
+            "read": (child["id"], d.isoformat()) in read,
+            "future": d > today,
+            "today": d == today,
+            "school_day": school[d],
+        } for d in days]
+        child["weeks"] = [cells[i:i + 7] for i in range(0, len(cells), 7)]
+    return {"weekdays": WEEKDAY_NAMES, "children": children}
 
 
 # --- Practice words ---
