@@ -122,8 +122,22 @@
     if (grid && grid.querySelector('.htmx-request, .just-ticked, .ui-draggable-dragging, .ui-resizable-resizing')) return true;
     return false;
   }
-  // The idle screen (idle.js) never starts while the wall is in use.
-  window.huddleBusy = pageBusy;
+  // The idle screen (idle.js) never starts while someone is using the wall:
+  // pageBusy's rules minus in-flight requests, since widgets refresh
+  // themselves (the calendar every 3 minutes) and that isn't anyone there.
+  window.huddleBusy = function () {
+    if (pressedAt && Date.now() - pressedAt < PRESS_TIMEOUT_MS) return true;
+    if (root.classList.contains('osk-open') || document.querySelector('.osk--open')) return true;
+    var active = document.activeElement;
+    if (active && grid && grid.contains(active) && active.matches('input, textarea, select, [contenteditable]')) return true;
+    if (grid && grid.querySelector('.just-ticked, .ui-draggable-dragging, .ui-resizable-resizing')) return true;
+    var cards = document.querySelectorAll('[data-rev-key]');
+    for (var i = 0; i < cards.length; i++) {
+      var key = cards[i].dataset.revKey;
+      if (cards[i].querySelector('details[open], [data-panel]:not([hidden])') && Date.now() - (lastTouch[key] || 0) < ABANDONED_MS) return true;
+    }
+    return false;
+  };
 
   function reloadIfWanted() {
     if (reloadWanted && !pageBusy()) window.location.reload();

@@ -406,7 +406,8 @@
   window.HuddleIdle = {
     logic: logic,
     state: function () {
-      return { idle: idle, kind: kind, index: index, photos: photos().length, savedBrightness: savedBrightness };
+      return { idle: idle, kind: kind, index: index, photos: photos().length, savedBrightness: savedBrightness,
+               sinceActivity: Date.now() - lastActivity, sinceBanner: lastBannerAt ? Date.now() - lastBannerAt : null };
     },
   };
 })();
