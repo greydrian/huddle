@@ -183,6 +183,22 @@ async def test_agenda_lists_today_tomorrow_and_busy_days_ahead(db, events):
     assert [e["time_label"] for e in agenda["days"][3]["events"]] == ["Continues"]
 
 
+async def test_agenda_event_ending_at_midnight_is_not_on_the_next_day(db, events):
+    today = await database.family_today(db)
+    tomorrow = today + timedelta(days=1)
+    events(
+        {"summary": "Late film", "start": {"dateTime": f"{today.isoformat()}T22:00:00+01:00"},
+         "end": {"dateTime": f"{tomorrow.isoformat()}T00:00:00+01:00"}},
+        {"summary": "Night shift", "start": {"dateTime": f"{today.isoformat()}T22:00:00+01:00"},
+         "end": {"dateTime": f"{tomorrow.isoformat()}T06:00:00+01:00"}},
+    )
+
+    agenda = await google_calendar.get_agenda(db)
+
+    assert [e["title"] for e in agenda["days"][0]["events"]] == ["Late film", "Night shift"]
+    assert [(e["title"], e["time_label"]) for e in agenda["days"][1]["events"]] == [("Night shift", "Continues")]
+
+
 async def test_agenda_widget_and_offline_from_the_refreshed_cache(client, db, events):
     today = await database.family_today(db)
     events(timed("Dentist", today.isoformat(), "09:00", "10:00"))

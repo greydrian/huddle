@@ -678,6 +678,15 @@ def _day_school(day: date, school_events: list[dict], term_markers: dict[str, st
     return found
 
 
+def _last_day(event: dict) -> str:
+    """The last day an event is on (ISO). A timed event ending at exactly
+    midnight ends the day before: 22:00-00:00 isn't on the next day."""
+    end = _event_minutes(event.get("end_key"))
+    if not event.get("all_day") and end is not None and end[1] == 0 and event["end_date"] > event["date"]:
+        return (end[0] - timedelta(days=1)).isoformat()
+    return event["end_date"]
+
+
 def _day_label(day: date, today: date) -> str:
     if day == today:
         return "Today"
@@ -708,7 +717,7 @@ async def get_agenda(db, keep: Keep = None) -> dict | None:
         iso = day.isoformat()
         on_day = [
             e if e["date"] == iso else {**e, "time_label": "Continues"}
-            for e in events if e["date"] <= iso <= e["end_date"]
+            for e in events if e["date"] <= iso <= _last_day(e)
         ]
         shown = [*_day_school(day, school_events, term_markers), *on_day]
         if shown or offset < 2:
