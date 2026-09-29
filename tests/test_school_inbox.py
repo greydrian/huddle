@@ -987,3 +987,38 @@ async def test_htmx_actions_swap_only_their_source(db, admin_client, api, config
     assert "1 added to the wall · 1 discarded" in r.text
     r = await admin_client.post(f"/admin/inbox/sources/{source_id}/delete", headers=hx)
     assert r.status_code == 200 and r.text == ""
+
+
+# --- Subject icons (spec 10.10) ---
+
+async def test_approve_sets_subject_key_from_the_extracted_subject(db, admin_client, api, configured, riley):
+    _, (spelling_id, science_id, picked_id) = await _extracted(db, api, [], [
+        {**READING, "subject": "Spelling", "title": "Learn the list"},
+        {**READING, "subject": "Science", "title": "Plant diary"},
+        {**READING, "subject": "Homework club", "title": "Poster"},
+    ])
+    page = (await admin_client.get("/admin?tab=school")).text
+    assert "Icon: match the subject" in page and 'name="subject_key"' in page
+    for candidate_id, form in (
+        (spelling_id, {"subject": "Spelling", "title": "Learn the list"}),
+        (science_id, {"subject": "Science", "title": "Plant diary"}),
+        # An explicit pick in the approve form wins over the text.
+        (picked_id, {"subject": "Homework club", "subject_key": "topic", "title": "Poster"}),
+    ):
+        r = await admin_client.post(f"/admin/inbox/candidates/{candidate_id}/approve",
+                                    data={"profile_id": riley, "details": "", "due_date": "", **form})
+        assert r.status_code == 303
+    rows = await _rows(db, "SELECT title, subject, subject_key FROM homework ORDER BY id")
+    assert [(r["title"], r["subject"], r["subject_key"]) for r in rows] == [
+        ("Learn the list", "Spelling", "english"),
+        ("Plant diary", "Science", "science"),
+        ("Poster", "Homework club", "topic"),
+    ]
+
+
+async def test_approve_all_maps_the_extracted_subject(db, api, configured, riley):
+    source_id, _ = await _extracted(db, api, homework=[{**READING, "subject": "Numeracy"}])
+    async with database.get_db() as conn:
+        assert await imports.approve_all(conn, source_id) == 1
+    assert await _rows(db, "SELECT subject, subject_key FROM homework") == [
+        {"subject": "Numeracy", "subject_key": "maths"}]
