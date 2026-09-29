@@ -535,34 +535,42 @@ async def m0006_photos(db):
 
 # Frozen copy of services/homework.subject_key_for's table as of this
 # migration (see "Don't read live constants" above).
+_M7_LANGUAGE_WORDS = ("french", "spanish", "german", "mfl", "languages", "modern foreign languages")
 _M7_SYNONYMS = {
     "maths": (
         "maths", "math", "mathematics", "numeracy", "number", "numbers", "number bonds", "times tables",
         "times table", "arithmetic", "mental maths", "fractions", "sumdog", "mathletics",
-        "numbots", "tt rockstars", "times tables rock stars",
+        "numbots", "tt rockstars", "ttrockstars", "ttrs", "times tables rock stars",
     ),
     "english": (
         "english", "spelling", "spellings", "phonics", "grammar", "spag", "gps", "punctuation",
-        "writing", "handwriting", "literacy", "vocabulary", "creative writing",
+        "writing", "handwriting", "literacy", "vocabulary", "creative writing", "read write inc", "rwi",
     ),
     "reading": (
-        "reading", "read", "reader", "book", "books", "library", "reading book", "reading record",
+        "reading", "reader", "library", "reading book", "reading record",
         "guided reading", "comprehension", "reading comprehension", "bug club", "oxford owl",
     ),
     "science": ("science", "biology", "chemistry", "physics", "experiment", "investigation"),
     "topic": ("topic", "project", "history", "geography", "humanities", "topic work"),
 }
+_M7_WEAK_SYNONYMS = {"reading": ("read",)}
 
 
-def _m7_subject_key(subject: str | None) -> str:
-    text = " " + " ".join(re.sub(r"[^0-9a-z]+", " ", (subject or "").casefold()).split()) + " "
+def _m7_first_match(text: str, table: dict) -> str | None:
     best = None
-    for key, phrases in _M7_SYNONYMS.items():
+    for key, phrases in table.items():
         for phrase in phrases:
             at = text.find(f" {phrase} ")
             if at >= 0 and (best is None or (at, -len(phrase), key) < best):
                 best = (at, -len(phrase), key)
-    return best[2] if best else "other"
+    return best[2] if best else None
+
+
+def _m7_subject_key(subject: str | None) -> str:
+    text = " " + " ".join(re.sub(r"[^0-9a-z]+", " ", (subject or "").casefold()).split()) + " "
+    if _m7_first_match(text, {"other": _M7_LANGUAGE_WORDS}):
+        return "other"
+    return _m7_first_match(text, _M7_SYNONYMS) or _m7_first_match(text, _M7_WEAK_SYNONYMS) or "other"
 
 
 async def m0007_homework_extras(db):

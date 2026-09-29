@@ -131,43 +131,55 @@ SUBJECTS = {
 OTHER = "other"
 
 # Phrases (lower case, whole words) that mean each subject, checked against
-# the free-text subject: the earliest match in the text wins, and the
-# longest phrase on a tie, so "Reading comprehension" is Reading and "Maths:
-# number bonds" is Maths. Anything unmatched is Other.
+# the free-text subject in three passes:
+# 1. A language subject ("French", "MFL") is Other, whatever else it says.
+# 2. SUBJECT_SYNONYMS: the earliest match in the text wins, and the longest
+#    phrase on a tie, so "Reading comprehension" is Reading, "Read Write Inc"
+#    is English and "Maths: number bonds" is Maths.
+# 3. WEAK_SYNONYMS, only if nothing else matched: "Read chapter 3" is Reading.
+# Anything unmatched is Other ("Homework book").
+LANGUAGE_WORDS = ("french", "spanish", "german", "mfl", "languages", "modern foreign languages")
 SUBJECT_SYNONYMS = {
     "maths": (
         "maths", "math", "mathematics", "numeracy", "number", "numbers", "number bonds", "times tables",
         "times table", "arithmetic", "mental maths", "fractions", "sumdog", "mathletics",
-        "numbots", "tt rockstars", "times tables rock stars",
+        "numbots", "tt rockstars", "ttrockstars", "ttrs", "times tables rock stars",
     ),
     "english": (
         "english", "spelling", "spellings", "phonics", "grammar", "spag", "gps", "punctuation",
-        "writing", "handwriting", "literacy", "vocabulary", "creative writing",
+        "writing", "handwriting", "literacy", "vocabulary", "creative writing", "read write inc", "rwi",
     ),
     "reading": (
-        "reading", "read", "reader", "book", "books", "library", "reading book", "reading record",
+        "reading", "reader", "library", "reading book", "reading record",
         "guided reading", "comprehension", "reading comprehension", "bug club", "oxford owl",
     ),
     "science": ("science", "biology", "chemistry", "physics", "experiment", "investigation"),
     "topic": ("topic", "project", "history", "geography", "humanities", "topic work"),
 }
+WEAK_SYNONYMS = {"reading": ("read",)}
 
 
 def _words(text: str | None) -> str:
     return " ".join(re.sub(r"[^0-9a-z]+", " ", (text or "").casefold()).split())
 
 
-def subject_key_for(subject: str | None) -> str:
-    """The fixed subject a free-text subject means ("Spelling" -> english),
-    or "other"."""
-    text = f" {_words(subject)} "
+def _first_match(text: str, table: dict) -> str | None:
     best = None  # (position, -length, key): the smallest wins
-    for key, phrases in SUBJECT_SYNONYMS.items():
+    for key, phrases in table.items():
         for phrase in phrases:
             at = text.find(f" {phrase} ")
             if at >= 0 and (best is None or (at, -len(phrase), key) < best):
                 best = (at, -len(phrase), key)
-    return best[2] if best else OTHER
+    return best[2] if best else None
+
+
+def subject_key_for(subject: str | None) -> str:
+    """The fixed subject a free-text subject means ("Spelling" -> english),
+    or "other"."""
+    text = f" {_words(subject)} "
+    if _first_match(text, {OTHER: LANGUAGE_WORDS}):
+        return OTHER
+    return _first_match(text, SUBJECT_SYNONYMS) or _first_match(text, WEAK_SYNONYMS) or OTHER
 
 
 def parse_subject_key(value: str | None, subject: str | None) -> str:

@@ -72,13 +72,26 @@ async def _rows(db, sql, *args):
     ("French", "other"), ("PE", "other"), ("", "other"), (None, "other"), ("Mathsy", "other"),
     # The earliest match in the text wins.
     ("Reading and spelling", "reading"), ("Spelling then reading", "english"),
+    # Phonics schemes and times-tables apps.
+    ("Read Write Inc", "english"), ("RWI", "english"), ("RWI book bag", "english"),
+    ("TTRS", "maths"), ("TTRockstars", "maths"), ("Times Tables Rock Stars", "maths"),
+    # Languages are Other, even with a word that would otherwise match.
+    ("French", "other"), ("Spanish reading", "other"), ("German vocabulary", "other"), ("MFL", "other"),
+    ("Languages", "other"), ("Modern Foreign Languages", "other"),
+    # "book" alone means nothing; "read" counts only when nothing else matched.
+    ("Homework book", "other"), ("Books", "other"), ("Read chapter 3", "reading"), ("Read", "reading"),
+    ("Read the maths sheet", "maths"),
 ])
 def test_subject_synonyms(text, key):
     assert homework.subject_key_for(text) == key
+    assert migrations._m7_subject_key(text) == key  # the migration's frozen copy agrees today
 
 
 def test_migration_copy_of_the_synonyms_matches():
     """Migration 7 froze a copy of the table; at the time of writing they agree."""
+    assert migrations._M7_SYNONYMS == homework.SUBJECT_SYNONYMS
+    assert migrations._M7_WEAK_SYNONYMS == homework.WEAK_SYNONYMS
+    assert migrations._M7_LANGUAGE_WORDS == homework.LANGUAGE_WORDS
     for key, phrases in homework.SUBJECT_SYNONYMS.items():
         for phrase in phrases:
             assert migrations._m7_subject_key(phrase) == homework.subject_key_for(phrase) == key
