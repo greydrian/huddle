@@ -333,6 +333,71 @@
     </div>
   </div>
 
+  <!-- Term dates (app/services/term_dates.py, spec 10.6): one set for the household.
+       They decide school days, and holidays / half terms / INSET days show on the
+       wall calendar (never written to Google). A failed save re-renders with
+       term_form (its "id" None for the add form). -->
+  {% macro term_fields(f) %}
+      <label class="hw-field">Kind
+        <select name="kind" required>
+          {% for value, name in term_kinds.items() %}<option value="{{ value }}" {{ 'selected' if value == f.kind else '' }}>{{ name }}</option>{% endfor %}
+        </select>
+      </label>
+      <label class="hw-field">From <input type="date" name="start_date" value="{{ f.start_date or '' }}" required></label>
+      <label class="hw-field">Until <input type="date" name="end_date" value="{{ f.end_date or '' }}" required></label>
+      <label class="hw-field term-label-field">Name
+        <input type="text" name="label" value="{{ f.label or '' }}" maxlength="80" placeholder="e.g. Autumn term" autocomplete="off"{% if onscreen_keyboard %} data-osk="text"{% endif %}>
+      </label>
+  {% endmacro %}
+  {% set tf = term_form if term_form and term_form.id is none else {} %}
+  <div class="admin-panel" id="term-dates">
+    <h2>Term dates</h2>
+    {{ section_error("term-dates") }}
+    {% for year in term_missing_years %}
+    <div class="term-warning" role="note">
+      <p><strong>Term dates missing for {{ year }}.</strong> Until they're added, school days are Monday to Friday except bank holidays.</p>
+      <p class="admin-meta">Add the school's term dates PDF or letter under Add from Classroom (Claude reads it, then you check and approve it in the School inbox), or add each term, half term, holiday and INSET day below.</p>
+    </div>
+    {% endfor %}
+    {% for warning in term_incomplete %}
+    <div class="term-warning" role="note">
+      <p><strong>{{ warning }}</strong></p>
+      <p class="admin-meta">Days outside every term count as not school days, so a missing term turns its school days off.</p>
+    </div>
+    {% endfor %}
+    <p class="admin-hint">Terms, half terms, holidays and INSET days decide which days are school days. Holidays, half terms and INSET days show on the wall calendar (only on this display; nothing is added to Google). Check them once a year.</p>
+    {% for year in term_years %}
+    <h3 class="term-year">{{ year.label }}</h3>
+    {% for p in year.periods %}
+    {% set editing = term_form and term_form.id == p.id %}
+    <div class="admin-row admin-item term-row">
+      <span class="admin-item-label"><span class="term-kind term-kind-{{ p.kind }}">{{ term_kinds[p.kind] }}</span> {{ p.label }}
+        <span class="admin-meta">· {{ p.start_date }}{% if p.end_date != p.start_date %} to {{ p.end_date }}{% endif %}{% if p.source == 'import' %} · from the School inbox{% endif %}</span></span>
+      <details class="task-edit"{{ ' open' if editing else '' }}>
+        <summary class="btn"><span class="task-edit-open">Edit</span><span class="task-edit-close">Cancel</span></summary>
+        <form class="admin-form" method="post" action="/admin/term-dates/{{ p.id }}/edit">
+          {{ term_fields(term_form if editing else p) }}
+          <button type="submit" class="btn">Save changes</button>
+        </form>
+      </details>
+      <form method="post" action="/admin/term-dates/{{ p.id }}/delete">
+        <button type="submit" class="btn btn-danger btn-small">Delete</button>
+      </form>
+    </div>
+    {% endfor %}
+    {% else %}
+    <p class="admin-meta">No term dates yet.</p>
+    {% endfor %}
+    <form class="admin-form term-add" method="post" action="/admin/term-dates">
+      {{ term_fields(tf) }}
+      <button type="submit" class="btn">Add period</button>
+    </form>
+    <p class="admin-meta term-bank-holidays">
+      {% if bank_holidays.updated_label %}Bank holidays (England and Wales) updated {{ bank_holidays.updated_label }}{% if bank_holidays.stale %}: over a month ago, so they may be out of date. They're fetched from GOV.UK again automatically{% endif %}.
+      {% else %}Bank holidays (England and Wales) haven't been fetched from GOV.UK yet. They're fetched automatically once the display is online.{% endif %}
+    </p>
+  </div>
+
   {% endif %}
 
   {% if admin_tab == "display" %}

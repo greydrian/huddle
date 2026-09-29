@@ -5,6 +5,7 @@ reaches the wall until a parent approves it in Admin.
     SourceDocument ──ingest()──▶ import_sources row ──extraction──▶ import_candidates
                                                         (Claude)        │
                                            Admin: Approve ─▶ practice_word_lists / homework
+                                                            / school_periods (term dates)
                                                   Discard ─▶ (kept, marked discarded)
 
 Entry points:
@@ -35,7 +36,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 from app.database import family_today, get_db, get_setting
-from app.services import homework
+from app.services import homework, term_dates
 from app.services.extraction import (
     MAX_ATTACHMENT_BYTES,
     MAX_ATTACHMENTS,
@@ -437,7 +438,10 @@ async def _is_duplicate(db, source_id: int, candidate: Candidate) -> bool:
     week, or the same homework title for the same child when the due dates
     match or the existing one is still open on the wall. Recurring homework
     ("Read 20 minutes", no due date) isn't a duplicate of last week's done
-    or archived copy."""
+    or archived copy. Term dates: every period is already in the term dates."""
+    if candidate.kind == "term_dates":
+        existing = await term_dates.list_periods(db)
+        return all(any(term_dates.same_period(p, e) for e in existing) for p in candidate.payload["periods"])
     if candidate.profile_id is None or candidate.kind == "event":
         return False
     payload = candidate.payload
@@ -508,6 +512,7 @@ async def get_inbox(db) -> dict:
         item = dict(row)
         item["payload"] = json.loads(item.pop("payload_json"))
         by_source.setdefault(item["source_id"], []).append(item)
+    await _mark_term_dates(db, [c for items in by_source.values() for c in items])
     active: list[dict] = []
     processed: list[dict] = []
     for source in sources:
@@ -531,8 +536,24 @@ async def get_source(db, source_id: int) -> dict | None:
         item = dict(row)
         item["payload"] = json.loads(item.pop("payload_json"))
         candidates.append(item)
+    await _mark_term_dates(db, candidates)
     _decorate(source, candidates)
     return source
+
+
+async def _mark_term_dates(db, candidates: list[dict]):
+    """Marks each pending term-dates period that's already in the term
+    dates ("already added"), and the candidate a duplicate when all are.
+    Worked out at render time, so it stays true after edits in Admin."""
+    pending = [c for c in candidates if c["kind"] == "term_dates" and c["status"] == "pending"]
+    if not pending:
+        return
+    existing = await term_dates.list_periods(db)
+    for candidate in pending:
+        periods = candidate["payload"].get("periods") or []
+        for period in periods:
+            period["already"] = any(term_dates.same_period(period, e) for e in existing)
+        candidate["duplicate"] = bool(periods) and all(p["already"] for p in periods)
 
 
 def _decorate(source: dict, candidates: list[dict]):
@@ -628,6 +649,53 @@ async def approve_candidate(db, candidate_id: int, form: dict) -> tuple[str, int
         await db.rollback()
         raise
     return table, cursor.lastrowid
+
+
+async def approve_term_dates(db, candidate_id: int, rows: list[dict]) -> int:
+    """Adds a term-dates candidate's periods (as edited in the inbox; `rows`
+    are the ones left ticked) to the term dates with source "import", all
+    in one transaction. Periods identical to ones already there are
+    skipped. Validated like Admin's own form: raises term_dates.PeriodError
+    (nothing saved) or CandidateError. Returns how many were added."""
+    candidate = await _pending_candidate(db, candidate_id)
+    if candidate["kind"] != "term_dates":
+        raise CandidateError("import-missing")
+    if not rows:
+        raise CandidateError("import-term-none")
+    cleaned = [term_dates.clean_period(r.get("kind"), r.get("start_date"), r.get("end_date"), r.get("label"))
+               for r in rows]
+    try:
+        # Claim first: the UPDATE takes SQLite's write lock, so the dedupe and
+        # clash checks below see every committed period, and a second approve
+        # (a double tap, or another candidate) waits until this one is done.
+        claimed = await db.execute(
+            """UPDATE import_candidates SET status = 'approved', payload_json = ?, updated_at = datetime('now')
+               WHERE id = ? AND status = 'pending'""",
+            (json.dumps({"periods": cleaned}), candidate_id),
+        )
+        if claimed.rowcount != 1:
+            raise CandidateError("import-missing")
+        existing = await term_dates.list_periods(db)
+        new: list[dict] = []
+        for period in cleaned:
+            if not any(term_dates.same_period(period, other) for other in (*existing, *new)):
+                new.append(period)
+        for i, period in enumerate(new):
+            other = term_dates.clash(period, [*existing, *new[:i], *new[i + 1:]])
+            if other:
+                raise term_dates.PeriodError("term-overlap", other)
+        last_id = None
+        for period in new:
+            last_id = await term_dates.insert_period(db, period, "import")
+        await db.execute(
+            "UPDATE import_candidates SET created_table = 'school_periods', created_id = ? WHERE id = ?",
+            (last_id, candidate_id),
+        )
+        await db.commit()
+    except BaseException:
+        await db.rollback()
+        raise
+    return len(new)
 
 
 def form_from_payload(candidate: dict) -> dict:

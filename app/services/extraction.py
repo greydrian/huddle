@@ -1,7 +1,8 @@
 """
 Claude extractor for the school inbox: reads one source document (a
 Classroom screenshot, pasted text, later a school email with PDF
-attachments) and returns *candidates* — word lists, homework and events —
+attachments) and returns *candidates* — word lists, homework, events and
+a school's term dates —
 for a parent to approve in Admin. It has no other side effects: nothing
 here writes to the database, and whatever the model says can only ever
 become an inbox candidate after validation (see `validate_output`).
@@ -29,6 +30,7 @@ import anthropic
 from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
 
 from app import http_client
+from app.services import term_dates
 from app.services.homework import MAX_DETAILS, MAX_SUBJECT, MAX_TITLE, normalise_words
 
 logger = logging.getLogger(__name__)
@@ -63,6 +65,11 @@ MAX_EVENT_NOTES = 500
 MAX_CHILD_NAME = 60
 DATE_PAST_DAYS = 120  # dates further out than this are treated as misreadings
 DATE_FUTURE_DAYS = 400
+# Term dates are published up to two school years ahead, and a letter may
+# still list the year just ending.
+TERM_DATE_PAST_DAYS = 400
+TERM_DATE_FUTURE_DAYS = 800
+MAX_TERM_PERIODS = 40
 
 TOOL_NAME = "record_school_items"
 WHOLE_SCHOOL = "whole school"
@@ -116,6 +123,8 @@ class Candidate:
     word_list: title, words (list), starts_on, ends_on
     homework:  subject, title, details, due_date
     event:     title, date, start_time, end_time, all_day, notes, whole_school
+    term_dates: periods (a list of {kind, start_date, end_date, label}),
+               one candidate for the whole set, never for a child
     Dates are ISO strings or None."""
 
     kind: str
@@ -165,6 +174,8 @@ written, one per entry, in order. Never add, correct or invent words.
 useful in details.
 - events: dated things the family should know about (a trip, a non-uniform day, PE days, an \
 INSET day, a spelling test, a parents' evening).
+- term_dates: only when the document gives the school's term dates (a term-dates letter or \
+PDF, a school calendar, a newsletter listing them). See "Term dates" below.
 
 Context: UK primary schools group children by year ("Year 4", "Y4", "Reception", "Year R"); \
 classes often have names (e.g. "Oak Class" or "4B"). Weekly spellings are usually tested on a \
@@ -185,6 +196,24 @@ document, or a child named in it.
 Never pick a child at random.
 - For events that apply to everyone at school, set child to null and whole_school to true.
 
+Term dates: English schools have three terms (autumn, spring, summer), each with a one-week \
+half term in the middle, holidays between them, and a few INSET (teacher training) days when \
+children stay at home. Letters list them as text ("Autumn term: Wednesday 3 September – \
+Friday 19 December") or as a colour-coded grid of months, where a key says what each colour \
+or shading means (e.g. holiday, INSET day, school closed). Read the key before reading the grid.
+- Record each term as kind "term", from the first to the last day children attend, including \
+the half term inside it; record the half term separately as kind "half_term".
+- Record holidays between terms (Christmas, Easter, summer) as kind "holiday", INSET days as \
+kind "inset" (one entry per run of consecutive days), and any other day the school is closed \
+as kind "closure". Don't record bank holidays unless the school closes for longer.
+- label: the document's own name for it, e.g. "Autumn term", "October half term", "INSET day".
+- Dates are inclusive: start_date and end_date are the first and last day of the period. Use \
+the years the document states (a school year runs September to July).
+- Only record dates the document states. Never invent, extrapolate or guess term dates; if a \
+date can't be read clearly, leave that period out. Term dates are for everyone at the school, \
+never for one child.
+- evidence: quote the line or key the period came from.
+
 Evidence: for every item, quote the short passage of the document it came from (at most 200 \
 characters), copied exactly, so the parent can check it.
 
@@ -200,12 +229,12 @@ _NULLABLE_STRING = {"type": ["string", "null"]}
 
 TOOL = {
     "name": TOOL_NAME,
-    "description": "Record the word lists, homework and events found in the school document.",
+    "description": "Record the word lists, homework, events and term dates found in the school document.",
     "strict": True,
     "input_schema": {
         "type": "object",
         "additionalProperties": False,
-        "required": ["word_lists", "homework", "events"],
+        "required": ["word_lists", "homework", "events", "term_dates"],
         "properties": {
             "word_lists": {
                 "type": "array",
@@ -257,6 +286,21 @@ TOOL = {
                         "notes": {"type": "string"},
                         "child": {**_NULLABLE_STRING, "description": "Exact child name, or null"},
                         "whole_school": {"type": "boolean"},
+                        "evidence": {"type": "string"},
+                    },
+                },
+            },
+            "term_dates": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["kind", "start_date", "end_date", "label", "evidence"],
+                    "properties": {
+                        "kind": {"type": "string", "enum": list(term_dates.KINDS)},
+                        "start_date": {"type": "string", "description": "YYYY-MM-DD, first day (inclusive)"},
+                        "end_date": {"type": "string", "description": "YYYY-MM-DD, last day (inclusive)"},
+                        "label": {"type": "string", "description": 'e.g. "Autumn term", "October half term"'},
                         "evidence": {"type": "string"},
                     },
                 },
@@ -437,15 +481,15 @@ class _Event(_Item):
     whole_school: bool = False
 
 
-def _real_date(value: str | None, today: date) -> str | None:
+def _real_date(
+    value: str | None, today: date, past: int = DATE_PAST_DAYS, future: int = DATE_FUTURE_DAYS
+) -> str | None:
     """An ISO date within a sane window of today, else None."""
     try:
         parsed = date.fromisoformat(str(value).strip()) if value else None
     except ValueError:
         return None
-    if parsed is None or not (
-        today - timedelta(days=DATE_PAST_DAYS) <= parsed <= today + timedelta(days=DATE_FUTURE_DAYS)
-    ):
+    if parsed is None or not (today - timedelta(days=past) <= parsed <= today + timedelta(days=future)):
         return None
     return parsed.isoformat()
 
@@ -510,6 +554,88 @@ def _event(raw: dict, children, today) -> Candidate | None:
     return Candidate("event", profile_id, payload, item.evidence)
 
 
+class _TermPeriod(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    kind: str
+    start_date: str
+    end_date: str
+    label: str = ""
+    evidence: str = ""
+
+    @field_validator("label", mode="before")
+    @classmethod
+    def _label(cls, value):
+        return _clip(value, term_dates.MAX_LABEL)
+
+    @field_validator("evidence", mode="before")
+    @classmethod
+    def _evidence(cls, value):
+        return _clip(value, MAX_EVIDENCE)
+
+    @field_validator("kind")
+    @classmethod
+    def _kind(cls, value):
+        if value not in term_dates.KINDS:
+            raise ValueError("unknown kind")
+        return value
+
+    @field_validator("start_date", "end_date")
+    @classmethod
+    def _iso(cls, value):
+        return date.fromisoformat(value.strip()).isoformat()  # a real YYYY-MM-DD, else dropped
+
+
+def _period_problem(period: dict, today: date) -> str | None:
+    """Why a read period can't be added as it stands, in words for the
+    parent (never the model's), or None. Such a period is still shown in
+    the inbox, unticked, so a misread is corrected rather than lost."""
+    kind, first, last = period["kind"], period["start_date"], period["end_date"]
+    earliest = (today - timedelta(days=TERM_DATE_PAST_DAYS)).isoformat()
+    latest = (today + timedelta(days=TERM_DATE_FUTURE_DAYS)).isoformat()
+    if not (earliest <= first <= latest and earliest <= last <= latest):
+        return "The dates are years away from today: check the year."
+    if last < first:
+        return "It ends before it starts."
+    days = (date.fromisoformat(last) - date.fromisoformat(first)).days + 1
+    if days > term_dates.MAX_DAYS[kind]:
+        return f"{days} days is too long ({term_dates.KINDS[kind]}: at most {term_dates.MAX_DAYS[kind]} days)."
+    try:
+        term_dates.clean_period(kind, first, last, period["label"])
+    except term_dates.PeriodError:
+        return "Check the dates."
+    return None
+
+
+def _term_dates(items: list, today: date) -> Candidate | None:
+    """Every term-date period as one candidate (approved together). Items
+    without a known kind and real ISO dates are dropped; one that fails the
+    other checks (length for its kind, order, near today) is kept with a
+    "problem" for the parent. Repeats are merged."""
+    periods: list[dict] = []
+    evidence = ""
+    for raw in items[:MAX_TERM_PERIODS]:
+        if not isinstance(raw, dict):
+            continue
+        try:
+            item = _TermPeriod.model_validate(raw)
+        except (ValidationError, ValueError, TypeError):
+            continue
+        period = {"kind": item.kind, "start_date": item.start_date, "end_date": item.end_date,
+                  "label": item.label or term_dates.KINDS[item.kind]}
+        problem = _period_problem(period, today)
+        if problem:
+            period["problem"] = problem
+        if any(term_dates.same_period(period, p) for p in periods):
+            continue
+        periods.append(period)
+        evidence = evidence or item.evidence
+    if not periods:
+        return None
+    periods.sort(key=lambda p: (p["start_date"], p["kind"] != "term", p["end_date"]))
+    return Candidate("term_dates", None, {"periods": periods}, evidence)
+
+
 _PARSERS = (("word_lists", _word_list), ("homework", _homework), ("events", _event))
 
 
@@ -530,4 +656,10 @@ def validate_output(tool_input: dict, children: list[Child], today: date) -> lis
                 continue
             if candidate:
                 candidates.append(candidate)
-    return candidates[:MAX_CANDIDATES]
+    candidates = candidates[:MAX_CANDIDATES]
+    raw_periods = tool_input.get("term_dates")
+    if isinstance(raw_periods, list):
+        term_candidate = _term_dates(raw_periods, today)
+        if term_candidate:  # always kept: it's one candidate however many periods
+            candidates = [*candidates[:MAX_CANDIDATES - 1], term_candidate]
+    return candidates

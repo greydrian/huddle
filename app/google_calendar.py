@@ -27,6 +27,7 @@ from app.google_oauth import (
     get_connected_account,
     get_selected_calendars,
 )
+from app.services import term_dates
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +41,12 @@ MAX_BAR_SLOTS = 3  # event bars shown per week in the month grid before "+N more
 # FETCH_DEADLINE. Background sync keeps the full per-request timeouts.
 CALENDAR_DEADLINE = 6.0
 OUTAGE_KEY = "Google Calendar"
+# School term dates (spec 10.6) drawn on the calendar as extra all-day
+# "events": local only, never written to Google, and packed after Google's
+# own events so they never push a real event into "+N more". Terms show
+# only as a start/end marker on the day number. Bank holidays aren't drawn:
+# the family's Google calendars usually show them already.
+SCHOOL_BAR_KINDS = ("holiday", "half_term", "inset", "closure")
 
 
 async def cache_calendar_timezone(db, access_token: str):
@@ -106,6 +113,29 @@ def _format_event(raw: dict) -> dict:
         "is_multi_day": end_date != start_date,
         "sort_key": start_dt.isoformat(),
     }
+
+
+async def _school_periods(db, first: date, last: date) -> tuple[list[dict], dict[str, str]]:
+    """(school "events" touching [first, last], {ISO date: "Term starts" /
+    "Term ends"}) from the term dates. Shaped like _format_event's output,
+    plus "school": the period's kind."""
+    events, markers = [], {}
+    for period in await term_dates.periods_between(db, first, last):
+        if period["kind"] == "term":
+            markers[period["start_date"]] = "Term starts"
+            markers.setdefault(period["end_date"], "Term ends")
+        elif period["kind"] in SCHOOL_BAR_KINDS:
+            events.append({
+                "title": period["label"],
+                "time_label": "All day",
+                "all_day": True,
+                "date": period["start_date"],
+                "end_date": period["end_date"],
+                "is_multi_day": period["end_date"] != period["start_date"],
+                "sort_key": f"{period['start_date']}T00:00:00",
+                "school": period["kind"],
+            })
+    return events, markers
 
 
 async def fetch_events(access_token: str, calendar_id: str, time_min: datetime, time_max: datetime) -> list[dict]:
@@ -320,7 +350,9 @@ async def get_month_grid(db, year: int | None = None, month: int | None = None) 
     month = month or now.month
     today = now.date()
     first_of_month = date(year, month, 1)
-    grid_start, _ = grid_span(now)
+    grid_start, grid_end = grid_span(now)
+    school_events, term_markers = await _school_periods(db, grid_start, grid_end - timedelta(days=1))
+    all_events = [*all_events, *school_events]
 
     weeks = []
     cursor = grid_start
@@ -338,6 +370,7 @@ async def get_month_grid(db, year: int | None = None, month: int | None = None) 
                 "is_today": d == today,
                 "is_weekend": d.weekday() >= 5,
                 "hidden_count": 0,
+                "term_marker": term_markers.get(d.isoformat()),
             })
 
         week_events = [
@@ -345,27 +378,35 @@ async def get_month_grid(db, year: int | None = None, month: int | None = None) 
             if date.fromisoformat(e["date"]) <= week_end
             and date.fromisoformat(e["end_date"]) >= week_start
         ]
-        # Earlier-starting events first; among ties, longer events first so
-        # they claim a slot before a cluster of short same-day events do.
+        # Google's events before the school's (SCHOOL_BAR_KINDS); then
+        # earlier-starting first; among ties, longer events first so they
+        # claim a slot before a cluster of short same-day events do.
         week_events.sort(key=lambda e: (
+            "school" in e,
             e["sort_key"],
             -(date.fromisoformat(e["end_date"]) - date.fromisoformat(e["date"])).days,
         ))
 
-        slot_last_col: dict[int, int] = {}
+        # The columns each slot already uses. Google's events come in start
+        # order, so for them "the first slot free across my columns" is the
+        # same as "the first slot whose last bar ended before me"; the
+        # school's, placed afterwards, can then fill any free span, even
+        # one to the left of a Google bar.
+        slot_cols: list[set[int]] = [set() for _ in range(MAX_BAR_SLOTS)]
         bars = []
         for event in week_events:
             e_start = date.fromisoformat(event["date"])
             e_end = date.fromisoformat(event["end_date"])
             col_start = max(1, (max(e_start, week_start) - week_start).days + 1)
             col_end = min(7, (min(e_end, week_end) - week_start).days + 1)
+            cols = set(range(col_start, col_end + 1))
 
-            slot = next((s for s in range(MAX_BAR_SLOTS) if slot_last_col.get(s, 0) < col_start), None)
+            slot = next((s for s in range(MAX_BAR_SLOTS) if not slot_cols[s] & cols), None)
             if slot is None:
                 for i in range(col_start - 1, col_end):
                     days[i]["hidden_count"] += 1
                 continue
-            slot_last_col[slot] = col_end
+            slot_cols[slot] |= cols
             bars.append({"event": event, "col_start": col_start, "col_end": col_end, "slot": slot})
 
         row_count = max((bar["slot"] for bar in bars), default=-1) + 1
@@ -397,6 +438,11 @@ async def get_day_events(db, target: date) -> dict | None:
     loaded = await _load_events(db, lambda _now: (target, target + timedelta(days=1)))
     if loaded is None:
         return None
+    school_events, term_markers = await _school_periods(db, target, target)
     events = loaded["events"]
     events.sort(key=lambda e: (0 if e["all_day"] else 1, e["sort_key"]))
+    marker = term_markers.get(target.isoformat())
+    if marker:
+        school_events.append({"title": marker, "time_label": "All day", "all_day": True, "school": "term"})
+    events = [*school_events, *events]  # the school's first: they frame the day
     return {"events": events, "offline": loaded["offline"], "updated_label": loaded["updated_label"]}

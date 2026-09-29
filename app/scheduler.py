@@ -8,13 +8,15 @@ Background jobs, started/stopped from app/main.py's lifespan:
 - the calendar outage cache refresh every 5 minutes (app/calendar_cache.py)
 - the school email check (daily at 18:00 family time by default, set in
   Admin; catches up at startup), checked every 10 minutes — see app/school_email.py
+- the GOV.UK bank holidays, refreshed weekly (checked every 6 hours, and
+  shortly after startup so missing or stale data is fetched) — see app/bank_holidays.py
 """
 
 from datetime import datetime, timezone
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-from app import backup, google_calendar, school_email, task_sync
+from app import backup, bank_holidays, google_calendar, school_email, task_sync
 from app.database import get_db
 from app.services import tasks
 
@@ -63,6 +65,11 @@ def start():
         school_email.run_if_due, "interval", seconds=school_email.CHECK_SECONDS,
         id="school_email", replace_existing=True, max_instances=1,
         next_run_time=datetime.now(timezone.utc),  # startup catch-up if a check was missed
+    )
+    scheduler.add_job(
+        bank_holidays.run_if_due, "interval", seconds=bank_holidays.CHECK_SECONDS,
+        id="bank_holidays", replace_existing=True, max_instances=1,
+        next_run_time=datetime.now(timezone.utc) + bank_holidays.STARTUP_DELAY,  # fetch if missing or stale
     )
     scheduler.add_job(
         _calendar_cache_job, "interval", seconds=CALENDAR_CACHE_SECONDS,

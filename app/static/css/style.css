@@ -511,6 +511,31 @@ body:has(> .dashboard-scroll) > .topbar { flex-shrink: 0; }
 .cal-bar-title { overflow: hidden; text-overflow: ellipsis; }
 .cal-bar.all-day { font-weight: 700; }
 
+/* School term dates (spec 10.6, google_calendar._school_periods): local-only
+   bars, deliberately unlike Google's chips: no calendar colour, a hairline
+   outline over faint diagonal stripes, soft ink and a small school icon.
+   INSET days and closures (children at home, unusually) take the warm tone. */
+.cal-bar.cal-school, .event-row.cal-school {
+  --school: var(--ink-soft);
+  align-items: center;
+  background: repeating-linear-gradient(135deg,
+    color-mix(in srgb, var(--school) 13%, var(--card)) 0 5px, var(--card) 5px 10px);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--school) 45%, var(--card));
+  color: var(--ink-soft);
+  font-weight: 600;
+}
+.cal-school.cal-school-inset, .cal-school.cal-school-closure { --school: var(--warn); }
+.cal-school .icon { flex-shrink: 0; }
+.event-row.cal-school .event-time { display: inline-flex; align-items: center; gap: 6px; }
+/* A term's first and last day: a short rule under the day number. */
+.cal-day-num { position: relative; }
+.cal-term-marker {
+  position: absolute; bottom: -1px; left: 50%;
+  width: 14px; height: 3px; margin-left: -7px;
+  border-radius: 2px;
+  background: var(--ink-soft);
+}
+
 .cal-week-more {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
