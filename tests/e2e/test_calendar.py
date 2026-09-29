@@ -45,7 +45,7 @@ async def test_switch_views_and_filter_by_touch(start_server, page, mode):
     assert await page.locator("#widget-calendar >> text=Bins out").count() == 1  # everyone's
 
     await page.tap("#widget-calendar .cal-view-btn >> text=Agenda")  # the filter stays on
-    await page.wait_for_selector("#widget-calendar[data-view=agenda][data-person] >> text=Tomorrow")
+    await page.wait_for_selector("#widget-calendar[data-view=agenda][data-person] .cal-agenda-label >> text=Tomorrow")
     assert await page.locator("#widget-calendar >> text=Jamie: Dentist").count() == 0
 
     await page.tap("#widget-calendar .cal-person[aria-pressed=true]")  # tap again: everyone
@@ -82,21 +82,20 @@ async def test_add_event_with_the_on_screen_keyboard(start_server, page):
 
     await page.tap("#widget-calendar .cal-add-toggle")
     await page.wait_for_selector("#cal-add-form:not([hidden])")
-    await page.tap("#cal-add-form input[name=title]")
-    await page.wait_for_selector(".osk.osk--open", state="visible")
-    for key in "gym":
-        await page.tap(f".osk .hg-button[data-skbtn='{key}']")
-    await page.tap(".osk [data-skbtn='{done}']")
-    await page.wait_for_selector(".osk.osk--open", state="hidden")
-    assert await page.input_value("#cal-add-form input[name=title]") == "gym"
     await page.select_option("#cal-add-form select[name=start_time]", "16:30")
     await page.tap("#cal-add-form .task-chip-person >> text=Riley")
     assert await page.is_checked("#cal-add-form .task-chip-person:has-text('Riley') input")
-    await page.tap("#cal-add-form .cal-add-submit")
+    await page.tap("#cal-add-form input[name=title]")
+    await page.wait_for_selector(".osk.osk--open", state="visible")
+    for key in "Gym":  # the keyboard starts shifted
+        await page.tap(f".osk .hg-button[data-skbtn='{key}']")
+    assert await page.input_value("#cal-add-form input[name=title]") == "Gym"
+    await page.tap(".osk .hg-button[data-skbtn='{enter}']")  # Enter sends the form
 
     # Google is out of reach: the form stays open with what was typed.
     await page.wait_for_selector("#cal-add-form .cal-add-error >> text=Couldn't reach Google Calendar")
-    assert await page.input_value("#cal-add-form input[name=title]") == "gym"
+    assert await page.input_value("#cal-add-form input[name=title]") == "Gym"
+    assert await page.is_checked("#cal-add-form .task-chip-person:has-text('Riley') input")
     assert await page.input_value("#cal-add-form select[name=start_time]") == "16:30"
     assert _layout(server) == before
 

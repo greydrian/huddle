@@ -136,54 +136,11 @@ class Server:
         subprocess.run([sys.executable, "-c", code], cwd=ROOT, env=self._env, check=True)
 
     def seed_calendar(self):
-        """A connected account (with the calendar.events scope) showing a
-        Family calendar and Riley's calendar, the Family calendar chosen for
-        the "+", and a saved copy of this month (and the week ahead) in
-        calendar_cache. Google stays out of reach (the dead proxy), so every
-        view is drawn from that copy with a "Last updated" note, and an add
-        fails as offline. Events: Riley's swimming (her calendar) and
-        "Jamie: Dentist" today, five events tomorrow (so the month shows
-        "+N more"), and a two-day trip."""
-        code = (
-            "import asyncio, time\n"
-            "from datetime import datetime, timedelta\n"
-            "from app import calendar_cache, database, google_calendar, google_oauth\n"
-            "from app.services import calendar_prefs\n"
-            "CALS = [{'id': 'family@group.calendar.google.com', 'summary': 'Family', 'color': '#4F7CAC'},\n"
-            "        {'id': 'riley@example.com', 'summary': 'Riley', 'color': '#C1584A'}]\n"
-            "def ev(cal, title, day, start=None, end=None):\n"
-            "    raw = {'id': title.replace(' ', '').replace(':', '').lower() + day.strftime('%d'), 'summary': title}\n"
-            "    if start is None:\n"
-            "        raw.update(start={'date': day.isoformat()}, end={'date': (end or day + timedelta(days=1)).isoformat()})\n"
-            "    else:\n"
-            "        raw.update(start={'dateTime': f'{day.isoformat()}T{start}:00+01:00'},\n"
-            "                   end={'dateTime': f'{day.isoformat()}T{end}:00+01:00'})\n"
-            "    e = google_calendar._format_event(raw)\n"
-            "    e['color'], e['calendar_id'] = cal['color'], cal['id']\n"
-            "    return e\n"
-            "async def main():\n"
-            "    async with database.get_db() as db:\n"
-            "        await google_oauth.store_tokens(db, {'access_token': 'tok', 'refresh_token': 'r',"
-            " 'expires_at': time.time() + 86400, 'scope': google_oauth.CALENDAR_READ_SCOPE + ' '"
-            " + google_oauth.CALENDAR_EVENTS_SCOPE}, 'family@example.com')\n"
-            "        await google_oauth.set_selected_calendars(db, CALS)\n"
-            "        await calendar_prefs.set_family_calendar(db, CALS[0])\n"
-            "        riley = (await (await db.execute(\"SELECT id FROM profiles WHERE name = 'Riley'\")).fetchone())[0]\n"
-            "        await calendar_prefs.set_people_links(db, {CALS[1]['id']: riley, CALS[0]['id']: 'everyone'})\n"
-            "        tz = await database.family_timezone(db)\n"
-            "        now = datetime.now(tz)\n"
-            "        today, tomorrow = now.date(), now.date() + timedelta(days=1)\n"
-            "        family = [ev(CALS[0], 'Jamie: Dentist', today, '15:00', '16:00'),\n"
-            "                  ev(CALS[0], 'Bins out', today),\n"
-            "                  ev(CALS[0], 'Trip to Gran', today + timedelta(days=2), end=today + timedelta(days=4)),\n"
-            "                  *[ev(CALS[0], f'Club {h}', tomorrow, f'{h}:00', f'{h}:45') for h in range(9, 14)]]\n"
-            "        riley_events = [ev(CALS[1], 'Swimming', today, '17:00', '18:00')]\n"
-            "        start, end = google_calendar._refresh_span(now)\n"
-            "        selection = calendar_cache.selection_key('family@example.com', CALS)\n"
-            "        await calendar_cache.store(db, selection, start, end, {CALS[0]['id']: family, CALS[1]['id']: riley_events})\n"
-            "asyncio.run(main())\n"
-        )
-        subprocess.run([sys.executable, "-c", code], cwd=ROOT, env=self._env, check=True)
+        """A connected calendar with a saved copy of this month (seed_calendar.py).
+        Google stays out of reach (the dead proxy), so every view is drawn
+        from that copy with a "Last updated" note, and an add fails as offline."""
+        subprocess.run([sys.executable, str(Path(__file__).with_name("seed_calendar.py"))],
+                       cwd=ROOT, env=self._env, check=True)
 
 
 @pytest.fixture
