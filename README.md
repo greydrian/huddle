@@ -376,6 +376,8 @@ disconnect and reconnect.
 
 ## Photos for the idle screen
 
+**Setting up v1.1?** Follow the step-by-step checklist in [docs/v1.1-setup.md](docs/v1.1-setup.md).
+
 The idle slideshow (Admin → Display → Idle screen) shows up to 30 photos from
 the family's **personal** Google account. The main connection above is an
 Internal Workspace app and can't reach personal accounts, so Photos use a
