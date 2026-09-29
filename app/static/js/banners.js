@@ -4,9 +4,16 @@
  *   them again). The extras are data-panel, so fresh.js holds the bar's
  *   refresh back while they're open and in use.
  * - A short, gentle chime when a banner whose trigger has sound switched on
- *   first appears. Keys already chimed for are remembered in localStorage,
- *   so a reload or a refresh never repeats it. The server shows nothing in
- *   quiet hours, so there's nothing to chime for then.
+ *   first appears. Keys chimed for are remembered in localStorage, so a
+ *   reload or a refresh never repeats it. The server shows nothing in quiet
+ *   hours, so there's nothing to chime for then.
+ *
+ * Browsers keep audio suspended until someone touches the page (unless the
+ * kiosk allows autoplay). While it's suspended nothing is scheduled — a
+ * suspended context would queue the notes and play them all at the first
+ * touch, maybe hours later — and nothing is marked as chimed. Banners seen
+ * then stay silent for this page even after audio starts: only banners
+ * that appear from then on chime.
  */
 (function () {
   'use strict';
@@ -14,7 +21,15 @@
   var STORE = 'huddle-banner-chimed';
   var KEEP_MS = 3 * 86400000;
   var audio = null;
-  window.huddleChimes = 0;  // for the browser tests
+  var silent = {};  // keys seen while audio couldn't play: never chimed late
+  window.huddleChimes = 0;  // chimes actually played, for the browser tests
+
+  try {
+    var Ctx = window.AudioContext || window.webkitAudioContext;
+    if (Ctx) audio = new Ctx();
+  } catch (err) { audio = null; }
+
+  function running() { return !!audio && audio.state === 'running'; }
 
   function load() {
     try { return JSON.parse(localStorage.getItem(STORE) || '{}') || {}; } catch (err) { return {}; }
@@ -24,12 +39,8 @@
   }
 
   function chime() {
-    window.huddleChimes += 1;
+    if (!running()) return;
     try {
-      var Ctx = window.AudioContext || window.webkitAudioContext;
-      if (!Ctx) return;
-      audio = audio || new Ctx();
-      if (audio.state === 'suspended') audio.resume();
       var t = audio.currentTime + 0.02;
       // Two soft sine notes (E5 then A5), each fading out.
       [[659.25, 0], [880, 0.18]].forEach(function (note) {
@@ -44,6 +55,7 @@
         osc.start(t + note[1]);
         osc.stop(t + note[1] + 0.65);
       });
+      window.huddleChimes += 1;
     } catch (err) { /* no audio on this device: the banner still shows */ }
   }
 
@@ -51,15 +63,17 @@
     if (!bar) return;
     var seen = load();
     var now = Date.now();
+    var playing = running();
     var ring = false;
     bar.querySelectorAll('[data-key]').forEach(function (b) {
       var key = b.dataset.key;
-      if (seen[key]) return;
+      if (seen[key] || silent[key]) return;
+      if (!playing) { silent[key] = true; return; }
       seen[key] = now;
       if (b.hasAttribute('data-sound')) ring = true;
     });
     Object.keys(seen).forEach(function (key) { if (now - seen[key] > KEEP_MS) delete seen[key]; });
-    save(seen);
+    if (playing) save(seen);
     if (ring) chime();
   }
 
@@ -73,9 +87,11 @@
     more.textContent = open ? more.dataset.lessLabel : more.dataset.moreLabel;
   });
 
-  // A tablet's audio starts suspended until someone touches the screen.
+  // The first touch lets audio start; what's on show already stays silent.
   document.addEventListener('pointerdown', function () {
-    if (audio && audio.state === 'suspended') audio.resume();
+    if (audio && audio.state === 'suspended') {
+      try { audio.resume(); } catch (err) { /* stays silent */ }
+    }
   }, true);
 
   // An outerHTML swap replaces the bar, so look it up afresh each time.

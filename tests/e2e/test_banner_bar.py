@@ -24,14 +24,35 @@ CONTRAST = """
 """
 
 
+# A stand-in AudioContext: its state starts as window.__audioStart (the real
+# one's depends on the browser's autoplay policy), resume() starts it, and
+# window.__notes counts the notes actually scheduled.
+FAKE_AUDIO = """
+window.__notes = 0;
+window.AudioContext = class {
+  constructor() { this.state = window.__audioStart || 'running'; this.currentTime = 0; this.destination = {}; }
+  resume() { this.state = 'running'; return Promise.resolve(); }
+  createOscillator() {
+    return { frequency: {}, connect: (n) => n, start: () => { window.__notes += 1; }, stop: () => {} };
+  }
+  createGain() { return { gain: { setValueAtTime() {}, exponentialRampToValueAtTime() {} }, connect: (n) => n }; }
+};
+"""
+
+
+def _skip_quiet_minutes():
+    if datetime.now(ZoneInfo("Europe/London")).strftime("%H:%M") < "00:03":
+        pytest.skip("inside the seeded quiet hours (00:00-00:02)")
+
+
 def _layout(server):
     return {row[0]: row[1:] for row in server.query("SELECT widget_id, grid_x, grid_y, grid_w, grid_h FROM layout_state")}
 
 
 @pytest.mark.parametrize("mode", ["day", "night"])
 async def test_banner_shows_expands_and_dismisses_by_touch(start_server, page, mode):
-    if datetime.now(ZoneInfo("Europe/London")).strftime("%H:%M") < "00:03":
-        pytest.skip("inside the seeded quiet hours (00:00-00:02)")
+    _skip_quiet_minutes()
+    await page.add_init_script(FAKE_AUDIO)  # autoplay allowed
     server = start_server()
     server.seed_banners(sound=True)
     server.query("INSERT INTO app_settings (key, value) VALUES ('appearance', ?)", ("light" if mode == "day" else "dark",))
@@ -73,3 +94,29 @@ async def test_banner_shows_expands_and_dismisses_by_touch(start_server, page, m
     assert await page.evaluate("window.huddleChimes") == 0  # already heard: no repeat on reload
 
     assert _layout(server) == before  # the bar pushed the grid down; no widget moved
+
+
+async def test_no_chime_while_audio_is_suspended_and_none_replayed_after(start_server, page):
+    """Before the first touch audio is suspended: nothing is scheduled (it
+    would all play at once on the touch) or marked as chimed. After the
+    touch, only a banner that appears from then on chimes."""
+    _skip_quiet_minutes()
+    await page.add_init_script("window.__audioStart = 'suspended';" + FAKE_AUDIO)
+    server = start_server()
+    server.seed_banners(sound=True)
+    await page.goto(server.url + "/")
+    await page.wait_for_selector("#banner-bar .banner")
+    assert await page.evaluate("[window.huddleChimes, window.__notes]") == [0, 0]
+    assert await page.evaluate("localStorage.getItem('huddle-banner-chimed')") is None
+
+    await page.tap(".topbar .today")  # the first touch: audio starts
+    await page.wait_for_timeout(300)
+    assert await page.evaluate("[window.huddleChimes, window.__notes]") == [0, 0]  # nothing stale replayed
+
+    server.query("INSERT INTO tasks (profile_id, title) VALUES (2, 'Recycling')")  # Dad: a new banner
+    await page.evaluate("document.dispatchEvent(new Event('visibilitychange'))")  # fresh.js polls now
+    await page.wait_for_selector("#banner-bar [data-key^='chores:2:']", state="attached")
+    await page.wait_for_function("window.huddleChimes === 1")
+    assert await page.evaluate("window.__notes") == 2
+    chimed = await page.evaluate("Object.keys(JSON.parse(localStorage.getItem('huddle-banner-chimed')))")
+    assert len(chimed) == 1 and chimed[0].startswith("chores:2:")
