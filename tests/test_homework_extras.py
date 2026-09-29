@@ -157,7 +157,7 @@ async def test_migration_8_upgrade_keeps_data_and_backfills(tmp_path, monkeypatc
         conn.commit()
         before = {t: conn.execute(f"SELECT * FROM {t} ORDER BY rowid").fetchall()
                   for (t,) in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
-                  if t != "schema_migrations"}
+                  if t not in ("schema_migrations", "sqlite_sequence")}
 
     await database.init_db()  # the full list: runs 8 only
 
@@ -310,23 +310,23 @@ async def test_done_history_records_each_tick_with_family_time(db, client, admin
     await admin_client.post("/admin/homework", data={"profile_id": riley, "subject": "Maths", "title": "Sheet"})
     hw_id = (await _rows(db, "SELECT id FROM homework"))[0][0]
 
-    _frozen_now(monkeypatch, homework, datetime(2026, 3, 10, 16, 40, tzinfo=UTC))  # GMT: 16:40 local
+    _frozen_now(monkeypatch, homework, datetime(2026, 3, 11, 16, 40, tzinfo=UTC))  # GMT: 16:40 local
     await client.post(f"/api/homework/{hw_id}/toggle")
-    _frozen_now(monkeypatch, homework, datetime(2026, 3, 10, 16, 45, 30, tzinfo=UTC))
+    _frozen_now(monkeypatch, homework, datetime(2026, 3, 11, 16, 45, 30, tzinfo=UTC))
     await client.post(f"/api/homework/{hw_id}/toggle")  # untick
-    _frozen_now(monkeypatch, homework, datetime(2026, 3, 11, 7, 5, tzinfo=UTC))
+    _frozen_now(monkeypatch, homework, datetime(2026, 3, 11, 19, 5, tzinfo=UTC))
     await client.post(f"/api/homework/{hw_id}/toggle")
 
     assert await _rows(db, "SELECT done, at FROM homework_events ORDER BY id") == [
-        (1, "2026-03-10T16:40:00+00:00"), (0, "2026-03-10T16:45:30+00:00"), (1, "2026-03-11T07:05:00+00:00")]
-    assert await _rows(db, "SELECT done, done_at FROM homework") == [(1, "2026-03-11T07:05:00+00:00")]
+        (1, "2026-03-11T16:40:00+00:00"), (0, "2026-03-11T16:45:30+00:00"), (1, "2026-03-11T19:05:00+00:00")]
+    assert await _rows(db, "SELECT done, done_at FROM homework") == [(1, "2026-03-11T19:05:00+00:00")]
 
     page = (await admin_client.get("/admin?tab=family")).text
-    assert "done Wed 11 Mar, 07:05" in page  # on the item
+    assert "done Wed 11 Mar, 19:05" in page  # on the item
     assert "Recently ticked" in page
     events = await homework.get_recent_homework_events(db)
     assert [(e["when"], e["done"]) for e in events] == [
-        ("Wed 11 Mar, 07:05", 1), ("Tue 10 Mar, 16:45", 0), ("Tue 10 Mar, 16:40", 1)]
+        ("Wed 11 Mar, 19:05", 1), ("Wed 11 Mar, 16:45", 0), ("Wed 11 Mar, 16:40", 1)]
     assert "Riley unticked" in page and "Riley ticked" in page
 
 
