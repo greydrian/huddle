@@ -585,7 +585,11 @@ async def m0007_homework_extras(db):
       is unknown on a kiosk). Existing done rows get one event at their
       done_at, so Admin's history starts with what's already known."""
     await database._add_column_if_missing(db, "homework", "subject_key", "TEXT NOT NULL DEFAULT 'other'")
-    for row in await (await db.execute("SELECT id, subject FROM homework")).fetchall():
+    # Only rows still on the default: a re-run (a restored older backup) never
+    # overwrites a subject Admin picked since.
+    for row in await (await db.execute(
+        "SELECT id, subject FROM homework WHERE subject_key IS NULL OR subject_key = 'other'"
+    )).fetchall():
         await db.execute(
             "UPDATE homework SET subject_key = ? WHERE id = ?", (_m7_subject_key(row["subject"]), row["id"])
         )

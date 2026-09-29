@@ -203,6 +203,18 @@ async def test_migration_7_is_idempotent(db):
     assert len(await _rows(db, "SELECT * FROM homework_events")) == 1
 
 
+async def test_migration_7_rerun_keeps_admin_picks(db):
+    riley = (await _ids(db))["Riley"]
+    await db.execute("INSERT INTO homework (profile_id, subject, subject_key, title) "
+                     "VALUES (?, 'Maths', 'topic', 'Picked')", (riley,))
+    await db.execute("INSERT INTO homework (profile_id, subject, title) VALUES (?, 'Phonics', 'Default')", (riley,))
+    await db.commit()
+    await migrations.m0007_homework_extras(db)
+    await db.commit()
+    assert await _rows(db, "SELECT title, subject_key FROM homework ORDER BY id") == [
+        ("Picked", "topic"), ("Default", "english")]
+
+
 # --- Widget: subject chips ---
 
 async def test_widget_shows_subject_chip(db, client, admin_client, today):
