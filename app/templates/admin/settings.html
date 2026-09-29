@@ -78,7 +78,7 @@
             {% if p.avatar_hash %}<img class="avatar-preview" src="/avatars/{{ p.id }}-{{ p.avatar_hash }}" alt="{{ p.name }}'s photo" width="96" height="96" style="--person: {{ p.colour_hex }};">{% endif %}
             <input type="file" name="photo" accept="image/*,.heic,.heif" required aria-label="{{ p.name }}'s photo">
             <button type="submit" class="btn btn-small">{{ 'Replace photo' if p.avatar_hash else 'Upload photo' }}</button>
-            <span class="admin-meta admin-form-note">JPEG, PNG, WebP or HEIC, up to 8 MB. Cropped to a circle; location and camera details are removed.</span>
+            <span class="admin-meta admin-form-note">JPEG, PNG, WebP, GIF or HEIC (iPhone), up to 8 MB. Cropped to a circle; location and camera details are removed.</span>
           </form>
           {% if p.avatar_hash %}
           <form method="post" action="/admin/profiles/{{ p.id }}/avatar/photo/remove">
