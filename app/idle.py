@@ -12,10 +12,12 @@ settings and what the idle screen shows:
   calendar_cache), the current weather (from the weather cache) and the
   slideshow's photos in this week's order. Nothing here calls Google or
   Open-Meteo, so it answers the same offline.
-- /photos/{id} and /photos/{id}/thumb: the local copies, by row id only.
+- /photos/{id}-{stem} and /photos/{id}-{stem}/thumb: the local copies, by
+  row id plus the file's random stem (so a reused id can't hit a cached copy).
 """
 
 import json
+import re
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, HTTPException
@@ -150,23 +152,28 @@ async def idle_now():
         return await context(db)
 
 
-async def _photo_response(photo_id: int, thumb: bool) -> FileResponse:
+# "<row id>-<file stem>" (google_photos.photo_key). Ids stop well short of
+# SQLite's 2**63.
+PHOTO_KEY = re.compile(r"([1-9][0-9]{0,15})-([0-9a-f]{32})")
+
+
+async def _photo_response(key: str, thumb: bool) -> FileResponse:
+    match = PHOTO_KEY.fullmatch(key)
+    if match is None:
+        raise HTTPException(status_code=404)
     async with get_db() as db:
-        path = await google_photos.photo_file(db, photo_id, thumb=thumb)
+        path = await google_photos.photo_file(db, int(match[1]), match[2], thumb=thumb)
     if path is None:
         raise HTTPException(status_code=404)
-    # A row id is never reused, so its file never changes.
+    # The key names one file (its random stem), which never changes.
     return FileResponse(path, headers={"Cache-Control": "public, max-age=31536000, immutable"})
 
 
-PHOTO_ID = PathParam(ge=1, le=2**53)  # SQLite integers stop at 2**63; ids never get near either
+@router.get("/photos/{key}")
+async def photo(key: str = PathParam(max_length=64)):
+    return await _photo_response(key, thumb=False)
 
 
-@router.get("/photos/{photo_id}")
-async def photo(photo_id: int = PHOTO_ID):
-    return await _photo_response(photo_id, thumb=False)
-
-
-@router.get("/photos/{photo_id}/thumb")
-async def photo_thumb(photo_id: int = PHOTO_ID):
-    return await _photo_response(photo_id, thumb=True)
+@router.get("/photos/{key}/thumb")
+async def photo_thumb(key: str = PathParam(max_length=64)):
+    return await _photo_response(key, thumb=True)

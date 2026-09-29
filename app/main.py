@@ -86,6 +86,9 @@ async def lifespan(app: FastAPI):
     async with get_db() as db:
         # Documents being read when the app stopped are gone from memory.
         await imports.fail_interrupted(db)
+        # A photo import the restart cut off is marked failed; a picker
+        # session still waiting gets its poll back.
+        await google_photos.recover(db)
     scheduler.start()
     yield
     scheduler.stop()

@@ -49,6 +49,7 @@ import secrets
 import time
 from datetime import date
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -68,6 +69,7 @@ SESSIONS_ENDPOINT = f"{PICKER_API}/sessions"
 MEDIA_ITEMS_ENDPOINT = f"{PICKER_API}/mediaItems"
 
 MAX_PHOTOS = 30
+CONTENT_HOST_SUFFIX = ".googleusercontent.com"  # where Picker baseUrls point (lh3.googleusercontent.com, ...)
 # The Lenovo Idea Tab Plus panel (spec 3); Google scales to fit inside it.
 SIZE_PARAM = "=w2560-h1600"
 MAX_FILE_BYTES = 20 * 1024 * 1024  # a 2560x1600 photo is 1-3 MB; anything far bigger is skipped
@@ -95,6 +97,10 @@ class NotSignedIn(Exception):
 
 class ImportFailed(Exception):
     """The picked photos couldn't be imported; the old set is kept."""
+
+
+class Busy(Exception):
+    """Photos are being copied right now: wait, or Cancel first."""
 
 
 # --- Configuration and sign-in ---------------------------------------------------------
@@ -266,15 +272,33 @@ async def list_media_items(token: str, session_id: str) -> list[dict]:
             params["pageToken"] = page
 
 
+def is_google_content_url(url) -> bool:
+    """Only Google's own photo content hosts ever get the Bearer token."""
+    if not isinstance(url, str):
+        return False
+    try:
+        parts = urlsplit(url)
+        port = parts.port
+    except ValueError:
+        return False
+    host = (parts.hostname or "").lower()
+    return (parts.scheme == "https" and port in (None, 443) and not parts.username and not parts.password
+            and host.endswith(CONTENT_HOST_SUFFIX))
+
+
 def is_photo(item: dict) -> bool:
     media = item.get("mediaFile") or {}
     return (item.get("type") == "PHOTO" and str(media.get("mimeType", "")).startswith("image/")
-            and isinstance(media.get("baseUrl"), str) and media["baseUrl"].startswith("https://"))
+            and is_google_content_url(media.get("baseUrl")))
 
 
 async def download(token: str, base_url: str) -> bytes | None:
     """The photo sized for the panel, or None if it's over MAX_FILE_BYTES.
-    Raises httpx.HTTPError (Google unreachable, or the URL has expired)."""
+    Raises httpx.HTTPError (Google unreachable, or the URL has expired).
+    A URL on any host but Google's content hosts is refused (None) and
+    never sees the token."""
+    if not is_google_content_url(base_url):
+        return None
     async with http_client.client(DOWNLOAD_TIMEOUT) as client:
         async with client.stream("GET", base_url + SIZE_PARAM, headers=_auth(token)) as resp:
             resp.raise_for_status()
@@ -352,23 +376,40 @@ async def replace_set(db, saved: list[dict]) -> None:
 
 
 async def remove_all(db) -> None:
+    """Delete every photo row, and only those rows' files: an import in
+    progress may have new files on disk that aren't rows yet (Admin hides
+    Remove all while picking and the route refuses it, but belt and braces)."""
+    names = [name for r in await list_photos(db) for name in (r["filename"], r["thumb"])]
     await db.execute("DELETE FROM photos")
     await db.commit()
-    _prune_unlisted(set())
+    _remove_files(names)
+
+
+def photo_key(row) -> str:
+    """The photo's URL key, "<row id>-<file stem>". The stem is random per
+    file, so a row id reused after a database restore never matches a URL a
+    browser has cached (the files are served as immutable)."""
+    return f"{row['id']}-{str(row['filename'])[:32]}"
 
 
 async def list_photos(db) -> list[dict]:
-    return [dict(r) for r in await (await db.execute("SELECT * FROM photos ORDER BY id")).fetchall()]
+    rows = [dict(r) for r in await (await db.execute("SELECT * FROM photos ORDER BY id")).fetchall()]
+    for row in rows:
+        row["key"] = photo_key(row)
+    return rows
 
 
-async def photo_file(db, photo_id: int, thumb: bool = False) -> Path | None:
-    """The file for a photo row, or None: no such row, a name that isn't
-    ours, or the file is gone (e.g. a restored backup: photos aren't in it)."""
+async def photo_file(db, photo_id: int, stem: str, thumb: bool = False) -> Path | None:
+    """The file for a photo row, or None: no such row, a stem that isn't
+    that row's (an old URL), a name that isn't ours, or the file is gone
+    (e.g. a restored backup: photos aren't in it)."""
     row = await (await db.execute("SELECT filename, thumb FROM photos WHERE id = ?", (photo_id,))).fetchone()
     if row is None:
         return None
     name = row["thumb" if thumb else "filename"]
     if not isinstance(name, str) or not FILE_NAME.fullmatch(name):
+        return None
+    if not name.startswith(stem + ("_" if thumb else ".")):
         return None
     path = PHOTOS_DIR / name
     return path if path.is_file() else None
@@ -385,9 +426,9 @@ def weekly_order(ids: list[int], today: date) -> list[int]:
 
 async def slideshow(db, today: date) -> list[str]:
     """The slideshow's photo URLs, in this week's order (files that exist only)."""
-    rows = await list_photos(db)
-    present = {r["id"] for r in rows if FILE_NAME.fullmatch(r["filename"]) and (PHOTOS_DIR / r["filename"]).is_file()}
-    return [f"/photos/{photo_id}" for photo_id in weekly_order(list(present), today)]
+    rows = {r["id"]: r for r in await list_photos(db)
+            if FILE_NAME.fullmatch(r["filename"]) and (PHOTOS_DIR / r["filename"]).is_file()}
+    return [f"/photos/{rows[photo_id]['key']}" for photo_id in weekly_order(list(rows), today)]
 
 
 # --- The picking session --------------------------------------------------------------
@@ -410,15 +451,40 @@ async def _set_state(db, state: dict) -> None:
     await db.commit()
 
 
+def poller_running() -> bool:
+    return _poller is not None and not _poller.done()
+
+
+async def recover(db) -> dict:
+    """Make the saved state match what's really running (at startup, and
+    whenever Admin shows the panel). An import with no task doing it (the
+    app restarted mid-copy) is marked failed, and its half-copied files,
+    which no row lists, are deleted. A waiting session gets its poll back."""
+    state = await get_state(db)
+    if state.get("status") == "importing" and not poller_running():
+        state.update(status="failed", message="interrupted")
+        await _set_state(db, state)
+        _prune_unlisted({name for r in await list_photos(db) for name in (r["filename"], r["thumb"])})
+        logger.warning("A Google Photos import was interrupted; keeping the old photos")
+    elif state.get("status") == "waiting":
+        ensure_poller(state)
+    return state
+
+
 async def start_picking(db) -> dict:
-    """Create a picker session. Raises NotSignedIn (sign in first) or
-    httpx.HTTPError (Google unreachable). Starts the background poll."""
+    """Create a picker session. Raises NotSignedIn (sign in first), Busy (an
+    import is running) or httpx.HTTPError (Google unreachable). Starts the
+    background poll."""
+    old = await recover(db)
+    if old.get("status") == "importing":
+        raise Busy
     token = await access_token(db)
     if not token:
         raise NotSignedIn
-    old = await get_state(db)
-    if old.get("status") in ("waiting", "importing") and old.get("session_id"):
-        await delete_session(token, old["session_id"])
+    if old.get("status") == "waiting":
+        await stop_poller_and_wait()  # its poll must never act on the new session's state
+        if old.get("session_id"):
+            await delete_session(token, old["session_id"])
     session = await create_session(token)
     polling = session.get("pollingConfig") or {}
     state = {
@@ -435,8 +501,10 @@ async def start_picking(db) -> dict:
 
 
 async def cancel(db) -> None:
+    """Stop picking or copying. The poll task is cancelled and waited for,
+    so any files it had already copied are gone before this returns."""
     state = await get_state(db)
-    stop_poller()
+    await stop_poller_and_wait()
     if state.get("session_id") and state.get("status") in ("waiting", "importing"):
         try:
             token = await access_token(db)
@@ -445,6 +513,20 @@ async def cancel(db) -> None:
         if token:
             await delete_session(token, state["session_id"])
     await _set_state(db, {})
+
+
+async def _save_in_thread(data: bytes, saved: list[dict]) -> dict | None:
+    """_save_image off the event loop. A thread can't be stopped: if the
+    import is cancelled meanwhile, wait for it and record what it wrote in
+    `saved`, so the caller's cleanup deletes those files too."""
+    future = asyncio.ensure_future(asyncio.to_thread(_save_image, data))
+    try:
+        return await asyncio.shield(future)
+    except asyncio.CancelledError:
+        written = await future
+        if written is not None:
+            saved.append(written)
+        raise
 
 
 async def import_session(db, token: str, session_id: str) -> tuple[int, int]:
@@ -457,7 +539,7 @@ async def import_session(db, token: str, session_id: str) -> tuple[int, int]:
     try:
         for item in photos:
             data = await download(token, item["mediaFile"]["baseUrl"])
-            result = await asyncio.to_thread(_save_image, data) if data is not None else None
+            result = await _save_in_thread(data, saved) if data is not None else None
             if result is None:
                 skipped += 1
             else:
@@ -548,6 +630,20 @@ def stop_poller() -> None:
     if _poller is not None and not _poller.done():
         _poller.cancel()
     _poller = None
+
+
+async def stop_poller_and_wait() -> None:
+    """stop_poller, then wait until the task has really finished (and so
+    has cleaned up after itself)."""
+    task = _poller
+    stop_poller()
+    if task is not None:
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        except Exception:  # the loop has logged it already
+            pass
 
 
 def poller() -> asyncio.Task | None:

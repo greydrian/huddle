@@ -42,10 +42,10 @@ def _picker_uri(state: dict) -> str | None:
 
 async def panel_context(db) -> dict:
     """The Photos panel's context (settings.html and the status fragment)."""
-    state = await google_photos.get_state(db)
+    # A restart mid-copy leaves "importing" with nothing doing it: recover()
+    # marks that failed; a waiting session gets its poll back.
+    state = await google_photos.recover(db)
     uri = _picker_uri(state) if state.get("status") == "waiting" else None
-    if state.get("status") == "waiting":
-        google_photos.ensure_poller(state)  # e.g. after a restart
     return {
         "photos_configured": google_photos.is_configured(),
         "photos_signed_in": await google_photos.is_signed_in(db),
@@ -105,7 +105,7 @@ async def photos_callback(request: Request, code: str | None = None, state: str 
             await google_photos.store_tokens(db, tokens)
             try:
                 await google_photos.start_picking(db)
-            except (httpx.HTTPError, google_photos.NotSignedIn) as exc:
+            except (httpx.HTTPError, google_photos.NotSignedIn, google_photos.Busy) as exc:
                 logger.warning("Couldn't start picking photos: %s", http_client.describe(exc))
                 target = admin_url("photos", error="photos-offline")
     response = RedirectResponse(url=target, status_code=303)
@@ -122,6 +122,8 @@ async def choose_photos():
             await google_photos.start_picking(db)
         except google_photos.NotSignedIn:
             return RedirectResponse(url="/admin/photos/connect", status_code=303)
+        except google_photos.Busy:
+            return RedirectResponse(url=admin_url("photos", error="photos-busy"), status_code=303)
         except httpx.HTTPError as exc:
             logger.warning("Couldn't start picking photos: %s", http_client.describe(exc))
             return RedirectResponse(url=admin_url("photos", error="photos-offline"), status_code=303)
@@ -145,6 +147,8 @@ async def cancel_picking():
 @router.post("/photos/remove", dependencies=[Depends(require_admin)])
 async def remove_photos():
     async with get_db() as db:
+        if (await google_photos.recover(db)).get("status") in ("waiting", "importing"):
+            return RedirectResponse(url=admin_url("photos", error="photos-busy"), status_code=303)
         await google_photos.remove_all(db)
     return RedirectResponse(url=admin_url("photos"), status_code=303)
 

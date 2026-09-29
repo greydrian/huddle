@@ -27,11 +27,14 @@
   </div>
   {% elif status == "importing" %}
   <p class="admin-hint" role="status">Copying the photos you picked…</p>
+  <form method="post" action="/admin/photos/cancel"><button type="submit" class="btn btn-quiet btn-small">Cancel</button></form>
   {% else %}
   {% if status == "done" %}
   <p class="admin-hint" role="status">Done: {{ photos_state.imported }} photo{{ '' if photos_state.imported == 1 else 's' }} copied{% if photos_state.skipped %} ({{ photos_state.skipped }} skipped: videos, or files too big to show){% endif %}.</p>
   {% elif status == "failed" and photos_state.message == "signin" %}
   <p class="admin-error" role="alert">The Photos sign-in has expired. Choose photos again to sign in.</p>
+  {% elif status == "failed" and photos_state.message == "interrupted" %}
+  <p class="admin-error" role="alert">Copying was interrupted (the display restarted). The photos you had are still here; Choose photos to try again.</p>
   {% elif status == "failed" and photos_state.message == "empty" %}
   <p class="admin-error" role="alert">None of those could be used (videos aren't shown). The photos you had are still here.</p>
   {% elif status == "failed" %}
@@ -51,8 +54,11 @@
   <p class="admin-hint">{{ photos | length }} photo{{ '' if photos | length == 1 else 's' }} on the display.</p>
   {% if photos %}
   <div class="photos-strip">
-    {% for p in photos %}<img src="/photos/{{ p.id }}/thumb" alt="" loading="lazy" width="96" height="60">{% endfor %}
+    {% for p in photos %}<img src="/photos/{{ p.key }}/thumb" alt="" loading="lazy" width="96" height="60">{% endfor %}
   </div>
+  {#- Not while picking or copying: the new set would replace it anyway. -#}
+  {% if not busy %}
   <form method="post" action="/admin/photos/remove"><button type="submit" class="btn btn-danger btn-small">Remove all photos</button></form>
+  {% endif %}
   {% endif %}
 </div>

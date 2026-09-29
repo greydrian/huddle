@@ -42,7 +42,7 @@ async def isolated_db(tmp_path, monkeypatch):
         await database.set_setting(db, "pin_is_default", "0")
         await db.commit()
     yield
-    google_photos.stop_poller()  # a picker poll a test started must not outlive it
+    await google_photos.stop_poller_and_wait()  # a picker poll a test started must not outlive it
 
 
 @pytest.fixture(autouse=True)

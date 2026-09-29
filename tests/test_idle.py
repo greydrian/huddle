@@ -132,11 +132,13 @@ async def test_weather_comes_from_the_cache_only(db, google):
 async def test_context_has_the_family_clock_and_this_weeks_photos(db, events):
     saved = [google_photos._save_image(google_photos_jpeg(i)) for i in range(3)]
     await google_photos.replace_set(db, saved)
-    ids = [r["id"] for r in await google_photos.list_photos(db)]
+    listed = await google_photos.list_photos(db)
+    keys = {r["id"]: r["key"] for r in listed}
+    ids = list(keys)
     ctx = await idle.context(db, now=at(9, 5).astimezone(timezone.utc))
     assert ctx["now"] == "2026-10-05T09:05:00"  # family wall-clock time, not UTC
     assert ctx["next_event"]["title"] == "Swimming"
-    assert ctx["photos"] == [f"/photos/{i}" for i in google_photos.weekly_order(ids, DAY)]
+    assert ctx["photos"] == [f"/photos/{keys[i]}" for i in google_photos.weekly_order(ids, DAY)]
     assert ctx["mode"] == "slideshow"
 
 

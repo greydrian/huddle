@@ -488,7 +488,7 @@ app/
   school_email.py    School email import: sender lists, schedule, checkpoint, feeds the School inbox
   scheduler.py       APScheduler: sync every 60s, daily-reset check every 5 min, nightly backup, school email
   backup.py          Nightly SQLite backups (VACUUM INTO + integrity check), retention, key copy
-  idle.py            Idle screen settings, /api/idle (clock, next event, weather, photos), /photos/{id}
+  idle.py            Idle screen settings, /api/idle (clock, next event, weather, photos), /photos/{id}-{stem}
   google_photos.py   Photos account sign-in, Photos Picker session + download, local photo files
   routers/
     dashboard.py     Home screen assembly + /health

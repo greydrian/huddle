@@ -91,6 +91,8 @@ ADMIN_ERRORS = {
                            "leave both blank to follow Appearance. Nothing was changed."),
     "photos-signin": ("photos", "Signing in to the Photos account didn't finish. Try Choose photos again."),
     "photos-offline": ("photos", "Couldn't reach Google Photos just now. Try again in a minute."),
+    "photos-busy": ("photos", "Photos are being picked or copied right now. Wait for that to finish, or "
+                              "Cancel it first."),
     "widget-missing": ("widgets", "That widget no longer exists. Nothing was changed."),
     "banner-lead": ("banners", f"The lead time must be a whole number of minutes from {banners.MIN_LEAD} to "
                                f"{banners.MAX_LEAD}. Nothing was changed."),

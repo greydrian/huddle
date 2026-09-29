@@ -359,20 +359,39 @@ def test_the_weekly_shuffle_is_deterministic():
     assert google_photos.weekly_order(ids, next_monday) != week
 
 
-async def test_photos_are_served_by_id_only(client, db):
+async def test_photos_are_served_by_id_and_stem_only(client, db):
     saved = await seed_old_set(db, 1)
-    photo_id = (await rows(db))[0]["id"]
-    resp = await client.get(f"/photos/{photo_id}")
+    row = (await rows(db))[0]
+    photo_id, stem = row["id"], saved[0]["filename"][:32]
+    assert row["key"] == f"{photo_id}-{stem}"
+    resp = await client.get(f"/photos/{photo_id}-{stem}")
     assert resp.status_code == 200 and resp.headers["content-type"] == "image/jpeg"
     assert "immutable" in resp.headers["cache-control"]
     assert resp.content == (google_photos.PHOTOS_DIR / saved[0]["filename"]).read_bytes()
-    assert (await client.get(f"/photos/{photo_id}/thumb")).status_code == 200
-    for bad in ("999", "0", "-1", "abc", "1.jpg", "..%2F..%2Fdata", str(2**70)):
+    assert (await client.get(f"/photos/{photo_id}-{stem}/thumb")).status_code == 200
+    other = "0" * 32
+    for bad in (str(photo_id), f"{photo_id}-{other}", f"999-{stem}", f"0-{stem}", f"-1-{stem}", "abc",
+                f"{photo_id}-{stem}.jpg", f"{photo_id}-{stem.upper()}", "..%2F..%2Fdata", f"{2**70}-{stem}"):
         assert (await client.get(f"/photos/{bad}")).status_code in (404, 422), bad
     # A row whose name isn't one we generated is never opened.
     await db.execute("UPDATE photos SET filename = '../.secret_key' WHERE id = ?", (photo_id,))
     await db.commit()
-    assert (await client.get(f"/photos/{photo_id}")).status_code == 404
+    assert (await client.get(f"/photos/{photo_id}-{stem}")).status_code == 404
+
+
+async def test_a_reused_row_id_never_matches_an_old_url(client, db):
+    """After a database restore an id can come back with another file; the
+    old URL (cached as immutable) must not serve it."""
+    await seed_old_set(db, 1)
+    old = (await rows(db))[0]
+    await db.execute("DELETE FROM photos")
+    await db.execute("DELETE FROM sqlite_sequence WHERE name = 'photos'")
+    await db.commit()
+    await seed_old_set(db, 1)
+    new = (await rows(db))[0]
+    assert new["id"] == old["id"] and new["key"] != old["key"]
+    assert (await client.get(f"/photos/{old['key']}")).status_code == 404
+    assert (await client.get(f"/photos/{new['key']}")).status_code == 200
 
 
 async def test_the_slideshow_lists_existing_files_in_weekly_order(db):
@@ -380,7 +399,8 @@ async def test_the_slideshow_lists_existing_files_in_weekly_order(db):
     saved = await rows(db)
     (google_photos.PHOTOS_DIR / saved[0]["filename"]).unlink()  # e.g. a restored backup
     today = date(2026, 10, 7)
-    expected = [f"/photos/{i}" for i in google_photos.weekly_order([r["id"] for r in saved[1:]], today)]
+    keys = {r["id"]: r["key"] for r in saved[1:]}
+    expected = [f"/photos/{keys[i]}" for i in google_photos.weekly_order(list(keys), today)]
     assert await google_photos.slideshow(db, today) == expected
 
 
@@ -408,7 +428,9 @@ async def test_configured_shows_choose_and_the_thumbnails(admin_client, db, conf
     html = (await admin_client.get("/admin?tab=display")).text
     assert 'action="/admin/photos/choose"' in html and "not signed in" in html
     assert "2 photos on the display." in html
-    assert html.count('src="/photos/') == 2 and "/thumb" in html
+    assert html.count('src="/photos/') == 2
+    for row in await rows(db):
+        assert f'src="/photos/{row["key"]}/thumb"' in html
     assert 'action="/admin/photos/remove"' in html
 
 
