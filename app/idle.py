@@ -126,7 +126,7 @@ async def next_event(db, now: datetime) -> dict | None:
     if not upcoming:
         return None
     start, event = min(upcoming, key=lambda pair: pair[0])
-    return {"title": event.get("title") or "(untitled)", "time": f"{start:%H:%M}", "color": event.get("color")}
+    return {"title": event.get("title") or "(untitled)", "time": f"{start:%H:%M}"}
 
 
 async def context(db, now: datetime | None = None) -> dict:
