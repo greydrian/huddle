@@ -259,22 +259,30 @@ async def quick_add(db, profile_id, title: str, time_of_day=None) -> int:
         group = clean_group(time_of_day)
     except ValueError:
         raise QuickAddError("group") from None
+    # Check and reserve the slot with no await in between, so concurrent
+    # adds can't all pass the check before any of them is counted.
     now = _time.monotonic()
     if _rate_limited(now):
         raise QuickAddError("rate")
-
-    cursor = await db.execute(
-        """INSERT INTO tasks (profile_id, title, is_recurring, time_of_day, due_on, updated_at)
-           VALUES (?, ?, 0, ?, ?, datetime('now'))""",
-        (pid, title, group, (await family_today(db)).isoformat()),
-    )
-    task_id = cursor.lastrowid
-    if task_id is None:
-        raise RuntimeError("insert returned no row id")
-    if profile["google_tasklist_id"]:
-        await queue_sync(db, "tasks", {"task_id": task_id})
-    await db.commit()
     _recent_adds.append(now)
+    try:
+        cursor = await db.execute(
+            """INSERT INTO tasks (profile_id, title, is_recurring, time_of_day, due_on, updated_at)
+               VALUES (?, ?, 0, ?, ?, datetime('now'))""",
+            (pid, title, group, (await family_today(db)).isoformat()),
+        )
+        task_id = cursor.lastrowid
+        if task_id is None:
+            raise RuntimeError("insert returned no row id")
+        if profile["google_tasklist_id"]:
+            await queue_sync(db, "tasks", {"task_id": task_id})
+        await db.commit()
+    except BaseException:
+        try:
+            _recent_adds.remove(now)  # nothing was added: give the slot back
+        except ValueError:
+            pass  # already aged out of the window
+        raise
     return task_id
 
 

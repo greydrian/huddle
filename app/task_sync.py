@@ -311,20 +311,25 @@ async def reconcile_profile_tasks(db, access_token: str, profile):
                 await queue_sync(db, "tasks", {"task_id": local["id"]})
         elif local is not None:
             if remote_updated > _parse_local_ts(local["updated_at"]):
+                # A due date changed on the phone moves the carry-over date too.
                 await db.execute(
-                    """UPDATE tasks SET title = ?, is_completed = ?, completed_at = ?, updated_at = ?
+                    """UPDATE tasks SET title = ?, is_completed = ?, completed_at = ?, updated_at = ?,
+                           due_on = COALESCE(?, due_on)
                        WHERE id = ?""",
-                    (remote_title, int(remote_completed), completed_at, _to_local_ts(remote_updated), local["id"]),
+                    (remote_title, int(remote_completed), completed_at, _to_local_ts(remote_updated),
+                     _google_due(rtask), local["id"]),
                 )
         elif rtask.get("title"):
             # due_on (local, for carry-over labels) is the day it arrived here,
-            # or Google's own due date when it has one.
+            # or Google's own due date if that's later: linking a list with old
+            # past-due tasks mustn't flood the wall with "late" labels.
+            google_due = _google_due(rtask)
             await db.execute(
                 """INSERT INTO tasks (profile_id, google_task_id, title, is_completed, completed_at, updated_at,
                                       due_on)
                    VALUES (?, ?, ?, ?, ?, ?, ?)""",
                 (profile["id"], gid, remote_title, int(remote_completed), completed_at, _to_local_ts(remote_updated),
-                 _google_due(rtask) or today),
+                 max(google_due, today) if google_due else today),
             )
 
     for gid, local in local_by_gid.items():

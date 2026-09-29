@@ -520,9 +520,10 @@ async def edit_task(
         if time_of_day is None:
             group = task["time_of_day"]
         # A task made a one-off is due from today, not marked late for the
-        # days it spent repeating.
+        # days it spent repeating. Any other edit leaves due_on alone (a
+        # pre-0004 one-off's NULL means "never late").
         due_on = task["due_on"]
-        if not recurring and (task["is_recurring"] or not due_on):
+        if not recurring and task["is_recurring"]:
             due_on = (await family_today(db)).isoformat()
         if profile_id == task["profile_id"]:
             # The schedule and group are local-only (never pushed, never

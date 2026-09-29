@@ -2,10 +2,11 @@
 groups, carry-over of missed one-offs, the school-days repeat option, and
 that none of the local fields ever reach Google."""
 
+import asyncio
 import json
 import re
 import sqlite3
-from datetime import date, datetime, time
+from datetime import UTC, date, datetime, time
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -162,6 +163,37 @@ async def test_quick_add_rate_limit(db, client, monkeypatch):
     assert "task-add-error" not in resp.text
 
 
+async def test_quick_add_rate_limit_holds_under_concurrency(db, monkeypatch):
+    pid = await _pid(db)
+    monkeypatch.setattr(tasks._time, "monotonic", lambda: 1000.0)
+    for n in range(tasks.QUICK_ADD_LIMIT - 1):
+        await tasks.quick_add(db, pid, f"T{n}")
+
+    async def add(n):
+        async with database.get_db() as conn:
+            try:
+                return await tasks.quick_add(conn, pid, f"Burst {n}")
+            except tasks.QuickAddError as exc:
+                return exc.code
+
+    results = await asyncio.gather(*(add(n) for n in range(10)))
+
+    assert sum(isinstance(r, int) for r in results) == 1
+    assert results.count("rate") == 9
+    assert (await (await db.execute("SELECT COUNT(*) FROM tasks")).fetchone())[0] == tasks.QUICK_ADD_LIMIT
+
+
+async def test_failed_insert_gives_the_rate_limit_slot_back(db, monkeypatch):
+    pid = await _pid(db)
+
+    async def broken_today(_db):
+        raise RuntimeError("boom")
+    monkeypatch.setattr(tasks, "family_today", broken_today)
+    with pytest.raises(RuntimeError):
+        await tasks.quick_add(db, pid, "Nope")
+    assert len(tasks._recent_adds) == 0
+
+
 async def test_quick_add_refuses_a_foreign_origin(db, client):
     resp = await client.post("/api/tasks", data={"profile_id": await _pid(db), "title": "X"},
                              headers={"Origin": "https://evil.example"})
@@ -233,6 +265,41 @@ async def test_highlight_moves_at_the_boundary_via_the_rev_hash(db, client, monk
 
     assert after != before
     assert _sections((await client.get("/widgets/tasks")).text)[0] == ("after_school", True)
+
+
+@pytest.mark.parametrize(("utc", "group"), [
+    # Last Sunday of October 2026: London is back on GMT (UTC+0) from 01:00 UTC.
+    (datetime(2026, 10, 25, 11, 59, tzinfo=UTC), "morning"),
+    (datetime(2026, 10, 25, 12, 0, tzinfo=UTC), "after_school"),
+    (datetime(2026, 10, 25, 18, 0, tzinfo=UTC), "evening"),
+    # Last Sunday of March 2026: London is on BST (UTC+1) from 01:00 UTC.
+    (datetime(2026, 3, 29, 10, 59, tzinfo=UTC), "morning"),
+    (datetime(2026, 3, 29, 11, 0, tzinfo=UTC), "after_school"),
+    (datetime(2026, 3, 29, 16, 59, tzinfo=UTC), "after_school"),
+    (datetime(2026, 3, 29, 17, 0, tzinfo=UTC), "evening"),
+])
+async def test_groups_follow_the_family_clock_on_dst_days(db, monkeypatch, utc, group):
+    """The boundaries are family wall-clock times, whatever the UTC offset that day."""
+    monkeypatch.setattr(tasks, "_clock", lambda tz: utc.astimezone(tz))
+    assert await tasks.current_group(db) == group
+
+
+async def test_rev_changes_only_through_the_group_component(db, client, monkeypatch):
+    """No data changes across a boundary, yet /api/rev moves: the loader's
+    current_group is the only thing that differs."""
+    await _add(db, await _pid(db), "Feed cat")  # ungrouped: the rev still follows the clock
+    freeze(monkeypatch, date(2026, 9, 29), time(17, 59))
+    before_ctx = await tasks.widget_context(db)
+    before = (await client.get("/api/rev")).json()["widgets"]
+    freeze(monkeypatch, date(2026, 9, 29), time(18, 0))
+    after_ctx = await tasks.widget_context(db)
+    after = (await client.get("/api/rev")).json()["widgets"]
+
+    assert (before_ctx["current_group"], after_ctx["current_group"]) == ("after_school", "evening")
+    assert {k: v for k, v in before_ctx.items() if k != "current_group"} == \
+        {k: v for k, v in after_ctx.items() if k != "current_group"}
+    assert after["tasks"] != before["tasks"]
+    assert {k: v for k, v in after.items() if k != "tasks"} == {k: v for k, v in before.items() if k != "tasks"}
 
 
 async def test_earlier_groups_keep_unfinished_tasks(db, client, monkeypatch):
@@ -362,19 +429,73 @@ async def test_recurring_tasks_are_never_late(db, client, monkeypatch):
     assert "task-late" not in (await client.get("/widgets/tasks")).text
 
 
-async def test_reconciled_task_gets_a_due_date(db, connected, google, monkeypatch):
+def _sync_today(monkeypatch, day):
+    async def fake_today(_db):
+        return day
+    monkeypatch.setattr(task_sync, "family_today", fake_today)
+
+
+async def test_imported_task_is_due_from_today_or_its_later_google_due(db, connected, google, monkeypatch):
+    """First link/import: old past-due Google tasks start today, not all late at once."""
     pid = await _pid(db)
     await _link(db, pid)
+    _sync_today(monkeypatch, date(2026, 9, 29))
     google.get(f"{TASKS_API}/kids/tasks").respond(200, json={"items": [
         {"id": "g1", "title": "From phone", "updated": "2020-01-01T00:00:00Z"},
-        {"id": "g2", "title": "Has due", "due": "2026-09-20T00:00:00.000Z", "updated": "2020-01-01T00:00:00Z"},
+        {"id": "g2", "title": "Old due", "due": "2026-09-20T00:00:00.000Z", "updated": "2020-01-01T00:00:00Z"},
+        {"id": "g3", "title": "Due Friday", "due": "2026-10-02T00:00:00.000Z", "updated": "2020-01-01T00:00:00Z"},
     ]})
     profile = await (await db.execute("SELECT * FROM profiles WHERE id = ?", (pid,))).fetchone()
 
     await task_sync.reconcile_profile_tasks(db, "tok", profile)
 
     due = {r["title"]: r["due_on"] for r in await (await db.execute("SELECT title, due_on FROM tasks")).fetchall()}
-    assert due == {"From phone": (await database.family_today(db)).isoformat(), "Has due": "2026-09-20"}
+    assert due == {"From phone": "2026-09-29", "Old due": "2026-09-29", "Due Friday": "2026-10-02"}
+    assert tasks.late_label(due["Old due"], date(2026, 9, 29)) is None
+    # It still goes late normally once its day has passed.
+    assert tasks.late_label(due["Old due"], date(2026, 9, 30)) == "from yesterday"
+
+
+async def test_due_date_changed_in_google_moves_due_on(db, connected, google, monkeypatch):
+    pid = await _pid(db)
+    await _link(db, pid)
+    _sync_today(monkeypatch, date(2026, 9, 29))
+    task_id = await _add(db, pid, "Sign letter", google_task_id="g1", due_on="2026-09-28")
+    google.get(f"{TASKS_API}/kids/tasks").respond(200, json={"items": [
+        {"id": "g1", "title": "Sign letter", "due": "2026-10-02T00:00:00.000Z", "updated": "2026-09-29T08:00:00Z"},
+    ]})
+    profile = await (await db.execute("SELECT * FROM profiles WHERE id = ?", (pid,))).fetchone()
+
+    await task_sync.reconcile_profile_tasks(db, "tok", profile)
+
+    row = await (await db.execute("SELECT due_on FROM tasks WHERE id = ?", (task_id,))).fetchone()
+    assert row["due_on"] == "2026-10-02"
+    assert tasks.late_label(row["due_on"], date(2026, 9, 29)) is None
+
+
+async def test_google_update_without_a_due_keeps_due_on(db, connected, google, monkeypatch):
+    pid = await _pid(db)
+    await _link(db, pid)
+    task_id = await _add(db, pid, "Sign letter", google_task_id="g1", due_on="2026-09-28")
+    google.get(f"{TASKS_API}/kids/tasks").respond(200, json={"items": [
+        {"id": "g1", "title": "Sign the letter", "updated": "2026-09-29T08:00:00Z"},
+    ]})
+    profile = await (await db.execute("SELECT * FROM profiles WHERE id = ?", (pid,))).fetchone()
+
+    await task_sync.reconcile_profile_tasks(db, "tok", profile)
+
+    row = await (await db.execute("SELECT title, due_on FROM tasks WHERE id = ?", (task_id,))).fetchone()
+    assert (row["title"], row["due_on"]) == ("Sign the letter", "2026-09-28")
+
+
+async def test_admin_group_edit_leaves_a_pre_migration_one_off_undated(db, admin_client):
+    pid = await _pid(db)
+    task_id = await _add(db, pid, "Old one-off")  # due_on NULL, as before migration 0004
+
+    await admin_client.post(f"/admin/tasks/{task_id}/edit", data={"profile_id": pid, "time_of_day": "evening"})
+
+    row = await (await db.execute("SELECT time_of_day, due_on FROM tasks")).fetchone()
+    assert (row["time_of_day"], row["due_on"]) == ("evening", None)
 
 
 async def test_admin_making_a_task_one_off_starts_it_today(db, admin_client, monkeypatch):
