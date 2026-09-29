@@ -100,6 +100,24 @@ class Server:
         with sqlite3.connect(self.db_path) as conn:
             return conn.execute(sql, params).fetchall()
 
+    def seed_banners(self, sound: bool = False):
+        """Chore banners (spec 10.1) at (almost) any time of day, so a test
+        doesn't depend on the clock: the Evening task group starts at 00:02
+        and quiet hours are 00:00-00:02. Mum has two unfinished tasks
+        (_seed); Riley and Jamie get one each, so three banners: "+1 more"."""
+        settings = {
+            "triggers": {kind: {"on": True, "sound": sound} for kind in ("events", "homework", "school", "chores")},
+            "lead_minutes": 30, "quiet_start": "00:00", "quiet_end": "00:02",
+        }
+        with sqlite3.connect(self.db_path) as conn:
+            conn.executemany(
+                "INSERT INTO app_settings (key, value) VALUES (?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                [("banner_settings", json.dumps(settings)),
+                 ("task_group_after_school_start", "00:01"), ("task_group_evening_start", "00:02")],
+            )
+            conn.executemany("INSERT INTO tasks (profile_id, title) VALUES (?, ?)", [(3, "Bag"), (4, "Teeth")])
+
     def connect_google(self):
         """Store an unexpired Google token (encrypted with this server's key)
         so the calendar renders its month grid. Google itself stays out of
