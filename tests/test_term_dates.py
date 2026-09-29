@@ -2,6 +2,7 @@
 migration 3, the GOV.UK bank holidays job, Admin's Term dates panel, the
 School inbox's term-dates candidate, and the calendar's local-only bars."""
 
+import asyncio
 import json
 import logging
 import sqlite3
@@ -90,6 +91,17 @@ async def test_an_empty_database_falls_back(db):
     assert await term_dates.school_day_status(db, TODAY) == (False, term_dates.FALLBACK)
 
 
+async def test_the_fallback_still_honours_entered_days_off(db, school_year):
+    """2026–27's summer holiday runs into September 2027, and 2027–28 has no
+    terms yet: its first days are still holiday, not fallback school days."""
+    await _add(db, ("holiday", "2027-07-22", "2027-09-02", "Summer holidays"),
+               ("inset", "2027-09-03", "2027-09-03", "INSET day"))
+    assert await term_dates.school_day_status(db, date(2027, 9, 1)) == (False, term_dates.FALLBACK)
+    assert await term_dates.school_day_status(db, date(2027, 9, 2)) == (False, term_dates.FALLBACK)
+    assert await term_dates.school_day_status(db, date(2027, 9, 3)) == (False, term_dates.FALLBACK)
+    assert await term_dates.school_day_status(db, date(2027, 9, 6)) == (True, term_dates.FALLBACK)
+
+
 async def test_a_closure_inside_a_term_is_not_a_school_day(db, school_year):
     await _add(db, ("closure", "2026-10-07", "2026-10-07", "Polling station"))
     assert await term_dates.school_day_status(db, date(2026, 10, 7)) == (False, term_dates.TERM_DATES)
@@ -108,6 +120,33 @@ async def test_missing_years(db):
     # Holidays alone don't count as term dates.
     await _add(db, ("holiday", "2027-12-20", "2028-01-03", "Christmas"))
     assert await term_dates.missing_years(db, date(2027, 9, 1)) == ["2027–28"]
+
+
+async def test_incomplete_years(db):
+    assert await term_dates.incomplete_years(db, TODAY) == []  # nothing entered: missing_years() says so
+    await _add(db, AUTUMN)
+    assert await term_dates.incomplete_years(db, TODAY) == [
+        "2026–27 has only 'Autumn term': add the rest of the year's terms."]
+    await _add(db, ("term", "2027-01-11", "2027-03-26", "Spring term"), SUMMER)
+    # Christmas isn't entered: 21 Dec–8 Jan fall in no term and no holiday.
+    assert await term_dates.incomplete_years(db, TODAY) == [
+        "2026–27 has a gap between terms that no holiday covers (21 Dec–8 Jan): add the missing holiday or term."]
+    await _add(db, ("holiday", "2026-12-19", "2027-01-08", "Christmas holidays"))
+    # Still Easter: 29 Mar–16 Apr (Good Friday and Easter Monday are bank holidays, so skipped).
+    await _bank(db, "2027-03-26", "2027-03-29")
+    [warning] = await term_dates.incomplete_years(db, TODAY)
+    assert "(30 Mar–16 Apr)" in warning
+    await _add(db, ("holiday", "2027-03-27", "2027-04-18", "Easter holidays"))
+    assert await term_dates.incomplete_years(db, TODAY) == []
+    # The school-day answer is unchanged by the warning: a gap day is simply not a school day.
+    assert await term_dates.school_day_status(db, date(2027, 7, 26)) == (False, term_dates.TERM_DATES)
+
+
+async def test_admin_shows_the_incomplete_year_warning(db, admin_client, admin_today):
+    await _add(db, AUTUMN)
+    html = (await admin_client.get("/admin?tab=school")).text
+    assert "2026–27 has only &#39;Autumn term&#39;: add the rest" in html
+    assert "Term dates missing for 2026–27" not in html
 
 
 def test_school_year_labels():
@@ -136,7 +175,8 @@ async def test_periods_between_includes_bank_holidays(db, school_year):
     (("term", "1999-09-03", "1999-12-18"), "term-dates"),       # out of range
     (("lesson", "2026-09-03", "2026-09-04"), "term-kind"),
     (("bank_holiday", "2026-12-25", "2026-12-25"), "term-kind"),  # the feed's, not a parent's
-    (("inset", "2026-11-13", "2026-11-15"), "term-length"),     # INSET: 2 days at most
+    (("inset", "2026-11-13", "2026-11-18"), "term-length"),     # INSET: 5 days at most
+    (("holiday", "2027-07-22", "2027-10-05"), "term-length"),   # holiday: 75 days at most
     (("term", "2026-09-01", "2026-12-30"), "term-length"),      # 121 days
     (("half_term", "2026-10-19", "2026-11-06"), "term-length"),
 ])
@@ -163,7 +203,13 @@ def test_which_overlaps_are_allowed():
         assert term_dates.clash({**inside, "kind": kind}, [term]) == term
     half = {**inside, "kind": "half_term"}
     assert term_dates.clash({**inside, "kind": "inset"}, [half]) == half
-    assert term_dates.clash({"kind": "holiday", "start_date": "2026-12-19", "end_date": "2027-01-04"}, [term]) is None
+    christmas = {"kind": "holiday", "start_date": "2026-12-19", "end_date": "2027-01-04"}
+    assert term_dates.clash(christmas, [term]) is None
+    # An INSET day may sit inside a holiday (letters often list both).
+    assert term_dates.clash({"kind": "inset", "start_date": "2027-01-04", "end_date": "2027-01-04"}, [christmas]) is None
+    assert term_dates.clash({"kind": "closure", "start_date": "2027-01-04", "end_date": "2027-01-04"},
+                            [christmas]) == christmas
+    assert term_dates.clean_period("holiday", "2027-07-22", "2027-09-02")  # a long summer: 43 days, fine
 
 
 # --- Migration 3 ---
@@ -223,6 +269,20 @@ async def test_bank_holidays_are_fetched_for_england_and_wales(db, google):
     assert await bank_holidays.refresh(db) is True
     rows = await _rows(db, "SELECT date, title FROM bank_holidays ORDER BY date")
     assert rows == [{"date": "2026-12-25", "title": "Christmas Day"}, {"date": "2027-01-01", "title": "New Year's Day"}]
+
+
+async def test_a_date_dropped_from_the_feed_is_deleted_within_its_range(db, google):
+    await db.executemany("INSERT INTO bank_holidays (date, title) VALUES (?, ?)", [
+        ("2019-05-06", "Early May bank holiday"),   # older than the feed now covers: kept
+        ("2026-05-08", "VE Day (moved)"),          # inside the feed's range, no longer listed: deleted
+        ("2026-12-25", "Christmas Day"),
+    ])
+    await db.commit()
+    google.get(bank_holidays.FEED_URL).respond(200, json=_feed(
+        ("2026-01-01", "New Year’s Day"), ("2026-12-25", "Christmas Day"), ("2027-01-01", "New Year’s Day")))
+    assert await bank_holidays.refresh(db) is True
+    assert [r["date"] for r in await _rows(db, "SELECT date FROM bank_holidays ORDER BY date")] == [
+        "2019-05-06", "2026-01-01", "2026-12-25", "2027-01-01"]
 
 
 @pytest.mark.parametrize("reply", [
@@ -337,10 +397,12 @@ async def test_admin_adds_edits_and_deletes_periods(db, admin_client, admin_toda
 
 @pytest.mark.parametrize(("data", "message"), [
     ({"kind": "term", "start_date": "2027-01-05", "end_date": "2027-01-04"}, "end on or after the start"),
-    ({"kind": "inset", "start_date": "2027-01-04", "end_date": "2027-01-08"}, "too long for its kind"),
+    ({"kind": "inset", "start_date": "2027-01-04", "end_date": "2027-01-11"}, "too long for its kind"),
     ({"kind": "nope", "start_date": "2027-01-04", "end_date": "2027-01-04"}, "Pick what kind"),
-    ({"kind": "term", "start_date": "2026-12-01", "end_date": "2027-02-01"}, "overlaps a period"),  # term over term
-    ({"kind": "holiday", "start_date": "2026-12-10", "end_date": "2027-01-04"}, "overlaps a period"),
+    ({"kind": "term", "start_date": "2026-12-01", "end_date": "2027-02-01"},  # term over term
+     "That clashes with &#39;Autumn term&#39; (3 Sep–18 Dec)"),
+    ({"kind": "holiday", "start_date": "2026-12-10", "end_date": "2027-01-04"},
+     "That clashes with &#39;Autumn term&#39; (3 Sep–18 Dec)"),
 ])
 async def test_admin_refuses_bad_periods_and_keeps_what_was_typed(db, admin_client, admin_today, data, message):
     await _add(db, AUTUMN)
@@ -356,7 +418,7 @@ async def test_admin_edit_refuses_a_clash_and_a_missing_period(db, admin_client,
     summer = (await _rows(db, "SELECT id FROM school_periods WHERE label = 'Summer term'"))[0]["id"]
     r = await admin_client.post(f"/admin/term-dates/{summer}/edit", data={
         "kind": "term", "start_date": "2026-12-01", "end_date": "2027-03-01", "label": "Spring"})
-    assert r.status_code == 400 and "overlaps a period" in r.text
+    assert r.status_code == 400 and "That clashes with &#39;Autumn term&#39; (3 Sep–18 Dec)" in r.text
     assert (await term_dates.get_period(db, summer))["label"] == "Summer term"
     # Editing a period in place never clashes with itself.
     r = await admin_client.post(f"/admin/term-dates/{summer}/edit", data={
@@ -421,20 +483,51 @@ def test_extraction_accepts_valid_term_dates():
 
 
 @pytest.mark.parametrize("bad", [
-    {"kind": "term", "start_date": "2026-12-18", "end_date": "2026-09-03", "label": "Backwards"},
     {"kind": "term", "start_date": "2026-02-30", "end_date": "2026-03-20", "label": "No such day"},
     {"kind": "term", "start_date": "03/09/2026", "end_date": "2026-12-18", "label": "Not ISO"},
     {"kind": "term", "start_date": None, "end_date": "2026-12-18", "label": "No start"},
     {"kind": "spring", "start_date": "2027-01-05", "end_date": "2027-03-26", "label": "Unknown kind"},
-    {"kind": "inset", "start_date": "2026-11-09", "end_date": "2026-11-13", "label": "Five INSET days"},
-    {"kind": "term", "start_date": "2031-09-03", "end_date": "2031-12-18", "label": "Years away"},
-    {"kind": "term", "start_date": "2020-09-03", "end_date": "2020-12-18", "label": "Years ago"},
     "not an object",
 ])
-def test_extraction_drops_bad_periods(bad):
+def test_extraction_drops_unreadable_periods(bad):
     assert _term_candidate([bad]) is None
     candidate = _term_candidate([bad, TERM_ITEMS[0]])
     assert [p["label"] for p in candidate.payload["periods"]] == ["Autumn term"]
+
+
+@pytest.mark.parametrize(("bad", "problem"), [
+    ({"kind": "term", "start_date": "2026-12-18", "end_date": "2026-09-03"}, "It ends before it starts."),
+    ({"kind": "inset", "start_date": "2026-11-09", "end_date": "2026-11-16"},
+     "8 days is too long (INSET day: at most 5 days)."),
+    ({"kind": "holiday", "start_date": "2027-07-01", "end_date": "2027-09-30"},
+     "92 days is too long (Holiday: at most 75 days)."),
+    ({"kind": "term", "start_date": "2031-09-03", "end_date": "2031-12-18"}, "years away from today"),
+    ({"kind": "term", "start_date": "2020-09-03", "end_date": "2020-12-18"}, "years away from today"),
+])
+def test_extraction_keeps_over_limit_periods_with_the_reason(bad, problem):
+    candidate = _term_candidate([{**bad, "label": "Odd one", "evidence": ""}, TERM_ITEMS[0]])
+    flagged = [p for p in candidate.payload["periods"] if p["label"] == "Odd one"]
+    assert len(flagged) == 1 and problem in flagged[0]["problem"]
+    assert "problem" not in next(p for p in candidate.payload["periods"] if p["label"] == "Autumn term")
+
+
+async def test_the_inbox_shows_a_flagged_period_unticked_with_its_reason(db, admin_client):
+    periods = [term_dates.clean_period(*AUTUMN),
+               {"kind": "inset", "start_date": "2026-11-09", "end_date": "2026-11-16", "label": "INSET week",
+                "problem": "8 days is too long (INSET day: at most 5 days)."}]
+    source_id, candidate_id = await _term_source(db, periods)
+    html = (await admin_client.get(f"/admin/inbox/sources/{source_id}")).text
+    assert "Not added as read: 8 days is too long" in html
+    assert 'name="period_include" value="0" checked' in html
+    assert 'name="period_include" value="1" aria-label' in html  # unticked
+    # Approving as ticked leaves it out; ticking it unfixed is refused.
+    r = await admin_client.post(f"/admin/inbox/candidates/{candidate_id}/approve", data=_approve_form(
+        [AUTUMN, ("inset", "2026-11-09", "2026-11-16", "INSET week")]), headers={"HX-Request": "true"})
+    assert "too long for its kind" in r.text
+    assert await _rows(db, "SELECT * FROM school_periods") == []
+    await admin_client.post(f"/admin/inbox/candidates/{candidate_id}/approve", data=_approve_form(
+        [AUTUMN, ("inset", "2026-11-09", "2026-11-16", "INSET week")], [0]))
+    assert [r["label"] for r in await _rows(db, "SELECT label FROM school_periods")] == ["Autumn term"]
 
 
 def test_extraction_caps_count_and_labels_and_merges_repeats():
@@ -577,7 +670,8 @@ async def test_unticked_rows_are_left_out(db, admin_client):
 
 @pytest.mark.parametrize(("periods", "include", "message"), [
     ([AUTUMN, ("inset", "2026-11-13", "2026-11-20", "INSET week?")], None, "too long for its kind"),
-    ([AUTUMN, ("term", "2026-12-01", "2027-03-01", "Spring")], None, "overlaps a period"),
+    ([AUTUMN, ("term", "2026-12-01", "2027-03-01", "Spring")], None,  # two rows of the set clash
+     "That clashes with &#39;Spring&#39; (1 Dec–1 Mar)"),
     ([AUTUMN, ("half_term", "2026-10-30", "2026-10-26", "Backwards")], None, "end on or after the start"),
     ([AUTUMN, HALF_TERM], [], "Tick at least one"),
 ])
@@ -593,6 +687,40 @@ async def test_a_bad_row_saves_nothing(db, admin_client, periods, include, messa
     assert await _rows(db, "SELECT * FROM school_periods") == []
     status = (await _rows(db, "SELECT status FROM import_candidates WHERE id = ?", candidate_id))[0]["status"]
     assert status == "pending"
+
+
+async def test_approve_names_a_clash_with_a_stored_period(db, admin_client):
+    await _add(db, CHRISTMAS)
+    _, candidate_id = await _term_source(db)
+    r = await admin_client.post(f"/admin/inbox/candidates/{candidate_id}/approve", data=_approve_form(
+        [("term", "2026-09-03", "2026-12-21", "Autumn term")]))
+    assert r.status_code == 400
+    assert "That clashes with &#39;Christmas holidays&#39; (19 Dec–4 Jan)" in r.text
+
+
+async def test_concurrent_approves_cannot_both_add_clashing_periods(db):
+    """Two term-dates candidates (say, two copies of the letter) whose terms
+    overlap, approved at the same moment: the clash check runs after the
+    claim, inside the transaction, so exactly one set goes in."""
+    _, first = await _term_source(db, [term_dates.clean_period(*AUTUMN)])
+    source = await db.execute(
+        "INSERT INTO import_sources (kind, source_ref, status) VALUES ('upload', 'td2', 'extracted')")
+    other = await db.execute(
+        "INSERT INTO import_candidates (source_id, kind, payload_json) VALUES (?, 'term_dates', '{\"periods\": []}')",
+        (source.lastrowid,))
+    await db.commit()
+    rows_a = [{"kind": "term", "start_date": "2026-09-03", "end_date": "2026-12-18", "label": "Autumn term"}]
+    rows_b = [{"kind": "term", "start_date": "2026-09-07", "end_date": "2026-12-16", "label": "Autumn (council)"}]
+
+    async def approve(candidate_id, rows):
+        async with database.get_db() as conn:
+            return await imports.approve_term_dates(conn, candidate_id, rows)
+
+    results = await asyncio.gather(approve(first, rows_a), approve(other.lastrowid, rows_b), return_exceptions=True)
+    assert sorted(type(r).__name__ for r in results) == ["PeriodError", "int"]
+    assert len(await _rows(db, "SELECT * FROM school_periods")) == 1
+    statuses = sorted(r["status"] for r in await _rows(db, "SELECT status FROM import_candidates"))
+    assert statuses == ["approved", "pending"]  # the loser is still waiting
 
 
 async def test_a_failure_mid_approve_rolls_everything_back(db, monkeypatch):
@@ -660,6 +788,41 @@ async def test_the_month_grid_shows_school_periods_as_local_bars(db, events, goo
     titles = {b["event"]["title"] for w in grid["weeks"] for b in w["bars"]}
     assert "Christmas holidays" in titles
     assert "Bank holiday" not in titles  # Google's own holiday calendars show those
+
+
+def _fridays(count):
+    """Timed Google events on Fri 30 Oct 2026, 09:00, 10:00, ..."""
+    return [{"summary": f"Friday {n}", "start": {"dateTime": f"2026-10-30T{9 + n:02d}:00:00+00:00"},
+             "end": {"dateTime": f"2026-10-30T{10 + n:02d}:00:00+00:00"}} for n in range(count)]
+
+
+async def test_a_school_bar_fills_free_space_left_of_google_events(db, events, google):
+    """Three Friday events fill every row on Friday; a Mon–Wed half term
+    still has room in the first row, so it gets a bar, not "+1 more"."""
+    from app import google_calendar
+
+    await _add(db, AUTUMN, ("half_term", "2026-10-26", "2026-10-28", "Half term"))
+    events(*_fridays(3))
+    week = (await google_calendar.get_month_grid(db, 2026, 10))["weeks"][4]  # 26 Oct–1 Nov
+
+    assert _bars(week) == {
+        "Friday 0": (5, 5, 0, None), "Friday 1": (5, 5, 1, None), "Friday 2": (5, 5, 2, None),
+        "Half term": (1, 3, 0, "half_term"),
+    }
+    assert [d["hidden_count"] for d in week["days"]] == [0] * 7
+
+
+async def test_school_bars_never_displace_google_events(db, events, google):
+    """A full Friday plus a fourth event there: the Google events keep their
+    rows and "+N more" counts, and a half term over the full day is what's hidden."""
+    from app import google_calendar
+
+    await _add(db, AUTUMN, ("half_term", "2026-10-26", "2026-10-30", "Half term"))
+    events(*_fridays(4))
+    week = (await google_calendar.get_month_grid(db, 2026, 10))["weeks"][4]
+
+    assert _bars(week) == {"Friday 0": (5, 5, 0, None), "Friday 1": (5, 5, 1, None), "Friday 2": (5, 5, 2, None)}
+    assert [d["hidden_count"] for d in week["days"]] == [1, 1, 1, 1, 2, 0, 0]
 
 
 async def test_the_calendar_widget_renders_school_bars_distinctly(db, admin_client, events, school_year):

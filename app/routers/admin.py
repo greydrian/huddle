@@ -122,7 +122,7 @@ ADMIN_ERRORS = {
                                   f"closure {term_dates.MAX_DAYS['closure']}). Check the dates; nothing was saved."),
     "term-label": ("term-dates", f"A name can be at most {term_dates.MAX_LABEL} characters. Nothing was saved."),
     "term-overlap": ("term-dates", "That overlaps a period it can't: only half terms, INSET days and closures "
-                                   "may fall inside a term, and nothing else may overlap. Nothing was saved."),
+                                   "may fall inside a term, and INSET days inside a holiday. Nothing was saved."),
     "term-missing": ("term-dates", "That period no longer exists. It may have just been deleted."),
 }
 
@@ -347,6 +347,7 @@ async def _render_admin(
     inbox_form: dict | None = None,
     inbox_error: str | None = None,
     term_form: dict | None = None,
+    error_message: str | None = None,
     status_code: int = 200,
 ):
     """Renders one Admin tab (app/admin_tabs.py), loading only what that
@@ -354,6 +355,8 @@ async def _render_admin(
     (with "id" None for the add form, else the row being edited) so nothing
     typed is lost."""
     form_error = _form_error(error)
+    if form_error and error_message:
+        form_error["message"] = error_message  # e.g. naming the period a new one clashes with
     if tab not in admin_tabs.TABS:
         # No (valid) tab: an older link such as /admin?error=pin-invalid#pin
         # still opens the tab its message or status belongs to.
@@ -862,7 +865,7 @@ async def _approve_term_dates(request: Request, candidate_id: int, source_id: in
                 return await _inbox_done(request, source_id, exc.code)
             error = ADMIN_ERRORS[exc.code][1]
         except term_dates.PeriodError as exc:
-            error = ADMIN_ERRORS[exc.code][1]
+            error = _period_error(exc)
         else:
             return await _inbox_done(request, source_id)
     inbox_form = {"id": candidate_id, "periods": rows}
@@ -920,15 +923,25 @@ async def _term_dates_context(db) -> dict:
     """The School tab's Term dates panel: periods by school year, the years
     with none (the warning), and when the bank holidays were last updated."""
     holidays = await bank_holidays.status(db)
+    today = await family_today(db)
     if holidays["updated_at"]:
         local = holidays["updated_at"].astimezone(await family_timezone(db))
         holidays["updated_label"] = f"{local.day} {local:%b %Y}"
     return {
         "term_years": term_dates.group_by_school_year(await term_dates.list_periods(db)),
-        "term_missing_years": await term_dates.missing_years(db, await family_today(db)),
+        "term_missing_years": await term_dates.missing_years(db, today),
+        "term_incomplete": await term_dates.incomplete_years(db, today),
         "term_kinds": term_dates.KINDS,
         "bank_holidays": holidays,
     }
+
+
+def _period_error(exc: term_dates.PeriodError) -> str:
+    """The message for a period that couldn't be saved: a clash names the
+    period it clashes with (a stored or listed one, never URL text)."""
+    if exc.code == "term-overlap" and exc.clash:
+        return term_dates.clash_message(exc.clash)
+    return ADMIN_ERRORS[exc.code][1]
 
 
 def _term_form(period_id: int | None, kind: str, start_date: str, end_date: str, label: str) -> dict:
@@ -945,7 +958,7 @@ async def add_term_period(
             await term_dates.add_period(db, kind, start_date, end_date, label)
         except term_dates.PeriodError as exc:
             return await _render_admin(request, tab="school", error=exc.code, status_code=400,
-                                       term_form=_term_form(None, kind, start_date, end_date, label))
+                                       error_message=_period_error(exc), term_form=_term_form(None, kind, start_date, end_date, label))
     return RedirectResponse(url=admin_url("term-dates"), status_code=303)
 
 
@@ -961,7 +974,7 @@ async def edit_term_period(
             if exc.code == "term-missing":
                 return _admin_error(exc.code)
             return await _render_admin(request, tab="school", error=exc.code, status_code=400,
-                                       term_form=_term_form(period_id, kind, start_date, end_date, label))
+                                       error_message=_period_error(exc), term_form=_term_form(period_id, kind, start_date, end_date, label))
     return RedirectResponse(url=admin_url("term-dates"), status_code=303)
 
 

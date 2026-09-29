@@ -89,10 +89,13 @@
     <form class="term-import" method="post" action="/admin/inbox/candidates/{{ c.id }}/approve" hx-post="/admin/inbox/candidates/{{ c.id }}/approve">
       {% set rows = inbox_form.periods if editing else p.periods %}
       {% for r in rows %}
-      {% set already = p.periods[loop.index0].already if loop.index0 < p.periods | length else false %}
-      <div class="term-import-row{{ ' is-already' if already else '' }}">
+      {% set read = p.periods[loop.index0] if loop.index0 < p.periods | length else {} %}
+      {% set already = read.already %}
+      {#- A period that failed a check when read (too long for its kind, ends before it
+          starts...) is shown unticked with the reason, never silently dropped. -#}
+      <div class="term-import-row{{ ' is-already' if already else '' }}{{ ' is-invalid' if read.problem else '' }}">
         <label class="term-import-include"><input type="checkbox" name="period_include" value="{{ loop.index0 }}"
-          {{- ' checked' if (r.include if editing else not already) else '' }} aria-label="Add this one"></label>
+          {{- ' checked' if (r.include if editing else not (already or read.problem)) else '' }} aria-label="Add this one"></label>
         <select name="period_kind" aria-label="Kind">
           {% for value, name in term_kinds.items() %}<option value="{{ value }}" {{ 'selected' if value == r.kind else '' }}>{{ name }}</option>{% endfor %}
         </select>
@@ -100,6 +103,7 @@
         <input type="date" name="period_end" value="{{ r.end_date or '' }}" aria-label="Until">
         <input type="text" name="period_label" value="{{ r.label or '' }}" maxlength="80" aria-label="Name" autocomplete="off"{% if onscreen_keyboard %} data-osk="text"{% endif %}>
         {% if already %}<span class="inbox-duplicate">Already added</span>{% endif %}
+        {% if read.problem and not editing %}<p class="term-import-problem" role="note">Not added as read: {{ read.problem }} Fix it and tick it, or leave it out.</p>{% endif %}
       </div>
       {% endfor %}
       <span class="inbox-buttons">

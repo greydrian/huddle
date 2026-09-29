@@ -14,7 +14,7 @@ When a date's school year has no term at all, school days fall back to
 Monday–Friday minus bank holidays, and Admin warns that the year is missing.
 """
 
-from datetime import date
+from datetime import date, timedelta
 
 KINDS = {
     "term": "Term",
@@ -25,12 +25,15 @@ KINDS = {
 }
 SOURCES = ("manual", "import")
 # Longest sensible period of each kind, in days (inclusive). A 15-week
-# autumn term is about 110 days; the summer holiday about 45.
-MAX_DAYS = {"term": 120, "half_term": 16, "holiday": 60, "inset": 2, "closure": 14}
-# What may overlap a term: things that happen inside one. Anything else
-# overlapping is a clash (two terms, a holiday across a term, an INSET day
-# in a holiday...).
+# autumn term is about 110 days; a summer holiday can run past 60.
+MAX_DAYS = {"term": 120, "half_term": 16, "holiday": 75, "inset": 5, "closure": 14}
+# What may overlap: half terms, INSET days and closures inside a term, and
+# an INSET day inside a holiday (a letter may list both for the same day).
+# Anything else overlapping is a clash (two terms, a holiday across a term...).
 INSIDE_TERM = frozenset({"half_term", "inset", "closure"})
+ALLOWED_OVERLAPS = frozenset(
+    {frozenset({"term", kind}) for kind in INSIDE_TERM} | {frozenset({"inset", "holiday"})}
+)
 MAX_LABEL = 80
 EARLIEST = date(2000, 1, 1)
 LATEST = date(2099, 12, 31)
@@ -40,12 +43,30 @@ TERM_DATES = "term_dates"  # school_day_status source: the term dates decided it
 
 
 class PeriodError(ValueError):
-    """A period that can't be saved; `code` is an admin.ADMIN_ERRORS key."""
+    """A period that can't be saved; `code` is an admin.ADMIN_ERRORS key.
+    For "term-overlap", `clash` is the stored or listed period it clashes
+    with, named by clash_message()."""
 
-    def __init__(self, code: str):
+    def __init__(self, code: str, clash: dict | None = None):
         super().__init__(code)
         self.code = code
+        self.clash = clash
 
+
+def short_date(iso: str) -> str:
+    day = date.fromisoformat(iso)
+    return f"{day.day} {day:%b}"
+
+
+def span_label(period: dict) -> str:
+    """"20 Dec–5 Jan", or "13 Nov" for one day."""
+    first, last = short_date(period["start_date"]), short_date(period["end_date"])
+    return first if period["start_date"] == period["end_date"] else f"{first}–{last}"
+
+
+def clash_message(other: dict) -> str:
+    return (f"That clashes with '{other['label']}' ({span_label(other)}): only half terms, INSET days and "
+            "closures may fall inside a term, and INSET days inside a holiday. Nothing was saved.")
 
 # --- School years ---
 
@@ -94,7 +115,7 @@ def clean_period(kind, start_date, end_date, label="") -> dict:
 
 
 def overlap_allowed(kind_a: str, kind_b: str) -> bool:
-    return (kind_a == "term" and kind_b in INSIDE_TERM) or (kind_b == "term" and kind_a in INSIDE_TERM)
+    return frozenset({kind_a, kind_b}) in ALLOWED_OVERLAPS
 
 
 def _overlaps(a: dict, b: dict) -> bool:
@@ -128,8 +149,9 @@ async def get_period(db, period_id: int) -> dict | None:
 
 async def _check_clash(db, period: dict, exclude_id: int | None = None):
     others = [p for p in await list_periods(db) if p["id"] != exclude_id]
-    if clash(period, others):
-        raise PeriodError("term-overlap")
+    other = clash(period, others)
+    if other:
+        raise PeriodError("term-overlap", other)
 
 
 async def insert_period(db, period: dict, source: str) -> int:
@@ -202,17 +224,20 @@ async def school_day_status(db, day: date) -> tuple[bool, str]:
     day's school year has term dates, and it's a school day when it's a
     weekday inside a term, not a bank holiday, and not in a half term,
     holiday, INSET day or closure. Source FALLBACK: that year has no term
-    dates, so any weekday that isn't a bank holiday counts."""
+    dates, so any weekday that isn't a bank holiday, or in a holiday, half
+    term, INSET day or closure that was entered (a summer holiday running
+    into a September with no terms yet), counts."""
     weekday = day.weekday() < 5
-    if not await has_terms(db, school_year_of(day)):
-        return weekday and not await is_bank_holiday(db, day), FALLBACK
-    if not weekday or await is_bank_holiday(db, day):
-        return False, TERM_DATES
     iso = day.isoformat()
     kinds = {r["kind"] for r in await (await db.execute(
         "SELECT kind FROM school_periods WHERE start_date <= ? AND end_date >= ?", (iso, iso)
     )).fetchall()}
-    return "term" in kinds and not (kinds - {"term"}), TERM_DATES
+    days_off = bool(kinds - {"term"})
+    if not await has_terms(db, school_year_of(day)):
+        return weekday and not days_off and not await is_bank_holiday(db, day), FALLBACK
+    if not weekday or await is_bank_holiday(db, day):
+        return False, TERM_DATES
+    return "term" in kinds and not days_off, TERM_DATES
 
 
 async def is_school_day(db, day: date) -> bool:
@@ -232,6 +257,55 @@ async def missing_years(db, today: date) -> list[str]:
     if NEXT_YEAR_WARNING_MONTH <= today.month < 9:
         years.append(current + 1)
     return [school_year_label(y) for y in years if not await has_terms(db, y)]
+
+
+async def incomplete_years(db, today: date) -> list[str]:
+    """Warnings for the current or next school year when it has some terms
+    but not all: fewer than three, or a weekday between two terms that no
+    holiday, half term, INSET day, closure or bank holiday covers (those
+    days count as not school days, so a gap is probably a missing holiday
+    or term). School-day answers don't change; this only asks for the rest."""
+    current = school_year_of(today)
+    warnings = []
+    for year in (current, current + 1):
+        first, last = school_year_span(year)
+        periods = [p for p in await list_periods(db)
+                   if p["start_date"] <= last.isoformat() and p["end_date"] >= first.isoformat()]
+        terms = [p for p in periods if p["kind"] == "term"]
+        if not terms:
+            continue  # missing_years() covers that
+        label = school_year_label(year)
+        if len(terms) < 3:
+            names = " and ".join(f"'{t['label']}'" for t in terms)
+            warnings.append(f"{label} has only {names}: add the rest of the year's terms.")
+            continue
+        gap = await _first_gap(db, terms, [p for p in periods if p["kind"] != "term"])
+        if gap:
+            warnings.append(f"{label} has a gap between terms that no holiday covers ({gap}): "
+                            "add the missing holiday or term.")
+    return warnings
+
+
+async def _first_gap(db, terms: list[dict], days_off: list[dict]) -> str | None:
+    """The first run of weekdays between consecutive terms covered by
+    nothing, as "5 Jan–9 Jan", or None."""
+    holidays = {r["date"] for r in await (await db.execute("SELECT date FROM bank_holidays")).fetchall()}
+    for before, after in zip(terms, terms[1:], strict=False):
+        day = date.fromisoformat(before["end_date"]) + timedelta(days=1)
+        stop = date.fromisoformat(after["start_date"])
+        run: list[str] = []
+        while day < stop:
+            iso = day.isoformat()
+            uncovered = (day.weekday() < 5 and iso not in holidays
+                         and not any(p["start_date"] <= iso <= p["end_date"] for p in days_off))
+            if uncovered:
+                run.append(iso)
+            elif run and day.weekday() < 5:
+                break
+            day += timedelta(days=1)
+        if run:
+            return span_label({"start_date": run[0], "end_date": run[-1]})
+    return None
 
 
 async def periods_between(db, start: date, end: date) -> list[dict]:

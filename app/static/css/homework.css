@@ -166,6 +166,8 @@
 }
 .term-import-row input[type="text"] { flex: 1; min-width: 160px; }
 .term-import-row.is-already { opacity: 0.7; }
+.term-import-row.is-invalid { padding: 6px 8px; border-radius: var(--radius-control); background: var(--danger-soft); }
+.term-import-problem { flex-basis: 100%; margin: 0; color: var(--danger); font-size: 0.9rem; font-weight: 600; }
 .term-import-include { display: inline-flex; align-items: center; justify-content: center; width: 48px; height: 48px; cursor: pointer; }
 .term-import-include input { width: 22px; height: 22px; }
 .term-import .inbox-buttons { align-self: flex-start; margin-top: 4px; }

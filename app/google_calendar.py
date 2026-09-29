@@ -387,20 +387,26 @@ async def get_month_grid(db, year: int | None = None, month: int | None = None) 
             -(date.fromisoformat(e["end_date"]) - date.fromisoformat(e["date"])).days,
         ))
 
-        slot_last_col: dict[int, int] = {}
+        # The columns each slot already uses. Google's events come in start
+        # order, so for them "the first slot free across my columns" is the
+        # same as "the first slot whose last bar ended before me"; the
+        # school's, placed afterwards, can then fill any free span, even
+        # one to the left of a Google bar.
+        slot_cols: list[set[int]] = [set() for _ in range(MAX_BAR_SLOTS)]
         bars = []
         for event in week_events:
             e_start = date.fromisoformat(event["date"])
             e_end = date.fromisoformat(event["end_date"])
             col_start = max(1, (max(e_start, week_start) - week_start).days + 1)
             col_end = min(7, (min(e_end, week_end) - week_start).days + 1)
+            cols = set(range(col_start, col_end + 1))
 
-            slot = next((s for s in range(MAX_BAR_SLOTS) if slot_last_col.get(s, 0) < col_start), None)
+            slot = next((s for s in range(MAX_BAR_SLOTS) if not slot_cols[s] & cols), None)
             if slot is None:
                 for i in range(col_start - 1, col_end):
                     days[i]["hidden_count"] += 1
                 continue
-            slot_last_col[slot] = col_end
+            slot_cols[slot] |= cols
             bars.append({"event": event, "col_start": col_start, "col_end": col_end, "slot": slot})
 
         row_count = max((bar["slot"] for bar in bars), default=-1) + 1

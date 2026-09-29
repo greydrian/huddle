@@ -664,16 +664,10 @@ async def approve_term_dates(db, candidate_id: int, rows: list[dict]) -> int:
         raise CandidateError("import-term-none")
     cleaned = [term_dates.clean_period(r.get("kind"), r.get("start_date"), r.get("end_date"), r.get("label"))
                for r in rows]
-    existing = await term_dates.list_periods(db)
-    new: list[dict] = []
-    for period in cleaned:
-        if not any(term_dates.same_period(period, other) for other in (*existing, *new)):
-            new.append(period)
-    for i, period in enumerate(new):
-        if term_dates.clash(period, [*existing, *new[:i], *new[i + 1:]]):
-            raise term_dates.PeriodError("term-overlap")
     try:
-        # Claim first (the lock against a double approve), then insert.
+        # Claim first: the UPDATE takes SQLite's write lock, so the dedupe and
+        # clash checks below see every committed period, and a second approve
+        # (a double tap, or another candidate) waits until this one is done.
         claimed = await db.execute(
             """UPDATE import_candidates SET status = 'approved', payload_json = ?, updated_at = datetime('now')
                WHERE id = ? AND status = 'pending'""",
@@ -681,6 +675,15 @@ async def approve_term_dates(db, candidate_id: int, rows: list[dict]) -> int:
         )
         if claimed.rowcount != 1:
             raise CandidateError("import-missing")
+        existing = await term_dates.list_periods(db)
+        new: list[dict] = []
+        for period in cleaned:
+            if not any(term_dates.same_period(period, other) for other in (*existing, *new)):
+                new.append(period)
+        for i, period in enumerate(new):
+            other = term_dates.clash(period, [*existing, *new[:i], *new[i + 1:]])
+            if other:
+                raise term_dates.PeriodError("term-overlap", other)
         last_id = None
         for period in new:
             last_id = await term_dates.insert_period(db, period, "import")

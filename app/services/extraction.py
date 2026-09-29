@@ -27,7 +27,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 
 import anthropic
-from pydantic import BaseModel, ConfigDict, ValidationError, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
 
 from app import http_client
 from app.services import term_dates
@@ -573,17 +573,45 @@ class _TermPeriod(BaseModel):
     def _evidence(cls, value):
         return _clip(value, MAX_EVIDENCE)
 
-    @model_validator(mode="after")
-    def _period(self):
-        # A known kind, strict ISO dates in order, a sensible length: as Admin's form.
-        term_dates.clean_period(self.kind, self.start_date, self.end_date, self.label)
-        return self
+    @field_validator("kind")
+    @classmethod
+    def _kind(cls, value):
+        if value not in term_dates.KINDS:
+            raise ValueError("unknown kind")
+        return value
+
+    @field_validator("start_date", "end_date")
+    @classmethod
+    def _iso(cls, value):
+        return date.fromisoformat(value.strip()).isoformat()  # a real YYYY-MM-DD, else dropped
+
+
+def _period_problem(period: dict, today: date) -> str | None:
+    """Why a read period can't be added as it stands, in words for the
+    parent (never the model's), or None. Such a period is still shown in
+    the inbox, unticked, so a misread is corrected rather than lost."""
+    kind, first, last = period["kind"], period["start_date"], period["end_date"]
+    earliest = (today - timedelta(days=TERM_DATE_PAST_DAYS)).isoformat()
+    latest = (today + timedelta(days=TERM_DATE_FUTURE_DAYS)).isoformat()
+    if not (earliest <= first <= latest and earliest <= last <= latest):
+        return "The dates are years away from today: check the year."
+    if last < first:
+        return "It ends before it starts."
+    days = (date.fromisoformat(last) - date.fromisoformat(first)).days + 1
+    if days > term_dates.MAX_DAYS[kind]:
+        return f"{days} days is too long ({term_dates.KINDS[kind]}: at most {term_dates.MAX_DAYS[kind]} days)."
+    try:
+        term_dates.clean_period(kind, first, last, period["label"])
+    except term_dates.PeriodError:
+        return "Check the dates."
+    return None
 
 
 def _term_dates(items: list, today: date) -> Candidate | None:
-    """Every term-date period as one candidate (approved together). Each is
-    checked (_TermPeriod, and its dates near today); bad ones are dropped
-    and repeats merged."""
+    """Every term-date period as one candidate (approved together). Items
+    without a known kind and real ISO dates are dropped; one that fails the
+    other checks (length for its kind, order, near today) is kept with a
+    "problem" for the parent. Repeats are merged."""
     periods: list[dict] = []
     evidence = ""
     for raw in items[:MAX_TERM_PERIODS]:
@@ -593,11 +621,11 @@ def _term_dates(items: list, today: date) -> Candidate | None:
             item = _TermPeriod.model_validate(raw)
         except (ValidationError, ValueError, TypeError):
             continue
-        start = _real_date(item.start_date, today, TERM_DATE_PAST_DAYS, TERM_DATE_FUTURE_DAYS)
-        end = _real_date(item.end_date, today, TERM_DATE_PAST_DAYS, TERM_DATE_FUTURE_DAYS)
-        if not start or not end:
-            continue
-        period = term_dates.clean_period(item.kind, start, end, item.label)
+        period = {"kind": item.kind, "start_date": item.start_date, "end_date": item.end_date,
+                  "label": item.label or term_dates.KINDS[item.kind]}
+        problem = _period_problem(period, today)
+        if problem:
+            period["problem"] = problem
         if any(term_dates.same_period(period, p) for p in periods):
             continue
         periods.append(period)

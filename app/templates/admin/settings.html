@@ -359,6 +359,12 @@
       <p class="admin-meta">Add the school's term dates PDF or letter under Add from Classroom (Claude reads it, then you check and approve it in the School inbox), or add each term, half term, holiday and INSET day below.</p>
     </div>
     {% endfor %}
+    {% for warning in term_incomplete %}
+    <div class="term-warning" role="note">
+      <p><strong>{{ warning }}</strong></p>
+      <p class="admin-meta">Days outside every term count as not school days, so a missing term turns its school days off.</p>
+    </div>
+    {% endfor %}
     <p class="admin-hint">Terms, half terms, holidays and INSET days decide which days are school days. Holidays, half terms and INSET days show on the wall calendar (only on this display; nothing is added to Google). Check them once a year.</p>
     {% for year in term_years %}
     <h3 class="term-year">{{ year.label }}</h3>
