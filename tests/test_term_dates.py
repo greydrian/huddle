@@ -238,7 +238,7 @@ async def test_migration_3_adds_the_tables_and_changes_nothing_else(tmp_path, mo
         assert conn.execute("SELECT COUNT(*) FROM school_periods").fetchone() == (0,)
         assert conn.execute("SELECT COUNT(*) FROM bank_holidays").fetchone() == (0,)
     assert after == before
-    assert versions == [1, 2, 3]
+    assert versions == [m.version for m in migrations.MIGRATIONS]  # 3 and any later ones
 
 
 # --- Bank holidays (GOV.UK) ---

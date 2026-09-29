@@ -19,12 +19,12 @@ them (e.g. resurrect an item deleted offline).
 import asyncio
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 import httpx
 
 from app import google_oauth, google_tasks, http_client, sync_status
-from app.database import get_setting, set_setting
+from app.database import family_today, get_setting, set_setting
 
 SHOPPING_TASKLIST_SETTING = "google_shopping_tasklist"
 MAX_RETRY = 5
@@ -48,6 +48,18 @@ def _parse_google_ts(s: str) -> datetime:
     # Truncated to seconds to match SQLite's datetime('now') precision —
     # otherwise Google's milliseconds make every row look newer every cycle.
     return datetime.fromisoformat(s.replace("Z", "+00:00")).replace(tzinfo=None, microsecond=0)
+
+
+def _google_due(rtask: dict) -> str | None:
+    """Google's `due` as an ISO date. It carries no time ("...T00:00:00.000Z"
+    is the date itself), so the date part is read as-is, not converted."""
+    due = rtask.get("due")
+    if not isinstance(due, str) or len(due) < 10:
+        return None
+    try:
+        return date.fromisoformat(due[:10]).isoformat()
+    except ValueError:
+        return None
 
 
 def _to_local_ts(dt: datetime) -> str:
@@ -279,6 +291,7 @@ async def reconcile_profile_tasks(db, access_token: str, profile):
         "SELECT * FROM tasks WHERE profile_id = ?", (profile["id"],)
     )).fetchall()
     local_by_gid = {r["google_task_id"]: r for r in local_rows if r["google_task_id"]}
+    today = (await family_today(db)).isoformat()
 
     for gid, rtask in remote_by_id.items():
         remote_completed = rtask.get("status") == "completed"
@@ -298,16 +311,25 @@ async def reconcile_profile_tasks(db, access_token: str, profile):
                 await queue_sync(db, "tasks", {"task_id": local["id"]})
         elif local is not None:
             if remote_updated > _parse_local_ts(local["updated_at"]):
+                # A due date changed on the phone moves the carry-over date too.
                 await db.execute(
-                    """UPDATE tasks SET title = ?, is_completed = ?, completed_at = ?, updated_at = ?
+                    """UPDATE tasks SET title = ?, is_completed = ?, completed_at = ?, updated_at = ?,
+                           due_on = COALESCE(?, due_on)
                        WHERE id = ?""",
-                    (remote_title, int(remote_completed), completed_at, _to_local_ts(remote_updated), local["id"]),
+                    (remote_title, int(remote_completed), completed_at, _to_local_ts(remote_updated),
+                     _google_due(rtask), local["id"]),
                 )
         elif rtask.get("title"):
+            # due_on (local, for carry-over labels) is the day it arrived here,
+            # or Google's own due date if that's later: linking a list with old
+            # past-due tasks mustn't flood the wall with "late" labels.
+            google_due = _google_due(rtask)
             await db.execute(
-                """INSERT INTO tasks (profile_id, google_task_id, title, is_completed, completed_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?)""",
-                (profile["id"], gid, remote_title, int(remote_completed), completed_at, _to_local_ts(remote_updated)),
+                """INSERT INTO tasks (profile_id, google_task_id, title, is_completed, completed_at, updated_at,
+                                      due_on)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (profile["id"], gid, remote_title, int(remote_completed), completed_at, _to_local_ts(remote_updated),
+                 max(google_due, today) if google_due else today),
             )
 
     for gid, local in local_by_gid.items():

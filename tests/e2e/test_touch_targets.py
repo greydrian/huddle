@@ -96,6 +96,8 @@ async def test_dashboard_touch_targets(start_server, page):
     await page.goto(server.url + "/")
     await page.wait_for_selector("#widget-tasks >> text=Feed the cat")
     await page.wait_for_selector("#widget-homework >> text=Fractions")
+    await page.click("#widget-tasks .task-add-toggle")  # measure the quick-add form's chips too
+    await page.wait_for_selector("#task-add-form:not([hidden])")
     await page.click("#widget-shopping input[name=title]")
     await page.wait_for_selector(".osk.osk--open", state="visible")
     found = await _too_small(page)

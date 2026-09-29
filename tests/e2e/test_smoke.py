@@ -97,6 +97,40 @@ async def test_ticking_a_task_folds_it_into_done(start_server, page):
     assert server.query("SELECT is_completed FROM tasks WHERE title = 'Feed the cat'") == [(1,)]
 
 
+@pytest.mark.parametrize("keyboard", [False, True])
+async def test_quick_add_a_task_by_touch(start_server, page, keyboard):
+    """Spec 10.4: "+ Add" on the Tasks widget, by touch, with or without the
+    on-screen keyboard; the task lands in its time-of-day group."""
+    server = start_server(keyboard=keyboard)
+    await page.goto(server.url + "/")
+    await page.wait_for_selector("#widget-tasks >> text=Feed the cat")
+    before = _layout(server)
+
+    await page.tap("#widget-tasks .task-add-toggle")
+    await page.wait_for_selector("#task-add-form:not([hidden])")
+    await page.tap("#task-add-form .task-chip-person >> text=Riley")
+    await page.tap("#task-add-form .task-chip >> text=Evening")
+    await page.tap("#task-add-form input[name=title]")
+    if keyboard:
+        await page.wait_for_selector(".osk.osk--open", state="visible")
+        for key in "Bath":
+            await page.tap(f".osk .hg-button[data-skbtn='{key}']")
+        await page.tap(".osk .hg-button[data-skbtn='{enter}']")
+    else:
+        await page.fill("#task-add-form input[name=title]", "Bath")
+        await page.tap("#task-add-form .task-add-submit")
+
+    row = await page.wait_for_selector("#widget-tasks section[data-group=evening] .task-row >> text=Bath")
+    assert row is not None
+    assert await page.locator("#task-add-form").get_attribute("hidden") is not None  # closed again
+    # Riley has no Google list: marked as on this display only.
+    local = page.locator("#widget-tasks section[data-group=evening] .task-row", has_text="Bath").locator(".task-local")
+    assert await local.get_attribute("aria-label") == "On this display only"
+    assert server.query("SELECT p.name, t.time_of_day, t.is_recurring FROM tasks t "
+                        "JOIN profiles p ON p.id = t.profile_id WHERE t.title = 'Bath'") == [("Riley", "evening", 0)]
+    assert _layout(server) == before  # the taps moved no widget
+
+
 async def test_onscreen_keyboard_opens_on_the_shopping_input(start_server, page):
     server = start_server(keyboard=True)
     await page.goto(server.url + "/")
