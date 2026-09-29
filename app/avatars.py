@@ -16,6 +16,8 @@ KINDS = ("initial", "emoji", "photo")
 KIND_LABELS = {"initial": "Initial", "emoji": "Emoji", "photo": "Photo"}
 
 PHOTO_SIZE = 256
+# JPEGs are decoded at a reduced scale no smaller than this (Image.draft).
+DECODE_SIZE = 1024
 # The largest file Admin accepts (a phone photo is 2-6 MB; HEIC less). The
 # upload guard caps the whole request a little above this.
 MAX_PHOTO_BYTES = 8 * 1024 * 1024
@@ -144,7 +146,15 @@ def process_photo(data: bytes) -> bytes:
             if width * height > MAX_PHOTO_PIXELS:
                 raise AvatarError("avatar-too-big")
             image.seek(0)  # an animated GIF/WebP: its first frame
+            # A JPEG decodes straight to a smaller scale (1/2 to 1/8, never
+            # under 1024 px): a 60 MP photo then needs tens of MB, not ~1 GB.
+            if image.format == "JPEG":
+                image.draft("RGB", (DECODE_SIZE, DECODE_SIZE))
             upright = ImageOps.exif_transpose(image)
+            if upright.mode == "I" or upright.mode.startswith("I;16"):
+                # 16-bit greyscale: scale 0-65535 down to 0-255 first, or
+                # convert() clips everything above 255 to white.
+                upright = upright.convert("I").point(lambda v: v * (1 / 256)).convert("L")
             mode = "RGBA" if upright.mode in ("RGBA", "LA", "PA") or "transparency" in upright.info else "RGB"
             square = ImageOps.fit(upright.convert(mode), (PHOTO_SIZE, PHOTO_SIZE), Image.Resampling.LANCZOS)
     except AvatarError:

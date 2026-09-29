@@ -9,7 +9,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 import pytest
-from PIL import Image
+from PIL import Image, ImageOps
 
 from app import avatars, backup, database, migrations, security
 from app.admin_tabs import admin_url
@@ -214,6 +214,32 @@ def test_heic_is_accepted():
     photo = avatars.process_photo(out.getvalue())
     with Image.open(io.BytesIO(photo)) as result:
         assert result.format == "WEBP" and result.size == (256, 256)
+
+
+@pytest.mark.parametrize("mode", ["I;16", "I;16B"])
+def test_16_bit_greyscale_keeps_its_tone(mode):
+    """Mid-grey in a 16-bit PNG stays mid-grey (not clipped to white)."""
+    out = io.BytesIO()
+    Image.new(mode, (64, 64), 32768).save(out, format="PNG")
+    with Image.open(io.BytesIO(avatars.process_photo(out.getvalue()))) as image:
+        red, green, blue = image.convert("RGB").getpixel((128, 128))
+        assert 118 <= red <= 138 and red == green == blue
+
+
+def test_big_jpeg_is_decoded_at_a_reduced_scale(monkeypatch):
+    """A large JPEG decodes via draft() at >= 1024 px, not at full size."""
+    seen = []
+    real_fit = ImageOps.fit
+
+    def spy(image, *args, **kwargs):
+        seen.append(image.size)
+        return real_fit(image, *args, **kwargs)
+
+    monkeypatch.setattr(ImageOps, "fit", spy)
+    photo = avatars.process_photo(_image((4800, 3600)))
+    assert seen and max(seen[0]) < 4800 and min(seen[0]) >= avatars.DECODE_SIZE
+    with Image.open(io.BytesIO(photo)) as image:
+        assert image.size == (256, 256)
 
 
 def test_transparent_png_keeps_its_alpha():
