@@ -286,5 +286,32 @@
 .finished-homework { margin-top: 8px; }
 .finished-homework > summary { min-height: 48px; padding: 13px 0; font-size: 0.95rem; color: var(--accent); font-weight: 600; cursor: pointer; }
 .finished-homework .admin-item-label { color: var(--ink-soft); }
+.admin-item-label .hw-subject { vertical-align: 1px; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* Admin: homework done history and the reading log grid (spec 10.10). */
+.hw-event { display: flex; gap: 4px 12px; flex-wrap: wrap; align-items: baseline; margin: 6px 0; line-height: 1.6; }
+.hw-event-when { min-width: 9.5em; color: var(--ink-soft); font-variant-numeric: tabular-nums; font-size: 0.9rem; }
+.rd-history { margin-top: 14px; }
+.rd-history-name { display: flex; align-items: center; gap: 8px; margin: 0 0 6px; font-size: 1rem; }
+.rd-grid-scroll { overflow-x: auto; }
+.rd-grid { border-collapse: separate; border-spacing: 4px; }
+.rd-grid th { font-size: 0.78rem; font-weight: 700; color: var(--ink-soft); text-transform: uppercase; letter-spacing: 0.03em; }
+.rd-grid td {
+  position: relative;
+  width: 44px; height: 40px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  text-align: center;
+  vertical-align: middle;
+  color: var(--accent);
+}
+.rd-grid td.is-off { background: var(--sunken); }
+.rd-grid td.is-read { background: var(--accent-soft); border-color: var(--accent); }
+.rd-grid td.is-today { box-shadow: inset 0 0 0 2px var(--ink-soft); }
+.rd-grid td.is-future { opacity: 0.45; }
+.rd-day { position: absolute; top: 2px; left: 5px; font-size: 0.7rem; color: var(--ink-soft); }
+.rd-grid td .icon { margin-top: 6px; }
 .hand-option { display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 2px 0; font-size: 1rem; }
 .hand-option .hand-sample { font-size: 1.4rem; color: var(--ink); }

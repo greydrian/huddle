@@ -125,6 +125,11 @@
       <label class="hw-field">Until <input type="date" name="ends_on" value="{{ f.ends_on or '' }}"></label>
       {% else %}
       <input type="text" name="subject" value="{{ f.subject or '' }}" maxlength="60" placeholder="Subject" aria-label="Subject" autocomplete="off"{% if onscreen_keyboard %} data-osk="text"{% endif %}>
+      {#- Blank = map the (extracted) subject through the synonym table on approve (spec 10.10). -#}
+      <select name="subject_key" aria-label="Subject icon">
+        <option value="">Icon: match the subject</option>
+        {% for key, (label, _icon) in homework_subjects.items() %}<option value="{{ key }}" {{ 'selected' if key == f.subject_key else '' }}>Icon: {{ label }}</option>{% endfor %}
+      </select>
       <input type="text" name="title" value="{{ f.title or '' }}" maxlength="120" aria-label="Homework" autocomplete="off"{% if onscreen_keyboard %} data-osk="text"{% endif %}>
       <input type="text" name="details" value="{{ f.details or '' }}" maxlength="1000" placeholder="Details (optional)" aria-label="Details" autocomplete="off"{% if onscreen_keyboard %} data-osk="text"{% endif %}>
       <label class="hw-field">Due <input type="date" name="due_date" value="{{ f.due_date or '' }}"></label>
