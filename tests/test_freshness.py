@@ -24,6 +24,17 @@ REFRESH_ROUTES = {
 }
 
 
+@pytest.fixture(autouse=True)
+def midday_banners(monkeypatch):
+    """The banner bar's clock at midday on the real family date: from 18:00
+    (the Evening group) chore banners appear for a ticked or archived task
+    too, which would move the banners revision and make these tests depend
+    on the time of day."""
+    from app.services import banners
+
+    monkeypatch.setattr(banners, "_clock", lambda tz: datetime.now(tz).replace(hour=12, minute=0))
+
+
 async def _revs(client):
     resp = await client.get("/api/rev")
     assert resp.status_code == 200

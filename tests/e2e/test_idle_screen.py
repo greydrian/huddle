@@ -265,7 +265,9 @@ async def test_night_uses_the_night_behaviour(start_server, page):
 async def test_slideshow_crossfades_with_the_overlay(start_server, page):
     server = start_server()
     server.seed_banners()
-    _settings(server, interval_seconds=20)
+    # The slideshow by night too: otherwise after 19:00 (night colours) the
+    # default night behaviour dims instead, and the test depends on the clock.
+    _settings(server, interval_seconds=20, night_mode="slideshow")
     _seed_photos(server, 3)
 
     async def with_event(route):
