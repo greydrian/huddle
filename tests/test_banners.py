@@ -204,13 +204,13 @@ async def test_overdue_archived_and_later_homework_make_no_banner(db):
 
 # --- Today's school events ---
 
-async def _approved_event(db, payload, status="approved", profile=None):
+async def _approved_event(db, payload, status="approved", profile=None, external_id=None):
     source = await db.execute("INSERT INTO import_sources (kind, source_ref, status) VALUES ('gmail', ?, 'extracted')",
                               (f"m{time.monotonic_ns()}",))
     await db.execute(
-        "INSERT INTO import_candidates (source_id, kind, profile_id, payload_json, status, created_table) "
-        "VALUES (?, 'event', ?, ?, ?, 'google_calendar')",
-        (source.lastrowid, profile, json.dumps(payload), status),
+        "INSERT INTO import_candidates (source_id, kind, profile_id, payload_json, status, created_table, external_id) "
+        "VALUES (?, 'event', ?, ?, ?, 'google_calendar', ?)",
+        (source.lastrowid, profile, json.dumps(payload), status, external_id),
     )
     await db.commit()
 
@@ -228,6 +228,15 @@ async def test_school_events_show_from_seven_until_six_on_the_day(db):
         ("Today: Non-uniform day", None), ("Today: Sports day at 14:00", "Riley")]
     assert len(await texts(db, at(17, 59), s)) == 2
     assert await texts(db, at(18, 0), s) == []
+
+
+async def test_a_school_event_also_in_google_shows_once(db, calendar):
+    """Approving it wrote it to Google, so it's in the calendar cache too:
+    only the school trigger shows it."""
+    await _approved_event(db, {"title": "Sports day", "date": DAY.isoformat(), "all_day": False,
+                               "start_time": "14:00"}, external_id="hs123")
+    await calendar([event("Sports day", "14:00", popup(60), "hs123"), event("Piano", "14:10", popup(60), "p")])
+    assert await texts(db, at(13, 30)) == ["Piano at 14:10 (in 40 min)", "Today: Sports day at 14:00"]
 
 
 async def test_inset_days_and_closures_from_the_term_dates(db):

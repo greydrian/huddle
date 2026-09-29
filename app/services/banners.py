@@ -225,9 +225,14 @@ async def _event_banners(db, now: datetime, lead_default: int, profiles: list[di
     events = await google_calendar.cached_events(db, today, today + timedelta(days=2))
     if not events:  # e.g. the cached range ends today
         events = await google_calendar.cached_events(db, today, today + timedelta(days=1))
+    # An approved school event is also in Google: the school trigger owns it.
+    school_ids = {row["external_id"] for row in await (await db.execute(
+        """SELECT external_id FROM import_candidates
+           WHERE kind = 'event' AND status = 'approved' AND external_id IS NOT NULL"""
+    )).fetchall()}
     banners = {}
     for event in events:
-        if event.get("all_day") or event.get("school"):
+        if event.get("all_day") or event.get("school") or event.get("id") in school_ids:
             continue
         try:
             start = datetime.fromisoformat(event["sort_key"])
