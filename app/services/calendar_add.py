@@ -48,6 +48,7 @@ logger = logging.getLogger(__name__)
 OUTAGE_KEY = "Google Calendar (add event)"
 CLAIMS_KEY = "calendar_add_claims"
 CLAIM_KEEP = timedelta(days=2)
+STALE_CLAIM = timedelta(minutes=5)  # an "adding" claim this old is from a request that died
 MAX_CLAIMS = 200
 NOTE = "Added on the family display."
 DEFAULT_LENGTH = timedelta(hours=1)
@@ -70,7 +71,9 @@ ERRORS = {
     "request": "That form is out of date. Close it and try again.",
     "no-calendar": "Adding events isn't set up: choose the Family calendar in Admin → Google & Sync.",
     "scope": "Google needs reconnecting in Admin (Disconnect, then Connect) before events can be added.",
-    "offline": "Couldn't reach Google Calendar, so the event wasn't added. Try again in a minute.",
+    # A timeout may come after Google made the event, so don't say it wasn't.
+    "offline": "Couldn't reach Google Calendar. It may already have been added: check the calendar before "
+               "adding it again.",
     "missing": "The Family calendar can't be found any more. Choose it again in Admin.",
     "failed": "Google Calendar didn't accept the event, so it wasn't added.",
     "rate": "That's a lot of new events in one go. Try again in a little while.",
@@ -216,11 +219,24 @@ async def _update_claims(db, change: Callable[[dict[str, dict]], dict | None]) -
     return result
 
 
+def _stale(claim: dict) -> bool:
+    """An "adding" claim older than STALE_CLAIM: its request died (a crash,
+    or its outcome couldn't be recorded), so it may be claimed again; the
+    409 read-back then settles whether Google already has the event."""
+    if claim.get("state") != "adding":
+        return False
+    try:
+        at = datetime.fromisoformat(claim.get("at", ""))
+    except (TypeError, ValueError):
+        return True
+    return at.tzinfo is None or datetime.now(UTC) - at > STALE_CLAIM
+
+
 async def _claim(db, key: str) -> dict | None:
     """Claims `key`. None if it's ours now; else the existing claim."""
     def change(claims):
         existing = claims.get(key)
-        if existing is not None:
+        if existing is not None and not _stale(existing):
             return existing
         claims[key] = {"state": "adding", "at": datetime.now(UTC).isoformat()}
         return None
@@ -281,7 +297,17 @@ async def add_family_event(
 ) -> dict:
     """Adds one event to the Family calendar. Returns {"id", "summary",
     "date", "calendar", "duplicate"} ("duplicate": this request_key was
-    already added, nothing new was created). Raises AddEventError."""
+    already added, nothing new was created). Raises AddEventError, never a
+    database error (those become "storage")."""
+    try:
+        return await _add(db, title=title, day=day, start_time=start_time, end_time=end_time,
+                          person_id=person_id, request_key=request_key)
+    except sqlite3.Error as exc:
+        logger.warning("Couldn't add an event (database): %s", type(exc).__name__)
+        raise AddEventError("storage") from None
+
+
+async def _add(db, *, title, day, start_time, end_time, person_id, request_key) -> dict:
     if not isinstance(request_key, str) or not REQUEST_KEY.fullmatch(request_key):
         raise AddEventError("request")
     clean_title = _clean_title(title)
@@ -327,7 +353,10 @@ async def add_family_event(
         raise
     try:
         await _finish(db, request_key, created)
-    except sqlite3.Error as exc:  # it's in Google: say so; a resubmit finds it (409 + a match)
+    except sqlite3.Error as exc:
+        # It's in Google, so say so. The claim stays "adding": a resubmit
+        # gets "busy" until it's STALE_CLAIM old, then re-claims, and the
+        # 409 read-back finds this event (added once, never twice).
         logger.warning("Couldn't record an added event: %s", type(exc).__name__)
     start_refresh()
     return {**created, "duplicate": False}
@@ -340,12 +369,23 @@ async def _release(db, key: str) -> None:
         logger.warning("Couldn't release an event-add claim: %s", type(exc).__name__)
 
 
-def _matches(event: dict, summary: str, day: date) -> bool:
+def _same_start(theirs: dict, ours: dict) -> bool:
+    """Whether two Event `start`s are the same: the same all-day date, or
+    the same instant (Google may write the offset differently)."""
+    if "date" in ours:
+        return theirs.get("date") == ours["date"] and not theirs.get("dateTime")
+    try:
+        return datetime.fromisoformat(str(theirs.get("dateTime")).replace("Z", "+00:00")) \
+            == datetime.fromisoformat(ours["dateTime"])
+    except ValueError:
+        return False
+
+
+def _matches(event: dict, resource: dict) -> bool:
     """Whether an existing Google event is this very add: not deleted, the
-    same title and the same day."""
-    start = event.get("start") or {}
-    begins = str(start.get("date") or start.get("dateTime") or "")[:10]
-    return event.get("status") != "cancelled" and event.get("summary") == summary and begins == day.isoformat()
+    same title and the same start (day, and time unless all day)."""
+    return (event.get("status") != "cancelled" and event.get("summary") == resource["summary"]
+            and _same_start(event.get("start") or {}, resource["start"]))
 
 
 async def _insert(db, key: str, family: dict, summary: str, day: date, start, end) -> dict:
@@ -360,7 +400,8 @@ async def _insert(db, key: str, family: dict, summary: str, day: date, start, en
     if not access_token:  # disconnected since (e.g. a revoked grant)
         raise AddEventError("scope")
     tz = await family_timezone(db)
-    ids = (event_id(key, family["id"]), event_id(f"{key}:{summary}:{day.isoformat()}", family["id"]))
+    content = f"{key}:{summary}:{day.isoformat()}:{start or ''}:{end or ''}"
+    ids = (event_id(key, family["id"]), event_id(content, family["id"]))
     try:
         for eid in ids:
             resource = event_resource(eid, summary, day, start, end, tz)
@@ -369,7 +410,7 @@ async def _insert(db, key: str, family: dict, summary: str, day: date, start, en
             except httpx.HTTPStatusError as exc:
                 if exc.response.status_code != 409:
                     raise
-                if _matches(await google_calendar.get_event(access_token, family["id"], eid), summary, day):
+                if _matches(await google_calendar.get_event(access_token, family["id"], eid), resource):
                     break
                 continue
             eid = created.get("id") or eid

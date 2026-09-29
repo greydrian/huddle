@@ -353,6 +353,9 @@ def test_names_match_as_written():
     assert people.named_people("Party at the Riley-Smiths", profiles) == []
     assert people.named_people("Jo's party", profiles) == [lower]  # lower case in Admin: capitalised too
     assert people.named_people("riley swim", profiles) == []
+    assert people.named_people("RILEY PICKUP", profiles) == [riley]  # in capitals
+    assert people.named_people("MAY HALF TERM", profiles) == [may]
+    assert people.named_people("rIlEy", profiles) == []
 
 
 def test_banners_use_the_shared_helper():

@@ -7,7 +7,7 @@ import json
 import re
 import sqlite3
 import time
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 import httpx
 import pytest
@@ -189,6 +189,96 @@ async def test_a_changed_form_under_a_used_key_is_its_own_event(db, family, gcal
     await db.commit()
     again = await calendar_add.add_family_event(db, title="Swimming", day=today, request_key=KEY)
     assert again["id"] == added["id"] and len(gcal.fake.events) == 2
+
+
+async def test_a_taken_id_at_another_time_is_not_reported_as_added(db, family, gcal):
+    """Same title and day, but a different start: a different event."""
+    today = (await _today(db)).isoformat()
+    gcal.fake.lose_answer = True
+    with pytest.raises(calendar_add.AddEventError) as exc:
+        await calendar_add.add_family_event(db, title="Swim", day=today, start_time="10:00", request_key=KEY)
+    assert "may already have been added" in exc.value.message  # a timeout: it might be in Google
+
+    added = await calendar_add.add_family_event(db, title="Swim", day=today, start_time="16:30", request_key=KEY)
+    assert added["id"] != calendar_add.event_id(KEY, CALENDARS[0]["id"])
+    starts = sorted(e["start"]["dateTime"][11:16] for e in gcal.fake.events.values())
+    assert starts == ["10:00", "16:30"]
+
+
+def test_same_start_compares_instants_and_all_day_dates():
+    ours = {"dateTime": "2026-10-01T16:30:00+01:00"}
+    assert calendar_add._same_start({"dateTime": "2026-10-01T15:30:00Z"}, ours)
+    assert not calendar_add._same_start({"dateTime": "2026-10-01T16:00:00+01:00"}, ours)
+    assert not calendar_add._same_start({"date": "2026-10-01"}, ours)
+    assert calendar_add._same_start({"date": "2026-10-01"}, {"date": "2026-10-01"})
+    assert not calendar_add._same_start({"dateTime": "2026-10-01T00:00:00+01:00"}, {"date": "2026-10-01"})
+
+
+async def _set_claim(db, state, minutes_ago):
+    at = (datetime.now(UTC) - timedelta(minutes=minutes_ago)).isoformat()
+    await database.set_setting(db, calendar_add.CLAIMS_KEY, json.dumps({KEY: {"state": state, "at": at}}))
+    await db.commit()
+
+
+async def test_a_stuck_adding_claim_goes_stale_and_the_409_settles_it(db, family, gcal):
+    """A request that died after Google made the event (its outcome never
+    recorded): 'busy' at first, then after STALE_CLAIM a resubmit re-claims,
+    and the read-back finds the event: added once."""
+    today = (await _today(db)).isoformat()
+    eid = calendar_add.event_id(KEY, CALENDARS[0]["id"])
+    gcal.fake.events[eid] = {"id": eid, "summary": "X", "start": {"date": today}}
+
+    await _set_claim(db, "adding", 1)
+    with pytest.raises(calendar_add.AddEventError) as exc:
+        await calendar_add.add_family_event(db, title="X", day=today, request_key=KEY)
+    assert exc.value.code == "busy"
+
+    await _set_claim(db, "adding", 6)
+    added = await calendar_add.add_family_event(db, title="X", day=today, request_key=KEY)
+    assert added["id"] == eid and len(gcal.fake.events) == 1
+    assert calendar_add.STALE_CLAIM == timedelta(minutes=5)
+
+
+async def test_a_done_claim_never_goes_stale(db, family, gcal):
+    await _set_claim(db, "done", 60)
+    added = await calendar_add.add_family_event(db, title="X", day=(await _today(db)).isoformat(), request_key=KEY)
+    assert added["duplicate"] and gcal.call_count == 0
+
+
+@pytest.mark.parametrize("step", ["get_family_calendar", "has_scope", "family_today", "connect", "family_timezone"])
+async def test_a_database_error_before_the_claim_is_a_message_not_a_500(db, family, gcal, client, monkeypatch,
+                                                                         step):
+    """A briefly locked database during the add (only the add's own call
+    fails; the widget's re-render afterwards reads fine)."""
+    target = {"get_family_calendar": calendar_prefs, "has_scope": google_oauth, "connect": google_oauth,
+              "family_today": calendar_add, "family_timezone": calendar_add}[step]
+    real = getattr(target, step)
+    failed = []
+
+    async def locked_once(*args, **kwargs):
+        if not failed:
+            failed.append(1)
+            raise sqlite3.OperationalError("database is locked")
+        return await real(*args, **kwargs)
+    today = await _today(db)
+    monkeypatch.setattr(target, step, locked_once)
+
+    resp = await client.post("/widgets/calendar/events", data=_form(today))
+
+    assert failed and resp.status_code == 200
+    assert str(escape(calendar_add.ERRORS["storage"])) in resp.text
+    assert gcal.call_count == 0
+    assert KEY not in json.loads(await database.get_setting(db, calendar_add.CLAIMS_KEY) or "{}")
+
+
+async def test_a_database_error_finding_the_person_is_a_message(db, family, gcal, monkeypatch):
+    async def locked(*args, **kwargs):
+        raise sqlite3.OperationalError("database is locked")
+    monkeypatch.setattr(calendar_add, "_person", locked)
+    with pytest.raises(calendar_add.AddEventError) as exc:
+        await calendar_add.add_family_event(db, title="X", day=(await _today(db)).isoformat(), person_id="1",
+                                            request_key=KEY)
+    assert exc.value.code == "storage"
 
 
 async def test_an_event_deleted_in_google_is_not_mistaken_for_this_one(db, family, gcal):

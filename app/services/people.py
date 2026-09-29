@@ -7,7 +7,7 @@ banners.py) and the calendar's person filter (services/calendar_view.py).
   one person ("Alanna: Dentist"), names exactly that person.
 - Otherwise, each family member whose **first name appears as a whole word**
   ("Riley's swimming", "Pick up Riley") is named. The name must be written
-  as it is in Admin (or capitalised, if Admin has it in lower case), so a
+  as it is in Admin, capitalised, or in capitals ("RILEY PICKUP"), so a
   name that is also an ordinary word only counts when it's capitalised:
   "will you..." isn't Will, though "May half term" is still May. A hyphen
   continues a name ("Riley-Smith" isn't Riley); a possessive ("Riley's")
@@ -43,9 +43,9 @@ def split_person(title: str, profiles: list[dict]) -> tuple[dict | None, str]:
 
 
 def _whole_word(word: str) -> re.Pattern:
-    """The name as written in Admin (or capitalised), not inside a longer
+    """The name as written in Admin, capitalised or in capitals, not inside a longer
     word or a hyphenated name; case-sensitive on purpose (module docstring)."""
-    spellings = sorted({word, word[:1].upper() + word[1:]})
+    spellings = sorted({word, word[:1].upper() + word[1:], word.upper()})
     names = "|".join(re.escape(w) for w in spellings)
     return re.compile(rf"(?<![\w-])(?:{names})(?![\w-])")
 
