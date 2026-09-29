@@ -181,6 +181,8 @@ async def test_migration_7_upgrade_keeps_data_and_backfills(tmp_path, monkeypatc
             after = conn.execute(f"SELECT * FROM {table} ORDER BY rowid").fetchall()
             if table == "homework":
                 after = [row[:-1] for row in after]  # all but the new subject_key column
+            elif rows:  # later migrations may add columns (profiles: avatars, 8)
+                after = [row[:len(rows[0])] for row in after]
             assert after == rows, table
         assert conn.execute("SELECT title, subject_key FROM homework ORDER BY id").fetchall() == [
             ("Week 3 list", "english"), ("Number bonds", "maths"), ("Poster", "other"), ("Chapter 2", "reading")]

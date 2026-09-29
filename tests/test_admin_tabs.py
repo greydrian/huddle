@@ -82,6 +82,9 @@ ROUTES: dict[tuple[str, str], tuple[str, dict | str]] = {
     ("POST", "/admin/profiles"): (TAB, {"name": "Nan", "colour_hex": "#123456"}),
     ("POST", "/admin/profiles/{profile_id}/details"): (TAB, {"email": "not an email"}),
     ("POST", "/admin/profiles/{profile_id}/delete"): (TAB, {}),
+    ("POST", "/admin/profiles/{profile_id}/avatar"): (TAB, {"kind": "emoji", "emoji": "🐶"}),
+    ("POST", "/admin/profiles/{profile_id}/avatar/photo"): (TAB, {}),
+    ("POST", "/admin/profiles/{profile_id}/avatar/photo/remove"): (TAB, {}),
     ("POST", "/admin/tasks/{task_id}/edit"): (TAB, {"profile_id": "1"}),
     ("POST", "/admin/tasks/groups"): (TAB, {"after_school_start": "18:00", "evening_start": "12:00"}),
     ("POST", "/admin/homework"): (TAB, {"profile_id": "1", "title": "Fractions"}),
@@ -267,8 +270,8 @@ async def test_migration_2_adds_parent_fields_without_touching_data(tmp_path, mo
     with sqlite3.connect(path) as conn:
         after = conn.execute("SELECT * FROM profiles ORDER BY id").fetchall()
         versions = {row[0] for row in conn.execute("SELECT version FROM schema_migrations")}
-    assert [row[:-2] for row in after] == before  # old columns unchanged
-    assert {row[-2:] for row in after} == {(0, None)}
+    assert [row[:len(before[0])] for row in after] == before  # old columns unchanged
+    assert {row[len(before[0]):len(before[0]) + 2] for row in after} == {(0, None)}  # is_parent, email
     assert 2 in versions
 
 

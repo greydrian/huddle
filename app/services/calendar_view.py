@@ -21,7 +21,7 @@ import secrets
 from datetime import date, timedelta
 from urllib.parse import urlencode
 
-from app import google_calendar, google_oauth
+from app import avatars, google_calendar, google_oauth
 from app.database import family_today
 from app.services import calendar_add, calendar_prefs, people
 
@@ -107,8 +107,8 @@ def _time_choices() -> list[str]:
 
 
 async def _profiles(db) -> list[dict]:
-    return [dict(r) for r in await (await db.execute(
-        "SELECT id, name, colour_hex FROM profiles ORDER BY sort_order"
+    return [avatars.attach(dict(r)) for r in await (await db.execute(
+        f"SELECT id, name, colour_hex, {avatars.COLUMNS} FROM profiles ORDER BY sort_order"
     )).fetchall()]
 
 

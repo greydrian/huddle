@@ -4,16 +4,30 @@
 <svg class="icon{{ ' ' ~ cls if cls else '' }}" width="{{ size }}" height="{{ size }}" aria-hidden="true" focusable="false"><use href="/static/icons/lucide/lucide.svg#{{ name }}"/></svg>
 {%- endmacro %}
 
-{#- A family member's solid name pill: initial avatar + name, in their
-    colour, with light or dark ink picked for contrast (person_ink filter). -#}
-{% macro person_pill(name, colour) -%}
+{#- A family member's avatar (spec 10.9): their coloured initial, an emoji on
+    their colour, or a round photo ringed in their colour. `avatar` is
+    avatars.avatar_of()'s {"kind", "emoji", "url"}; none means the initial.
+    Every pill and dot goes through this one macro. Decorative (aria-hidden):
+    the name is always next to it. -#}
+{% macro person_face(name, colour, avatar=none, cls="person-avatar") -%}
+{%- set kind = avatar.kind if avatar else "initial" -%}
+<span class="{{ cls }} avatar-{{ kind }} ink-{{ colour | person_ink }}" style="--person: {{ colour }};" aria-hidden="true">
+{%- if kind == "photo" %}<img src="{{ avatar.url }}" alt="" width="256" height="256" decoding="async">
+{%- elif kind == "emoji" %}{{ avatar.emoji }}
+{%- else %}{{ name[:1] | upper }}{% endif -%}
+</span>
+{%- endmacro %}
+
+{#- A family member's solid name pill: avatar + name, in their colour, with
+    light or dark ink picked for contrast (person_ink filter). -#}
+{% macro person_pill(name, colour, avatar=none) -%}
 <span class="person-pill ink-{{ colour | person_ink }}" style="--person: {{ colour }};">
-  <span class="person-avatar" aria-hidden="true">{{ name[:1] | upper }}</span>
+  {{ person_face(name, colour, avatar) }}
   <span class="person-name">{{ name }}</span>
 </span>
 {%- endmacro %}
 
-{#- Coloured-initial avatar on its own (Admin lists). -#}
-{% macro person_avatar(name, colour) -%}
-<span class="person-dot ink-{{ colour | person_ink }}" style="--person: {{ colour }};" aria-hidden="true">{{ name[:1] | upper }}</span>
+{#- The avatar on its own (Admin lists). -#}
+{% macro person_avatar(name, colour, avatar=none) -%}
+{{ person_face(name, colour, avatar, "person-dot") }}
 {%- endmacro %}

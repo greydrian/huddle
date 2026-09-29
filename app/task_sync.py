@@ -390,7 +390,7 @@ async def _run_cycle(db):
 
             await reconcile_shopping(db, access_token)
             profiles = await (await db.execute(
-                "SELECT * FROM profiles WHERE google_tasklist_id IS NOT NULL"
+                "SELECT id, google_tasklist_id FROM profiles WHERE google_tasklist_id IS NOT NULL"
             )).fetchall()
             for profile in profiles:
                 await reconcile_profile_tasks(db, access_token, profile)

@@ -1,4 +1,4 @@
-{% from "_icons.html" import icon %}
+{% from "_icons.html" import icon, person_avatar %}
 {% from "widgets/_widget.html" import widget_header, stub_empty %}
 {#- Context: services/calendar_view.widget_context (the dashboard's loader and
     every /widgets/calendar route): `view`, one of calendar_month /
@@ -121,7 +121,7 @@
       {% for p in c.profiles %}
       <button type="button" class="cal-person ink-{{ p.colour_hex | person_ink }}" style="--person: {{ p.colour_hex }};"
               aria-pressed="{{ 'true' if c.person == p.id else 'false' }}"
-              hx-get="{{ c.person_urls[p.id] }}" hx-target="#widget-calendar" hx-swap="outerHTML">{{ p.name }}</button>
+              hx-get="{{ c.person_urls[p.id] }}" hx-target="#widget-calendar" hx-swap="outerHTML">{{ person_avatar(p.name, p.colour_hex, p.avatar) }}{{ p.name }}</button>
       {% endfor %}
     </div>
     {% endif %}

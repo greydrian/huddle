@@ -137,7 +137,8 @@ async def test_event_person_comes_from_a_name_prefix(db, calendar):
     ])
     found = await banners.active_banners(db, at(16, 15), only("events"))
     assert [(b["text"], b["person"]) for b in found] == [
-        ("Dentist at 16:30 (in 15 min)", {"name": "Riley", "colour": "#D6A02C"}),
+        ("Dentist at 16:30 (in 15 min)", {"name": "Riley", "colour": "#D6A02C",
+                                          "avatar": {"kind": "initial", "emoji": None, "url": None}}),
         ("Note: bring kit at 16:40 (in 25 min)", None),  # "Note" isn't a family member: Everyone
     ]
     assert found[0]["key"] == "event:a:2026-10-05T16:30:00+01:00"

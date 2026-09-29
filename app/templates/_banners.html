@@ -15,7 +15,7 @@
           hx-target="#banner-bar" hx-swap="outerHTML"
           data-key="{{ b.key }}"{% if b.sound %} data-sound{% endif %}
           aria-label="{{ b.text }} (tap to dismiss)">
-    {%- if b.person %}{{ person_pill(b.person.name, b.person.colour) }}
+    {%- if b.person %}{{ person_pill(b.person.name, b.person.colour, b.person.avatar) }}
     {%- else %}<span class="person-pill person-pill-everyone"><span class="person-name">Everyone</span></span>{% endif %}
     <span class="banner-text">{{ b.text }}</span>
     <span class="banner-close" aria-hidden="true">{{ icon("x", 20) }}</span>

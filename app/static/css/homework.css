@@ -156,6 +156,13 @@
   font-weight: 700;
 }
 .rd-dot .icon { display: none; }
+/* The child's avatar (person_face, spec 10.9) inside the ring until ticked. */
+.rd-initial.avatar-emoji, .rd-initial.avatar-photo {
+  width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;
+  border-radius: 50%; overflow: hidden; line-height: 1;
+}
+.rd-initial.avatar-emoji { font-size: 0.95rem; }
+.rd-initial.avatar-photo { padding: 0; background: none; }
 .rd-name { min-width: 0; max-width: 7em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rd-tick.on { background: color-mix(in srgb, var(--person, var(--accent)) var(--event-tint), var(--card)); }
 .rd-tick.on .rd-dot { background: var(--person, var(--accent)); color: var(--person-ink, var(--on-accent)); }

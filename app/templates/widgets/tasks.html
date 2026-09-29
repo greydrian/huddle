@@ -16,7 +16,7 @@
 {% set open_tasks = profile.tasks | rejectattr('is_completed') | list %}
 {% set done_tasks = profile.tasks | selectattr('is_completed') | list %}
 <div class="task-group">
-  {{ person_pill(profile.name, profile.colour_hex) }}
+  {{ person_pill(profile.name, profile.colour_hex, profile.avatar) }}
   {% for task in open_tasks %}{{ task_row(task) }}{% endfor %}
   {% if not profile.tasks %}
   <div class="widget-note">No tasks yet{% if profile.linked %} — add some here or in Google Tasks{% endif %}.</div>

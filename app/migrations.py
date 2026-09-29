@@ -618,6 +618,19 @@ async def m0007_homework_extras(db):
     )
 
 
+async def m0008_avatars(db):
+    """Spec 10.9: each person's avatar is their coloured initial (as before),
+    an emoji, or a photo. The photo is a 256x256 WebP kept in the database
+    itself, so the nightly backup (the database and the key only) includes
+    it. avatar_hash is the first characters of its SHA-256: the photo's URL
+    carries it, so the URL changes whenever the photo does and can be cached
+    for good. Existing rows get 'initial' and NULLs: nothing changes."""
+    await database._add_column_if_missing(db, "profiles", "avatar_kind", "TEXT NOT NULL DEFAULT 'initial'")
+    await database._add_column_if_missing(db, "profiles", "avatar_emoji", "TEXT")
+    await database._add_column_if_missing(db, "profiles", "avatar_photo", "BLOB")
+    await database._add_column_if_missing(db, "profiles", "avatar_hash", "TEXT")
+
+
 # Append only: see the module docstring.
 MIGRATIONS: list[Migration] = [
     Migration(1, "baseline", m0001_baseline),
@@ -627,6 +640,7 @@ MIGRATIONS: list[Migration] = [
     Migration(5, "widget_visibility", m0005_widget_visibility),
     Migration(6, "photos", m0006_photos),
     Migration(7, "homework_extras", m0007_homework_extras),
+    Migration(8, "avatars", m0008_avatars),
 ]
 
 

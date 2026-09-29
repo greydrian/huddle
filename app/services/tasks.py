@@ -14,7 +14,7 @@ import time as _time
 from collections import deque
 from datetime import date, datetime, time, timezone
 
-from app import recurrence
+from app import avatars, recurrence
 from app.database import family_timezone, family_today, get_setting, set_setting
 from app.services import term_dates
 from app.task_sync import queue_sync
@@ -132,8 +132,8 @@ async def get_profiles_with_tasks(db, today: date | None = None) -> list[dict]:
     the container's). Each task carries `local_only` (its person has no
     Google list, so it's on this display only) and `late` (a missed one-off
     carried over: "from yesterday")."""
-    profiles = [dict(row) for row in await (await db.execute(
-        "SELECT * FROM profiles ORDER BY sort_order"
+    profiles = [avatars.attach(dict(row)) for row in await (await db.execute(
+        f"SELECT {avatars.PROFILE_COLUMNS} FROM profiles ORDER BY sort_order"
     )).fetchall()]
 
     today = today or await family_today(db)

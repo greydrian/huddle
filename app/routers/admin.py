@@ -19,6 +19,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from app import (
     admin_tabs,
     appearance,
+    avatars,
     backup,
     bank_holidays,
     google_oauth,
@@ -117,6 +118,14 @@ ADMIN_ERRORS = {
     "profile-year": ("family", f"A year group can be at most {MAX_SCHOOL_YEAR} characters."),
     "profile-email": ("family", "That email address doesn't look right. Use one address, like "
                                 "name@example.com, or leave it blank. Nothing was changed."),
+    "avatar-kind": ("family", "Pick Initial, Emoji or Photo."),
+    "avatar-emoji": ("family", "Pick one emoji from the grid, or type exactly one emoji (no letters or "
+                               "spaces). Nothing was changed."),
+    "avatar-no-photo": ("family", "Upload a photo first, then pick Photo."),
+    "avatar-empty": ("family", "Choose a photo to upload first."),
+    "avatar-too-big": ("family", "That photo is too big: at most 8 MB and 60 megapixels. Try a smaller one."),
+    "avatar-bad-type": ("family", "That file isn't a photo Huddle can read. Use a JPEG, PNG, WebP, GIF or "
+                                  "HEIC (iPhone) photo."),
     "import-empty": ("classroom", "Add a screenshot, a PDF or some pasted text first."),
     "import-too-big": ("classroom", "That's too big to read: at most 15 MB a file and 22 MB in all. "
                                     "Try a smaller screenshot or fewer pages."),
@@ -404,9 +413,11 @@ async def _render_admin(
     }
     async with get_db() as db:
         context["appearance"] = await appearance.current_mode(db)
-        context["profiles"] = [dict(r) for r in await (await db.execute(
-            "SELECT * FROM profiles ORDER BY sort_order"
+        context["profiles"] = [avatars.attach(dict(r)) for r in await (await db.execute(
+            f"SELECT {avatars.PROFILE_COLUMNS} FROM profiles ORDER BY sort_order"
         )).fetchall()]
+        context["curated_emoji"] = avatars.CURATED_EMOJI
+        context["avatar_kinds"] = avatars.KIND_LABELS
         google_account = await google_oauth.get_connected_account(db)
         context["google_account"] = google_account
         context["google_configured"] = google_oauth.is_configured()
@@ -524,6 +535,90 @@ async def save_profile_details(
         cursor = await db.execute(
             "UPDATE profiles SET school_year = ?, is_parent = ?, email = ? WHERE id = ?",
             (year, int(is_parent), address, profile_id),
+        )
+        await db.commit()
+    if not cursor.rowcount:
+        return _admin_error("profile-missing")
+    return RedirectResponse(url=admin_url("family"), status_code=303)
+
+
+# --- Avatars (spec 10.9) ---
+# Like every Admin write, these are also guarded by app/upload_guard.py
+# (session and size checked before the body is read; the photo gets 8 MB).
+
+@router.post("/profiles/{profile_id}/avatar", dependencies=[Depends(require_admin)])
+async def save_avatar(
+    profile_id: int, kind: str = Form(...), emoji: str = Form(""), custom_emoji: str = Form("")
+):
+    """Initial, Emoji or Photo. A typed emoji wins over the grid's; Photo
+    needs a photo uploaded first. The stored emoji and photo are kept when
+    another kind is picked, so switching back is one tap."""
+    if kind not in avatars.KINDS:
+        return _admin_error("avatar-kind")
+    chosen = None
+    submitted = custom_emoji.strip() or emoji.strip()
+    if kind == "emoji" and submitted:
+        try:
+            chosen = avatars.clean_emoji(submitted)
+        except avatars.AvatarError as exc:
+            return _admin_error(exc.code)
+    async with get_db() as db:
+        row = await (await db.execute(
+            "SELECT avatar_emoji, avatar_hash FROM profiles WHERE id = ?", (profile_id,)
+        )).fetchone()
+        if row is None:
+            return _admin_error("profile-missing")
+        if kind == "photo" and not row["avatar_hash"]:
+            return _admin_error("avatar-no-photo")
+        if kind == "emoji" and not (chosen or row["avatar_emoji"]):
+            return _admin_error("avatar-emoji")
+        await db.execute(
+            "UPDATE profiles SET avatar_kind = ?, avatar_emoji = ? WHERE id = ?",
+            (kind, chosen or row["avatar_emoji"], profile_id),
+        )
+        await db.commit()
+    return RedirectResponse(url=admin_url("family"), status_code=303)
+
+
+@router.post("/profiles/{profile_id}/avatar/photo", dependencies=[Depends(require_admin)])
+async def upload_avatar_photo(request: Request, profile_id: int):
+    """A new photo: cropped round (square here; the circle is CSS), 256 px,
+    EXIF stripped, stored in the database, and made the avatar."""
+    try:
+        async with request.form(max_files=1, max_fields=2) as form:
+            upload = form.get("photo")
+            if not isinstance(upload, StarletteUploadFile):
+                return _admin_error("avatar-empty")
+            # One byte past the cap, so an oversized file is refused unread.
+            data = await upload.read(avatars.MAX_PHOTO_BYTES + 1)
+    except StarletteHTTPException:  # more parts than max_files / max_fields
+        return _admin_error("avatar-bad-type")
+    if not data:
+        return _admin_error("avatar-empty")
+    try:
+        photo = await asyncio.to_thread(avatars.process_photo, data)
+    except avatars.AvatarError as exc:
+        return _admin_error(exc.code)
+    async with get_db() as db:
+        cursor = await db.execute(
+            "UPDATE profiles SET avatar_kind = 'photo', avatar_photo = ?, avatar_hash = ? WHERE id = ?",
+            (photo, avatars.photo_hash(photo), profile_id),
+        )
+        await db.commit()
+    if not cursor.rowcount:
+        return _admin_error("profile-missing")
+    return RedirectResponse(url=admin_url("family"), status_code=303)
+
+
+@router.post("/profiles/{profile_id}/avatar/photo/remove", dependencies=[Depends(require_admin)])
+async def remove_avatar_photo(profile_id: int):
+    """Deletes the photo; a photo avatar goes back to the initial."""
+    async with get_db() as db:
+        cursor = await db.execute(
+            """UPDATE profiles SET avatar_photo = NULL, avatar_hash = NULL,
+                   avatar_kind = CASE avatar_kind WHEN 'photo' THEN 'initial' ELSE avatar_kind END
+               WHERE id = ?""",
+            (profile_id,),
         )
         await db.commit()
     if not cursor.rowcount:
