@@ -50,9 +50,10 @@ from app.security import (
     lockout_seconds_for,
     verify_pin,
 )
-from app.services import extraction, homework, imports, school_events, term_dates, weather
+from app.services import extraction, homework, imports, layout, school_events, term_dates, weather
 from app.services import tasks as task_service
 from app.templating import templates
+from app.widgets import WIDGETS
 
 # Re-exported: older callers and tests import these from here.
 __all__ = ["SESSION_COOKIE", "require_admin", "router"]
@@ -81,6 +82,7 @@ ADMIN_ERRORS = {
     "words-missing": ("practice-words", "That word list no longer exists. It may have just been deleted."),
     "handwriting-style": ("practice-words", "Pick one of the handwriting styles."),
     "appearance": ("display", "Pick one of the appearance options."),
+    "widget-missing": ("widgets", "That widget no longer exists. Nothing was changed."),
     "pin-invalid": ("pin", "A PIN must be 4 to 8 digits, numbers only. Your PIN hasn't changed."),
     "backup-failed": ("backups", "The backup didn't complete. Check the logs (docker compose logs)."),
     "pin-weak": ("pin", "That PIN is too easy to guess: avoid one digit repeated (like 0000) or a "
@@ -419,6 +421,8 @@ async def _render_admin(
                 "weather_error": weather_error,
                 "appearance_setting": await appearance.get_appearance(db),
                 "appearances": appearance.APPEARANCES,
+                "widget_settings": await layout.admin_widgets(db),
+                "school_day_today": await term_dates.is_school_day(db, await family_today(db)),
             })
         elif tab == "google":
             context.update(await _google_lists(db, google_account))
@@ -1144,6 +1148,28 @@ async def save_onscreen_keyboard(enabled: bool = Form(False)):
     async with get_db() as db:
         await set_onscreen_keyboard(db, enabled)
     return RedirectResponse(url=admin_url("keyboard"), status_code=303)
+
+
+@router.post("/widgets/{widget_id}/visibility", dependencies=[Depends(require_admin)])
+async def save_widget_visibility(widget_id: str, visible: bool = Form(False)):
+    """Show or hide a widget (spec 10.3). Hiding closes its gap; showing puts
+    it back where it was, or the nearest free space."""
+    if widget_id not in WIDGETS:
+        return _admin_error("widget-missing")
+    async with get_db() as db:
+        await (layout.show_widget if visible else layout.hide_widget)(db, widget_id)
+        await db.commit()
+    return RedirectResponse(url=admin_url("widgets"), status_code=303)
+
+
+@router.post("/widgets/{widget_id}/school-days", dependencies=[Depends(require_admin)])
+async def save_widget_school_days(widget_id: str, enabled: bool = Form(False)):
+    if widget_id not in WIDGETS:
+        return _admin_error("widget-missing")
+    async with get_db() as db:
+        await layout.set_school_days_only(db, widget_id, enabled)
+        await db.commit()
+    return RedirectResponse(url=admin_url("widgets"), status_code=303)
 
 
 @router.post("/appearance", dependencies=[Depends(require_admin)])

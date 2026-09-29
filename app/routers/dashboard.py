@@ -15,6 +15,7 @@ from app import scheduler, sync_status
 from app.appearance import current_mode
 from app.database import get_db
 from app.freshness import today_info, widget_revisions
+from app.services import layout
 from app.templating import templates
 from app.widgets import WIDGETS
 
@@ -51,15 +52,17 @@ async def health():
 @router.get("/", response_class=HTMLResponse)
 async def dashboard(request: Request):
     async with get_db() as db:
-        layout_rows = await (await db.execute(
-            "SELECT * FROM layout_state WHERE is_visible = 1"
-        )).fetchall()
+        # Only the widgets shown today, where they're shown (spec 10.3):
+        # hidden ones and "school days only" ones on a day off are left out,
+        # and so are their loaders.
+        shown = await layout.shown_layout(db)
         # Widget templates are included into dashboard.html and inherit its
         # context, so each loader's names must match its template's.
-        contexts = {widget_id: await widget.load(db) for widget_id, widget in WIDGETS.items()}
+        contexts = {row["widget_id"]: await WIDGETS[row["widget_id"]].load(db) for row in shown}
         context = {name: value for widget_context in contexts.values() for name, value in widget_context.items()}
         today = await today_info(db)
-        widget_revs = await widget_revisions(db, contexts)
+        widget_revs = widget_revisions(contexts)
+        layout_generation = await layout.generation(db, list(contexts))
         appearance = await current_mode(db)
 
     return templates.TemplateResponse(
@@ -67,7 +70,8 @@ async def dashboard(request: Request):
         "dashboard.html",
         {
             **context,
-            "layout": [dict(row) for row in layout_rows],
+            "layout": shown,
+            "layout_generation": layout_generation,
             "widget_templates": {widget_id: widget.template for widget_id, widget in WIDGETS.items()},
             "today": today["date"],
             "today_next_change": today["next_change_in"],

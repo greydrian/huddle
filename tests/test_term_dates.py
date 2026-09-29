@@ -229,6 +229,7 @@ async def test_migration_3_adds_the_tables_and_changes_nothing_else(tmp_path, mo
 
     monkeypatch.undo()
     monkeypatch.setattr(database, "DB_PATH", path)
+    monkeypatch.setattr(migrations, "MIGRATIONS", migrations.MIGRATIONS[:3])  # later ones change other tables
     await database.init_db()
     await database.init_db()  # and again: a no-op
 

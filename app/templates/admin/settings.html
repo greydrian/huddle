@@ -420,6 +420,35 @@
   {% endif %}
 
   {% if admin_tab == "display" %}
+  <!-- Widgets (spec 10.3): each switch is its own one-button form. -->
+  {% macro widget_switch(action, name, on, label, widget_label) %}
+  <form method="post" action="{{ action }}" class="widget-switch-form">
+    <input type="hidden" name="{{ name }}" value="{{ 'false' if on else 'true' }}">
+    <button type="submit" class="widget-switch" role="switch" aria-checked="{{ 'true' if on else 'false' }}"
+            aria-label="{{ label }}: {{ widget_label }}">
+      <span class="widget-switch-track" aria-hidden="true"><span class="widget-switch-knob"></span></span>
+      <span class="widget-switch-text">{{ label }}</span>
+    </button>
+  </form>
+  {% endmacro %}
+  <div class="admin-panel" id="widgets">
+    <h2>Widgets</h2>
+    {{ section_error("widgets") }}
+    <p class="admin-hint">Hide a widget and the ones below it move up to fill its space; nothing else on the wall moves. Show it again and it goes back where it was, or to the nearest free space. The wall updates by itself within a minute.</p>
+    {% for w in widget_settings %}
+    <div class="admin-row widget-row{{ ' is-hidden' if not w.visible else '' }}">
+      <span class="admin-item-label"><strong>{{ w.label }}</strong>
+        {%- if not w.visible %} <span class="admin-meta">· hidden</span>
+        {%- elif w.school_days_only and not school_day_today %} <span class="admin-meta">· not shown today (not a school day)</span>{% endif %}</span>
+      <span class="widget-switches">
+        {{ widget_switch("/admin/widgets/" ~ w.id ~ "/visibility", "visible", w.visible, "Show", w.label) }}
+        {{ widget_switch("/admin/widgets/" ~ w.id ~ "/school-days", "enabled", w.school_days_only, "School days only", w.label) }}
+      </span>
+    </div>
+    {% endfor %}
+    <p class="admin-hint">"School days only" widgets show on school days and are left out on weekends, holidays, half terms, INSET days and bank holidays (from the term dates under School). Today is {{ 'a school day' if school_day_today else 'not a school day' }}.</p>
+  </div>
+
   <!-- Weather location -->
   <div class="admin-panel" id="weather">
     <h2>Weather location</h2>

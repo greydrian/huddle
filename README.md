@@ -64,9 +64,12 @@ Google (Calendar + Tasks) and Open-Meteo (weather).
   lockout and signs everyone out.
   Admin manages family members, task schedules, homework, practice words,
   Google account + list links, weather location, appearance and the
-  keyboard.
+  keyboard. Admin → Display → Widgets shows or hides each widget (the ones
+  below a hidden widget move up into its space) and can show one on school
+  days only.
 
-**Photos** is a placeholder card ("coming soon"). See "Next steps".
+The **Photos** placeholder card was removed (spec 10.2); photos are planned
+for the idle screen. See "Next steps".
 
 ## Running with Docker (recommended)
 

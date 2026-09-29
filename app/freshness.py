@@ -5,7 +5,9 @@ Keeping the long-lived kiosk page fresh without reloading it.
   polls it and re-fetches only the widgets whose revision changed, so
   changes pulled in by the Google Tasks sync, Admin edits made on a phone
   and the midnight reset reach the wall. (Calendar and Weather poll
-  themselves: their data is Google's/Open-Meteo's, not ours.)
+  themselves: their data is Google's/Open-Meteo's, not ours.) Only the
+  widgets the wall shows are loaded (spec 10.3); `shown` lists them, and
+  fresh.js reloads the page when the layout generation changes.
 - /api/today: the family's date and the seconds until it next changes, for
   the top bar — the same "server says how long, tablet counts elapsed time"
   approach as the day/night switch in app/appearance.py, so the tablet's own
@@ -26,6 +28,7 @@ from fastapi import APIRouter
 
 from app import database
 from app.database import family_timezone, get_db
+from app.services import layout
 from app.widgets import WIDGETS
 
 # Widgets refreshed through /api/rev. Each template's root carries
@@ -41,15 +44,17 @@ def revision(context: dict) -> str:
     return hashlib.sha1(payload.encode(), usedforsecurity=False).hexdigest()[:12]
 
 
-async def widget_revisions(db, contexts: dict[str, dict] | None = None) -> dict[str, str]:
-    """{widget_id: revision} for REFRESHED. The dashboard passes the
-    contexts it just rendered, so the page's starting revisions describe
-    exactly what it shows."""
-    contexts = contexts or {}
-    return {
-        widget_id: revision(contexts[widget_id] if widget_id in contexts else await WIDGETS[widget_id].load(db))
-        for widget_id in REFRESHED
-    }
+def widget_revisions(contexts: dict[str, dict]) -> dict[str, str]:
+    """{widget_id: revision} for the REFRESHED widgets in `contexts`: the
+    dashboard passes the contexts it just rendered (only the widgets it
+    shows), so the page's starting revisions describe exactly what it shows."""
+    return {widget_id: revision(contexts[widget_id]) for widget_id in REFRESHED if widget_id in contexts}
+
+
+async def shown_revisions(db, shown: list[str]) -> dict[str, str]:
+    """Revisions for the REFRESHED widgets the wall shows today. A hidden
+    widget (or a "school days only" one on a day off) isn't loaded at all."""
+    return {widget_id: revision(await WIDGETS[widget_id].load(db)) for widget_id in REFRESHED if widget_id in shown}
 
 
 def seconds_until_tomorrow(now: datetime) -> int:
@@ -67,8 +72,18 @@ async def today_info(db, now: datetime | None = None) -> dict:
 
 @router.get("/api/rev")
 async def revisions():
+    """`shown`: the widgets the wall should show now; `layout`: the layout
+    generation (services/layout.generation). fresh.js reloads the page when
+    that differs from the page's (a widget hidden or shown in Admin, or a
+    new day)."""
     async with get_db() as db:
-        return {"today": (await today_info(db))["date"], "widgets": await widget_revisions(db)}
+        shown = await layout.shown_ids(db)
+        return {
+            "today": (await today_info(db))["date"],
+            "shown": shown,
+            "layout": await layout.generation(db, shown),
+            "widgets": await shown_revisions(db, shown),
+        }
 
 
 @router.get("/api/today")

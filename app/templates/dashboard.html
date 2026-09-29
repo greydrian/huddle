@@ -21,8 +21,10 @@
 {# The scroller is its own element: Gridstack sizes #dashboard-grid with an
    inline height, so the grid can't be what scrolls. #}
 <div id="dashboard-scroll" class="dashboard-scroll">
-{#- data-revs: what each self-refreshing widget shows (app/freshness.py). #}
-<div id="dashboard-grid" class="grid-stack" data-revs='{{ widget_revs | tojson }}'>
+{#- data-revs: what each self-refreshing widget shows (app/freshness.py).
+    data-layout: the layout generation this page shows (services/layout.generation):
+    fresh.js reloads when /api/rev's differs, and every layout save sends it. #}
+<div id="dashboard-grid" class="grid-stack" data-revs='{{ widget_revs | tojson }}' data-layout="{{ layout_generation }}">
   {% for widget in layout %}
   <div class="grid-stack-item"
        gs-id="{{ widget.widget_id }}"
@@ -65,8 +67,14 @@
     fetch('/api/layout', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ items })
+      // The layout this page was rendered with: a stale page (a widget hidden
+      // or shown in Admin since, or a new day) is refused with 409, and reloads.
+      body: JSON.stringify({ items, generation: document.getElementById('dashboard-grid').dataset.layout })
     }).then(resp => {
+      if (resp.status === 409) {
+        window.location.reload();
+        return;
+      }
       if (!resp.ok) {
         console.warn('Layout not saved: HTTP ' + resp.status);
         return;

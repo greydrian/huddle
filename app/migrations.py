@@ -475,12 +475,49 @@ async def m0004_task_groups(db):
     await database._add_column_if_missing(db, "tasks", "due_on", "TEXT")
 
 
+async def m0005_widget_visibility(db):
+    """Spec 10.3: a "school days only" switch per widget, and spec 10.2: the
+    Photos placeholder widget leaves the dashboard.
+
+    school_days_only is a column on layout_state rather than a table of its
+    own: like is_visible it's one flag per widget, it belongs to the same row
+    (added for a new widget by startup_checks, deleted with a removed one),
+    and every reader already loads that row. hide_moves (JSON) records, on a
+    hidden widget's row, which widgets moved up when it was hidden, so
+    showing it again can put them back.
+
+    The Photos row is deleted, and if it was showing, its gap is closed once
+    with the same logic as hiding a widget (only the widgets below it in its
+    columns move up). A row already hidden by hand never took up space on the
+    wall, so nothing moves for it. Its registry entry is gone, so
+    startup_checks won't add it back."""
+    from app.services.layout import close_gap
+
+    await database._add_column_if_missing(db, "layout_state", "school_days_only", "INTEGER NOT NULL DEFAULT 0")
+    await database._add_column_if_missing(db, "layout_state", "hide_moves", "TEXT")
+    rows = [dict(r) for r in await (await db.execute(
+        "SELECT widget_id, grid_x, grid_y, grid_w, grid_h, is_visible FROM layout_state"
+    )).fetchall()]
+    photos = next((r for r in rows if r["widget_id"] == "photos"), None)
+    if photos is None:
+        return
+    await db.execute("DELETE FROM layout_state WHERE widget_id = 'photos'")
+    if not photos["is_visible"]:
+        return
+    visible = [r for r in rows if r["is_visible"]]
+    before = {r["widget_id"]: r["grid_y"] for r in visible}
+    for row in close_gap(visible, photos):
+        if row["grid_y"] != before[row["widget_id"]]:
+            await db.execute("UPDATE layout_state SET grid_y = ? WHERE widget_id = ?", (row["grid_y"], row["widget_id"]))
+
+
 # Append only: see the module docstring.
 MIGRATIONS: list[Migration] = [
     Migration(1, "baseline", m0001_baseline),
     Migration(2, "profile_parents", m0002_profile_parents),
     Migration(3, "term_dates", m0003_term_dates),
     Migration(4, "task_groups", m0004_task_groups),
+    Migration(5, "widget_visibility", m0005_widget_visibility),
 ]
 
 

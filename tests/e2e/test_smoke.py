@@ -10,7 +10,7 @@ import pytest
 
 pytestmark = pytest.mark.e2e
 
-WIDGETS = ("calendar", "tasks", "shopping", "meals", "weather", "photos", "homework", "practice_words")
+WIDGETS = ("calendar", "tasks", "shopping", "meals", "weather", "homework", "practice_words")
 
 
 async def _touch_drag(page, start, end, steps=12):

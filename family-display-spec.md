@@ -90,7 +90,7 @@ in the box. It replaces the Tab A9+.
 | Weather | Open-Meteo for the location set in Admin, with illustrated icons. It shows a cached forecast (up to 24 h old) when offline. |
 | Homework | Per-child homework with due, due-today, overdue and done states. |
 | Practice words | Each child's current handwriting word list in Playwrite GB (semi-joined or joined), with a daily "Practised today" toggle. Deliberately no points. |
-| Photos | **Placeholder; removed in v1.1** (10.2). |
+| Photos | **Placeholder; removed in v1.1** (10.2, migration 5). |
 
 ### 4.2 Calendar sync
 - Google Calendar (Workspace account). The calendars to show are chosen in Admin, each in its own
@@ -292,7 +292,8 @@ Polling, not WebSockets:
 - Gridstack, 12 columns. Every drag or resize persists to `layout_state`, which validates each
   item and clamps it to the grid.
 - New widgets are added to existing installs without moving the others.
-- `layout_state.is_visible` exists, but **nothing in the UI sets it yet** (see 10.3).
+- `layout_state.is_visible` and `school_days_only` are set in Admin → Display → Widgets (10.3,
+  `app/services/layout.py`).
 
 ### 9.7 Containerisation (decided)
 - The display backend and Home Assistant run in Docker Compose on the G10, with a bind-mounted
