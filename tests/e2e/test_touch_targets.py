@@ -93,8 +93,12 @@ def _seed_content(server):
 async def test_dashboard_touch_targets(start_server, page):
     server = start_server(keyboard=True)
     _seed_content(server)
+    server.seed_banners()
     await page.goto(server.url + "/")
     await page.wait_for_selector("#widget-tasks >> text=Feed the cat")
+    if await page.locator("#banner-bar [data-more]").count():  # none in the seeded quiet minutes
+        await page.click("#banner-bar [data-more]")  # measure every banner, and "Show less"
+        await page.wait_for_selector("#banner-bar .banner-extra:visible")
     await page.wait_for_selector("#widget-homework >> text=Fractions")
     await page.click("#widget-tasks .task-add-toggle")  # measure the quick-add form's chips too
     await page.wait_for_selector("#task-add-form:not([hidden])")

@@ -203,6 +203,59 @@ input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-
 .sync-dot-red, .sync-state-red { --sync-colour: var(--danger); background: var(--danger-soft); border: 1px solid var(--danger); }
 .sync-state-ok { background: var(--accent-soft); }
 
+/* Notification banner (templates/_banners.html, spec 10.1): a slim bar in
+   the page's flow between the top bar and the grid, so it pushes the grid
+   down instead of covering drag handles. Two banners and "+N more" share one
+   row; the extras (order 2) wrap below it when opened. Text is --ink on
+   --card (AA in both palettes); "Everyone" is --card on --ink-soft. */
+.banner-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 0 24px 2px;
+  flex-shrink: 0;
+}
+.banner-bar.is-empty { display: none; }
+.banner {
+  flex: 1 1 380px;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 56px;
+  padding: 6px 12px 6px 8px;
+  background: var(--card);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-left: 6px solid var(--accent);
+  border-radius: 16px;
+  box-shadow: var(--shadow-card);
+  font-size: 1.1rem;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+.banner[hidden] { display: none; }
+.banner-extra { order: 2; }
+.banner .person-pill { flex-shrink: 0; max-width: 40%; }
+.person-pill-everyone { --person: var(--ink-soft); --person-ink: var(--card); min-height: 36px; padding: 3px 14px; }
+.banner-text { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.banner-close { display: inline-flex; color: var(--ink-soft); }
+.banner-more {
+  order: 1;
+  flex: 0 0 auto;
+  min-height: 56px;
+  min-width: 48px;
+  padding: 6px 20px;
+  background: var(--accent-soft);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  font-size: 1.05rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
 /* The page stays locked (above); the area under the top bar scrolls.
    Gridstack gives #dashboard-grid an inline height as tall as its rows,
    so the scrolling happens on this wrapper instead of the grid itself. */
@@ -210,7 +263,7 @@ body:has(> .dashboard-scroll) {
   display: flex;
   flex-direction: column;
 }
-body:has(> .dashboard-scroll) > .topbar { flex-shrink: 0; }
+body:has(> .dashboard-scroll) > .topbar, body:has(> .dashboard-scroll) > .banner-bar { flex-shrink: 0; }
 .dashboard-scroll {
   flex: 1;
   min-height: 0;
@@ -875,6 +928,9 @@ html:has(.admin-shell), html:has(.admin-shell) body { height: auto; overflow-y: 
 .widget-switch[aria-checked="true"] .widget-switch-track { background: var(--accent); border-color: var(--accent); }
 .widget-switch[aria-checked="true"] .widget-switch-knob { transform: translateX(18px); background: var(--on-accent); }
 .widget-switch:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; border-radius: 8px; }
+/* Admin → Display → Banners: one row per trigger (Show, Chime). */
+.banner-setting { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; border-bottom: 1px solid var(--line); }
+.banner-setting-name { flex: 1 1 220px; font-weight: 600; }
 .admin-hint { color: var(--ink-soft); font-size: 0.9rem; margin: 6px 0 10px; }
 .admin-shell a:not(.btn):not(.btn-ghost) { color: var(--accent); }
 .admin-shell code { font-size: 0.9em; background: var(--sunken); padding: 1px 5px; border-radius: 5px; }

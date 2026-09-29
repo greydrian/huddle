@@ -33,6 +33,7 @@ SECTIONS = {
     "widgets": "display",
     "weather": "display",
     "display": "display",  # Appearance (its anchor predates the tabs)
+    "banners": "display",
     "keyboard": "display",
     "device": "display",
     "google": "google",

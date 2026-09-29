@@ -17,6 +17,7 @@
     <a href="/admin" class="btn-ghost">{{ icon("settings", 20) }}Admin</a>
   </div>
 </div>
+{% include "_banners.html" %}
 
 {# The scroller is its own element: Gridstack sizes #dashboard-grid with an
    inline height, so the grid can't be what scrolls. #}
@@ -45,6 +46,7 @@
 {% block scripts %}{% with part = "scripts" %}{% include "_keyboard_assets.html" %}{% endwith %}
 <script src="/static/vendor/gridstack/gridstack-all.js"></script>
 <script src="/static/js/fresh.js"></script>
+<script src="/static/js/banners.js"></script>
 <script>
   // Gridstack: anyone can drag/resize, no PIN required (Section 4.6).
   const grid = GridStack.init({

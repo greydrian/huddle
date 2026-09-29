@@ -122,12 +122,15 @@ async def fetch_userinfo(access_token: str) -> dict:
 
 async def get_all_pages(
     url: str, access_token: str, params: dict | None = None, items_key: str = "items", limit: int | None = None,
+    meta: dict | None = None,
 ) -> list[dict]:
     """GET every page of a Google list endpoint (items + nextPageToken).
     Stopping at the first page silently truncates results — and the Tasks
     reconcile treats "missing from Google" as "deleted on Google". Gmail
     names its list "messages" (items_key). `limit` stops once that many
-    items are in (for callers that only take so many anyway)."""
+    items are in (for callers that only take so many anyway). `meta`, if
+    given, gets the first page's other top-level fields (e.g. Calendar's
+    defaultReminders)."""
     params = dict(params or {})
     items: list[dict] = []
     async with http_client.client() as client:
@@ -135,6 +138,8 @@ async def get_all_pages(
             resp = await client.get(url, headers={"Authorization": f"Bearer {access_token}"}, params=params)
             resp.raise_for_status()
             body = resp.json()
+            if meta is not None and "pageToken" not in params:
+                meta.update({k: v for k, v in body.items() if k not in (items_key, "nextPageToken")})
             items.extend(body.get(items_key) or [])
             token = body.get("nextPageToken")
             if not token or (limit is not None and len(items) >= limit):

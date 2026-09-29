@@ -125,7 +125,7 @@ def late_label(due_on: str | None, today: date) -> str | None:
 
 # --- The widget -------------------------------------------------------------------------
 
-async def get_profiles_with_tasks(db) -> list[dict]:
+async def get_profiles_with_tasks(db, today: date | None = None) -> list[dict]:
     """Return profiles, each with today's non-archived tasks attached — a
     recurring task set to specific days only shows on those days, and a
     school-days one only on school days (in the household's timezone, not
@@ -136,7 +136,7 @@ async def get_profiles_with_tasks(db) -> list[dict]:
         "SELECT * FROM profiles ORDER BY sort_order"
     )).fetchall()]
 
-    today = await family_today(db)
+    today = today or await family_today(db)
     weekday = today.weekday()
     rows = await (await db.execute(
         "SELECT * FROM tasks WHERE archived = 0 ORDER BY is_completed, created_at"

@@ -488,6 +488,33 @@
     </form>
   </div>
 
+  <!-- Notification banner (spec 10.1, app/services/banners.py) -->
+  <div class="admin-panel" id="banners">
+    <h2>Banners</h2>
+    {{ section_error("banners") }}
+    <p class="admin-hint">A slim bar under the date saying what's coming up. Tap a banner on the wall to dismiss it.</p>
+    <form method="post" action="/admin/banners">
+      <div class="banner-settings">
+        {% for kind, label in banner_triggers.items() %}
+        {% set trigger = banner_settings.triggers[kind] %}
+        <div class="banner-setting">
+          <span class="banner-setting-name">{{ label }}</span>
+          <label class="admin-check"><input type="checkbox" name="on_{{ kind }}" value="1" {{ 'checked' if trigger.on else '' }}> Show</label>
+          <label class="admin-check"><input type="checkbox" name="sound_{{ kind }}" value="1" {{ 'checked' if trigger.sound else '' }}> Chime</label>
+        </div>
+        {% endfor %}
+      </div>
+      <div class="admin-form banner-times">
+        <label class="hw-field">Event warning (minutes) <input type="number" name="lead_minutes" value="{{ banner_settings.lead_minutes }}" min="{{ banner_lead_range[0] }}" max="{{ banner_lead_range[1] }}" step="1" required inputmode="numeric"{% if onscreen_keyboard %} data-osk="numeric"{% endif %}></label>
+        <label class="hw-field">Quiet from <input type="time" name="quiet_start" value="{{ banner_settings.quiet_start }}" required></label>
+        <label class="hw-field">until <input type="time" name="quiet_end" value="{{ banner_settings.quiet_end }}" required></label>
+      </div>
+      <p class="admin-hint">An event's own popup reminder sets how early it shows (at most 2 hours); the minutes here are for events without one. Quiet hours show no banners and play no sound. They're separate from night colours, so a 19:30 club still gets its banner.</p>
+      <p class="admin-hint">Chimes: the tablet keeps sound off until someone touches the screen after the display loads, so banners before that show without a chime. In Fully Kiosk, Web Content Settings → Autoplay Audio may let it start sooner.</p>
+      <button type="submit" class="btn btn-small">Save</button>
+    </form>
+  </div>
+
   <!-- On-screen keyboard -->
   <div class="admin-panel" id="keyboard">
     <h2>On-screen Keyboard</h2>

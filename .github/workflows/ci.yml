@@ -22,6 +22,17 @@ jobs:
       - run: ruff check app tests
       - run: python -m pytest -q
 
+  # A rebase once left a conflict marker in style.css that no test noticed.
+  # Nothing tracked (vendored files included) legitimately has one.
+  conflict-markers:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: |
+          if git grep -nE '^(<<<<<<< |=======[[:space:]]*$|>>>>>>> )'; then
+            echo "::error::Git conflict markers left in the files above"; exit 1
+          fi
+
   # requirements*.txt must be what `uv pip compile` makes from the .in files.
   # uv keeps the versions already pinned in the .txt, so this only fails when
   # someone edited a .in (or a .txt by hand) without recompiling.
