@@ -251,14 +251,14 @@ async def test_dashboard_skips_hidden_widgets_and_their_loaders(admin_client, db
 
 async def test_api_rev_leaves_out_hidden_widgets(admin_client, db, load_counts):
     before = (await admin_client.get("/api/rev")).json()
-    assert set(before["widgets"]) == set(freshness.REFRESHED)
+    assert set(before["widgets"]) == {*freshness.REFRESHED, freshness.BANNERS}
     assert before["shown"] == sorted(widgets.WIDGETS)
 
     await admin_client.post("/admin/widgets/homework/visibility", data={"visible": "false"})
     for key in load_counts:
         load_counts[key] = 0
     after = (await admin_client.get("/api/rev")).json()
-    assert set(after["widgets"]) == set(freshness.REFRESHED) - {"homework"}
+    assert set(after["widgets"]) == {*freshness.REFRESHED, freshness.BANNERS} - {"homework"}
     assert "homework" not in after["shown"]
     assert load_counts["homework"] == 0
     assert load_counts["calendar"] == 0 and load_counts["weather"] == 0  # they poll themselves
