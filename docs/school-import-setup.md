@@ -64,7 +64,7 @@ From the repo folder on the G10:
 
 ```
 git pull
-docker compose up -d --build
+docker compose -f docker-compose.yml up -d --build
 ```
 
 Then reload the tablet. If Admin asks you to **Choose a new PIN**, do that
