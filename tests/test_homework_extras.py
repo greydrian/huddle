@@ -1,5 +1,5 @@
 """Spec 10.10 extras: subject icons and colours, the reading log and the
-homework done history (app/services/homework.py, migration 8)."""
+homework done history (app/services/homework.py, migration 7)."""
 
 import re
 import sqlite3
@@ -78,10 +78,10 @@ def test_subject_synonyms(text, key):
 
 
 def test_migration_copy_of_the_synonyms_matches():
-    """Migration 8 froze a copy of the table; at the time of writing they agree."""
+    """Migration 7 froze a copy of the table; at the time of writing they agree."""
     for key, phrases in homework.SUBJECT_SYNONYMS.items():
         for phrase in phrases:
-            assert migrations._m8_subject_key(phrase) == homework.subject_key_for(phrase) == key
+            assert migrations._m7_subject_key(phrase) == homework.subject_key_for(phrase) == key
 
 
 def test_explicit_pick_wins_and_unknown_is_ignored():
@@ -136,13 +136,13 @@ def test_subject_colours_meet_contrast(mode):
         assert _ratio(colour, _mix(colour, card, tint)) >= 4.5, (mode, key, colour)
 
 
-# --- Migration 8 ---
+# --- Migration 7 ---
 
-async def test_migration_8_upgrade_keeps_data_and_backfills(tmp_path, monkeypatch):
+async def test_migration_7_upgrade_keeps_data_and_backfills(tmp_path, monkeypatch):
     path = tmp_path / "upgrade.db"
     monkeypatch.setattr(database, "DB_PATH", path)
     with monkeypatch.context() as m:
-        m.setattr(migrations, "MIGRATIONS", [x for x in migrations.MIGRATIONS if x.version < 8])
+        m.setattr(migrations, "MIGRATIONS", [x for x in migrations.MIGRATIONS if x.version < 7])
         await database.init_db()
     with sqlite3.connect(path) as conn:
         assert "subject_key" not in [c[1] for c in conn.execute("PRAGMA table_info(homework)")]
@@ -159,7 +159,7 @@ async def test_migration_8_upgrade_keeps_data_and_backfills(tmp_path, monkeypatc
                   for (t,) in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
                   if t not in ("schema_migrations", "sqlite_sequence")}
 
-    await database.init_db()  # the full list: runs 8 only
+    await database.init_db()  # the full list: runs 7 only
 
     with sqlite3.connect(path) as conn:
         assert {v for (v,) in conn.execute("SELECT version FROM schema_migrations")} == {
@@ -177,14 +177,14 @@ async def test_migration_8_upgrade_keeps_data_and_backfills(tmp_path, monkeypatc
         assert conn.execute("SELECT COUNT(*) FROM reading_log").fetchone() == (0,)
 
 
-async def test_migration_8_is_idempotent(db):
-    """Run again (a restored pre-8 backup): nothing doubles."""
+async def test_migration_7_is_idempotent(db):
+    """Run again (a restored pre-7 backup): nothing doubles."""
     riley = (await _ids(db))["Riley"]
     await db.execute("INSERT INTO homework (profile_id, subject, title, done, done_at) "
                      "VALUES (?, 'Maths', 'Sheet', 1, '2026-03-10T16:40:00+00:00')", (riley,))
     await db.commit()
     for _ in range(2):
-        await migrations.m0008_homework_extras(db)
+        await migrations.m0007_homework_extras(db)
         await db.commit()
     assert await _rows(db, "SELECT subject_key FROM homework") == [("maths",)]
     assert len(await _rows(db, "SELECT * FROM homework_events")) == 1

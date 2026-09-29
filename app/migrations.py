@@ -533,16 +533,9 @@ async def m0006_photos(db):
     )
 
 
-async def m0007_reserved(db):
-    """Placeholder for migration 7 (feature/avatars, in a parallel PR).
-    MERGE NOTE: whichever of the two lands second must drop this or renumber
-    itself, so a database never records 7 as applied without its real
-    change. It does nothing."""
-
-
 # Frozen copy of services/homework.subject_key_for's table as of this
 # migration (see "Don't read live constants" above).
-_M8_SYNONYMS = {
+_M7_SYNONYMS = {
     "maths": (
         "maths", "math", "mathematics", "numeracy", "number", "numbers", "number bonds", "times tables",
         "times table", "arithmetic", "mental maths", "fractions", "sumdog", "mathletics",
@@ -561,10 +554,10 @@ _M8_SYNONYMS = {
 }
 
 
-def _m8_subject_key(subject: str | None) -> str:
+def _m7_subject_key(subject: str | None) -> str:
     text = " " + " ".join(re.sub(r"[^0-9a-z]+", " ", (subject or "").casefold()).split()) + " "
     best = None
-    for key, phrases in _M8_SYNONYMS.items():
+    for key, phrases in _M7_SYNONYMS.items():
         for phrase in phrases:
             at = text.find(f" {phrase} ")
             if at >= 0 and (best is None or (at, -len(phrase), key) < best):
@@ -572,7 +565,7 @@ def _m8_subject_key(subject: str | None) -> str:
     return best[2] if best else "other"
 
 
-async def m0008_homework_extras(db):
+async def m0007_homework_extras(db):
     """Spec 10.10: homework subjects, the reading log and the done history.
 
     - homework.subject_key: one of the fixed subjects (maths / english /
@@ -586,7 +579,7 @@ async def m0008_homework_extras(db):
     await database._add_column_if_missing(db, "homework", "subject_key", "TEXT NOT NULL DEFAULT 'other'")
     for row in await (await db.execute("SELECT id, subject FROM homework")).fetchall():
         await db.execute(
-            "UPDATE homework SET subject_key = ? WHERE id = ?", (_m8_subject_key(row["subject"]), row["id"])
+            "UPDATE homework SET subject_key = ? WHERE id = ?", (_m7_subject_key(row["subject"]), row["id"])
         )
     await db.execute(
         """CREATE TABLE IF NOT EXISTS reading_log (
@@ -621,8 +614,7 @@ MIGRATIONS: list[Migration] = [
     Migration(4, "task_groups", m0004_task_groups),
     Migration(5, "widget_visibility", m0005_widget_visibility),
     Migration(6, "photos", m0006_photos),
-    Migration(7, "reserved_avatars", m0007_reserved),  # MERGE NOTE: see m0007_reserved
-    Migration(8, "homework_extras", m0008_homework_extras),
+    Migration(7, "homework_extras", m0007_homework_extras),
 ]
 
 
