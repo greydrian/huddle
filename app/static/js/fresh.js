@@ -18,6 +18,11 @@
  * The check runs again just before the swap, since the fetch takes time.
  * A re-fetch that fails isn't retried until /api/rev answers again.
  *
+ * Which widgets, where: /api/rev also gives the layout generation
+ * (`layout`). When that differs from the page's (#dashboard-grid
+ * data-layout), e.g. a widget hidden or shown in Admin or a new day, the
+ * page reloads as soon as nobody is using it.
+ *
  * Date: the top bar shows the family's date (#today-date). The server says
  * how many seconds until it next changes and only elapsed time is measured
  * here — the approach base.html uses for day/night — so the tablet's own
@@ -89,6 +94,33 @@
     return document.querySelector('[data-rev-key="' + key + '"]');
   }
 
+  // --- Which widgets are on the wall ---
+  // Hiding or showing a widget in Admin, or a new day turning "school days
+  // only" widgets off or on, changes which widgets the wall shows and where
+  // the others sit. That's rare, so the page simply reloads, once nobody is
+  // using it.
+
+  var layoutGen = (grid && grid.dataset.layout) || '';
+  var reloadWanted = false;
+
+  // busy()'s rules for every self-refreshing widget (an open fold touched
+  // recently included), plus the same checks for the rest (calendar, weather).
+  function pageBusy() {
+    var cards = document.querySelectorAll('[data-rev-key]');
+    for (var i = 0; i < cards.length; i++) if (busy(cards[i])) return true;
+    if (pressedAt && Date.now() - pressedAt < PRESS_TIMEOUT_MS) return true;
+    if (root.classList.contains('osk-open') || document.querySelector('.osk--open')) return true;
+    var active = document.activeElement;
+    if (active && grid && grid.contains(active) && active.matches('input, textarea, select, [contenteditable]')) return true;
+    if (grid && grid.querySelector('.htmx-request, .just-ticked, .ui-draggable-dragging, .ui-resizable-resizing')) return true;
+    return false;
+  }
+
+  function reloadIfWanted() {
+    if (reloadWanted && !pageBusy()) window.location.reload();
+    return reloadWanted;
+  }
+
   function poll() {
     if (polling) return;
     polling = true;
@@ -96,6 +128,11 @@
     fetch('/api/rev', fetchOptions())
       .then(function (r) { if (!r.ok) throw r; return r.json(); })
       .then(function (data) {
+        if (typeof data.layout === 'string' && data.layout !== layoutGen) {
+          reloadWanted = true;
+          reloadIfWanted();
+          return;
+        }
         var revs = data.widgets || {};
         failed = {};
         Object.keys(revs).forEach(function (key) {
@@ -250,6 +287,7 @@
     if (dateEl && now >= dateDue) checkDate(true);
     else if (now - lastDateCheck >= DATE_RECHECK_MS) checkDate(false);
     if (!grid || !window.htmx) return;
+    if (reloadIfWanted()) return;
     if (now - lastPoll >= POLL_MS) poll();
     else applyWanted();
   }, RETRY_MS);

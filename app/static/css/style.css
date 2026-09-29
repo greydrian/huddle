@@ -265,8 +265,8 @@ body:has(> .dashboard-scroll) > .topbar { flex-shrink: 0; }
 .widget-body::-webkit-scrollbar { width: 6px; }
 .widget-body::-webkit-scrollbar-thumb { background: var(--scrollbar); border-radius: 3px; }
 
-#widget-shopping .widget-body, #widget-meals .widget-body, #widget-photos .widget-body { padding-left: 16px; padding-right: 16px; }
-#widget-shopping .widget-header, #widget-meals .widget-header, #widget-photos .widget-header,
+#widget-shopping .widget-body, #widget-meals .widget-body { padding-left: 16px; padding-right: 16px; }
+#widget-shopping .widget-header, #widget-meals .widget-header,
 #widget-homework .widget-header, #widget-weather .widget-header { padding-left: 16px; padding-right: 16px; }
 
 /* Small inline "list is empty" text. */
@@ -684,9 +684,6 @@ body:has(> .dashboard-scroll) > .topbar { flex-shrink: 0; }
 }
 .stub-empty.compact { gap: 4px; }
 .stub-empty.compact .stub-badge { width: 52px; height: 52px; }
-#widget-photos .widget-body { padding-bottom: 10px; }
-#widget-photos .stub-badge { width: 40px; height: 40px; }
-#widget-photos .stub-badge .icon { width: 24px; height: 24px; }
 .stub-title { margin: 0; font-size: 1.05rem; font-weight: 700; color: var(--ink); }
 .stub-caption { margin: 0; max-width: 260px; font-size: 0.9rem; line-height: 1.35; color: var(--ink-soft); }
 .stub-cta {
@@ -857,6 +854,27 @@ html:has(.admin-shell), html:has(.admin-shell) body { height: auto; overflow-y: 
 .admin-form input[type="color"] { padding: 4px; width: 56px; }
 .admin-panel input[type="checkbox"], .admin-panel input[type="radio"] { width: 20px; height: 20px; accent-color: var(--accent); }
 .admin-check { display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 2px 0; font-size: 1rem; }
+/* Admin → Display → Widgets: Show / School days only switches (one-button forms). */
+.widget-row { flex-wrap: wrap; padding: 4px 0; }
+.widget-row:last-of-type { border-bottom: none; }
+.widget-row.is-hidden .admin-item-label strong { color: var(--ink-soft); }
+.widget-switches { display: flex; flex-wrap: wrap; gap: 4px 16px; }
+.widget-switch-form { margin: 0; }
+.widget-switch {
+  display: inline-flex; align-items: center; gap: 10px; min-height: 48px; padding: 4px 6px;
+  background: none; border: none; color: var(--ink); font: inherit; font-size: 0.95rem; cursor: pointer;
+}
+.widget-switch-track {
+  position: relative; flex-shrink: 0; width: 44px; height: 26px; border-radius: 999px;
+  background: var(--sunken); border: 1.5px solid var(--line); transition: background 0.15s, border-color 0.15s;
+}
+.widget-switch-knob {
+  position: absolute; top: 2px; left: 2px; width: 19px; height: 19px; border-radius: 50%;
+  background: var(--ink-soft); transition: transform 0.15s, background 0.15s;
+}
+.widget-switch[aria-checked="true"] .widget-switch-track { background: var(--accent); border-color: var(--accent); }
+.widget-switch[aria-checked="true"] .widget-switch-knob { transform: translateX(18px); background: var(--on-accent); }
+.widget-switch:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; border-radius: 8px; }
 .admin-hint { color: var(--ink-soft); font-size: 0.9rem; margin: 6px 0 10px; }
 .admin-shell a:not(.btn):not(.btn-ghost) { color: var(--accent); }
 .admin-shell code { font-size: 0.9em; background: var(--sunken); padding: 1px 5px; border-radius: 5px; }

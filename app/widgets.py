@@ -2,10 +2,12 @@
 Widget registry: every dashboard widget's template (under
 app/templates/widgets/) and the loader that builds its template context.
 
-The dashboard runs every loader and merges the results, so each loader
-must return exactly the variable names the widget's template and its own
-/widgets/... route use. Adding a widget means adding it here and to
-database.DEFAULT_LAYOUT.
+The dashboard runs the loader of every widget it shows today (hidden and
+school-days-only-on-a-day-off widgets are skipped, app/services/layout.py)
+and merges the results, so each loader must return exactly the variable
+names the widget's template and its own /widgets/... route use. Adding a
+widget means adding it here and to database.DEFAULT_LAYOUT. (The Photos
+placeholder was removed in migration 5, spec 10.2.)
 """
 
 from collections.abc import Awaitable, Callable
@@ -19,6 +21,7 @@ from app.services.meals import get_week_meal_plan
 class Widget(NamedTuple):
     template: str
     load: Callable[..., Awaitable[dict]]
+    label: str  # its name in Admin → Display → Widgets
 
 
 async def _shopping(db) -> dict:
@@ -37,21 +40,16 @@ async def _weather(db) -> dict:
     return {"weather": await weather.get_weather(db)}
 
 
-async def _photos(db) -> dict:
-    return {}
-
-
 async def _homework(db) -> dict:
     return {"homework_groups": await homework.get_homework_groups(db)}
 
 
 WIDGETS: dict[str, Widget] = {
-    "tasks": Widget("tasks.html", tasks.widget_context),
-    "shopping": Widget("shopping.html", _shopping),
-    "meals": Widget("meals.html", _meals),
-    "calendar": Widget("calendar.html", _calendar),
-    "weather": Widget("weather.html", _weather),
-    "photos": Widget("photos_stub.html", _photos),
-    "homework": Widget("homework.html", _homework),
-    "practice_words": Widget("practice_words.html", homework.practice_context),
+    "calendar": Widget("calendar.html", _calendar, "Calendar"),
+    "tasks": Widget("tasks.html", tasks.widget_context, "Today's tasks"),
+    "shopping": Widget("shopping.html", _shopping, "Shopping list"),
+    "meals": Widget("meals.html", _meals, "Meal plan"),
+    "weather": Widget("weather.html", _weather, "Weather"),
+    "homework": Widget("homework.html", _homework, "Homework"),
+    "practice_words": Widget("practice_words.html", homework.practice_context, "Practice words"),
 }

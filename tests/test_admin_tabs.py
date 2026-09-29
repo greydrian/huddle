@@ -113,6 +113,8 @@ ROUTES: dict[tuple[str, str], tuple[str, dict | str]] = {
     ("GET", "/admin/google/callback"): (TAB, {}),
     ("POST", "/admin/weather-location"): (TAB, {"place": "Nowhere"}),
     ("POST", "/admin/onscreen-keyboard"): (TAB, {}),
+    ("POST", "/admin/widgets/{widget_id}/visibility"): (TAB, {"visible": "false"}),
+    ("POST", "/admin/widgets/{widget_id}/school-days"): (TAB, {"enabled": "true"}),
     ("POST", "/admin/appearance"): (TAB, {"value": "nope"}),
     ("POST", "/admin/change-pin"): (TAB, {"new_pin": "2580", "confirm_pin": "2580"}),
     ("POST", "/admin/backups/run"): (TAB, {}),

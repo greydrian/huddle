@@ -30,7 +30,6 @@ DEFAULT_LAYOUT = [
     ("shopping", 4, 7, 2, 4),
     ("meals", 6, 7, 2, 4),
     ("weather", 8, 7, 2, 2),
-    ("photos", 8, 9, 2, 2),
     ("homework", 10, 7, 2, 4),
     ("practice_words", 0, 11, 6, 4),
 ]
