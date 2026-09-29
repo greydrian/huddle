@@ -26,6 +26,7 @@ in `startup_checks`, which runs after the migrations.
 
 import asyncio
 import logging
+import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -532,6 +533,86 @@ async def m0006_photos(db):
     )
 
 
+async def m0007_reserved(db):
+    """Placeholder for migration 7 (feature/avatars, in a parallel PR).
+    MERGE NOTE: whichever of the two lands second must drop this or renumber
+    itself, so a database never records 7 as applied without its real
+    change. It does nothing."""
+
+
+# Frozen copy of services/homework.subject_key_for's table as of this
+# migration (see "Don't read live constants" above).
+_M8_SYNONYMS = {
+    "maths": (
+        "maths", "math", "mathematics", "numeracy", "number", "numbers", "number bonds", "times tables",
+        "times table", "arithmetic", "mental maths", "fractions", "sumdog", "mathletics",
+        "numbots", "tt rockstars", "times tables rock stars",
+    ),
+    "english": (
+        "english", "spelling", "spellings", "phonics", "grammar", "spag", "gps", "punctuation",
+        "writing", "handwriting", "literacy", "vocabulary", "creative writing",
+    ),
+    "reading": (
+        "reading", "read", "reader", "book", "books", "library", "reading book", "reading record",
+        "guided reading", "comprehension", "reading comprehension", "bug club", "oxford owl",
+    ),
+    "science": ("science", "biology", "chemistry", "physics", "experiment", "investigation"),
+    "topic": ("topic", "project", "history", "geography", "humanities", "topic work"),
+}
+
+
+def _m8_subject_key(subject: str | None) -> str:
+    text = " " + " ".join(re.sub(r"[^0-9a-z]+", " ", (subject or "").casefold()).split()) + " "
+    best = None
+    for key, phrases in _M8_SYNONYMS.items():
+        for phrase in phrases:
+            at = text.find(f" {phrase} ")
+            if at >= 0 and (best is None or (at, -len(phrase), key) < best):
+                best = (at, -len(phrase), key)
+    return best[2] if best else "other"
+
+
+async def m0008_homework_extras(db):
+    """Spec 10.10: homework subjects, the reading log and the done history.
+
+    - homework.subject_key: one of the fixed subjects (maths / english /
+      reading / science / topic / other) that picks the icon and colour. The
+      free-text subject is kept as typed; existing rows are backfilled from
+      it with a frozen copy of the synonym table.
+    - reading_log: one row per child per family date they read.
+    - homework_events: each tick done / undone with its family-tz time (who
+      is unknown on a kiosk). Existing done rows get one event at their
+      done_at, so Admin's history starts with what's already known."""
+    await database._add_column_if_missing(db, "homework", "subject_key", "TEXT NOT NULL DEFAULT 'other'")
+    for row in await (await db.execute("SELECT id, subject FROM homework")).fetchall():
+        await db.execute(
+            "UPDATE homework SET subject_key = ? WHERE id = ?", (_m8_subject_key(row["subject"]), row["id"])
+        )
+    await db.execute(
+        """CREATE TABLE IF NOT EXISTS reading_log (
+                   profile_id INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+                   read_on TEXT NOT NULL,       -- family-local ISO date
+                   created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                   PRIMARY KEY (profile_id, read_on)
+               )"""
+    )
+    await db.execute(
+        """CREATE TABLE IF NOT EXISTS homework_events (
+                   id INTEGER PRIMARY KEY AUTOINCREMENT,
+                   homework_id INTEGER NOT NULL REFERENCES homework(id) ON DELETE CASCADE,
+                   done INTEGER NOT NULL,       -- 1 ticked done, 0 unticked
+                   at TEXT NOT NULL             -- ISO timestamp with the family's offset
+               )"""
+    )
+    await db.execute("CREATE INDEX IF NOT EXISTS homework_events_at ON homework_events (at)")
+    await db.execute(
+        """INSERT INTO homework_events (homework_id, done, at)
+           SELECT id, 1, done_at FROM homework h
+           WHERE done = 1 AND done_at IS NOT NULL
+             AND NOT EXISTS (SELECT 1 FROM homework_events e WHERE e.homework_id = h.id)"""
+    )
+
+
 # Append only: see the module docstring.
 MIGRATIONS: list[Migration] = [
     Migration(1, "baseline", m0001_baseline),
@@ -540,6 +621,8 @@ MIGRATIONS: list[Migration] = [
     Migration(4, "task_groups", m0004_task_groups),
     Migration(5, "widget_visibility", m0005_widget_visibility),
     Migration(6, "photos", m0006_photos),
+    Migration(7, "reserved_avatars", m0007_reserved),  # MERGE NOTE: see m0007_reserved
+    Migration(8, "homework_extras", m0008_homework_extras),
 ]
 
 
