@@ -16,9 +16,13 @@ Claim, then act, like services/school_events: every add carries a
 `request_key` (the form's one-off token; A2 its confirm card's), claimed in
 app_settings under SQLite's write lock before Google is called, so a double
 tap can't insert twice. The Calendar event id is derived from that key, so
-even a retry after a lost response gets HTTP 409 (already exists), which
-counts as done. A failed insert releases the claim, so the same form can be
-sent again. At most RATE_LIMIT adds an hour for the whole wall.
+a resubmit after a lost response gets HTTP 409 (already exists); the event
+is then read back, and counts as added if its title and day match (else
+it's retried once under an id derived from the key and the new content:
+see _insert). A failed insert releases the claim, so the same form can be
+sent again (the widget swaps in a fresh key once it's edited). At most
+RATE_LIMIT adds an hour for the whole wall. The saved copy of the calendar
+is refreshed in the background afterwards (start_refresh).
 """
 
 import asyncio
@@ -26,6 +30,7 @@ import hashlib
 import json
 import logging
 import re
+import sqlite3
 import time as _time
 from collections import deque
 from collections.abc import Callable
@@ -34,8 +39,8 @@ from datetime import time as dtime
 
 import httpx
 
-from app import calendar_cache, google_calendar, google_oauth, http_client
-from app.database import family_timezone, family_today, get_setting, set_setting
+from app import google_calendar, google_oauth, http_client
+from app.database import family_timezone, family_today, get_db, get_setting, set_setting
 from app.services import calendar_prefs, people
 
 logger = logging.getLogger(__name__)
@@ -70,6 +75,8 @@ ERRORS = {
     "failed": "Google Calendar didn't accept the event, so it wasn't added.",
     "rate": "That's a lot of new events in one go. Try again in a little while.",
     "busy": "That event is already being added. One moment…",
+    "google-busy": "Google Calendar is busy right now, so the event wasn't added. Try again shortly.",
+    "storage": "The wall couldn't save that just now, so the event wasn't added. Try again in a moment.",
 }
 
 
@@ -231,14 +238,30 @@ async def _finish(db, key: str, done: dict | None) -> None:
     await _update_claims(db, change)
 
 
+_RATE_LIMIT_REASONS = {"rateLimitExceeded", "userRateLimitExceeded"}
+
+
+def _reasons(resp: httpx.Response) -> set[str]:
+    """Google's error `reason`s from an error body (empty if unreadable)."""
+    try:
+        errors = resp.json().get("error", {}).get("errors") or []
+        return {e.get("reason") for e in errors if isinstance(e, dict)}
+    except (ValueError, AttributeError):
+        return set()
+
+
 def _failure_code(exc: httpx.HTTPError) -> str:
+    """Only a 401 or a permission 403 means "reconnect in Admin"; a
+    rate-limit 403 (or 429) is Google being busy."""
     if isinstance(exc, httpx.HTTPStatusError):
         status = exc.response.status_code
+        if status == 429 or (status == 403 and _reasons(exc.response) & _RATE_LIMIT_REASONS):
+            return "google-busy"
         if status in (401, 403):
             return "scope"
         if status == 404:
             return "missing"
-        if status == 429 or status >= 500:
+        if status >= 500:
             return "offline"
         return "failed"
     return "offline"
@@ -278,7 +301,11 @@ async def add_family_event(
     if not await google_oauth.has_scope(db, google_oauth.CALENDAR_EVENTS_SCOPE):
         raise AddEventError("scope")
 
-    existing = await _claim(db, request_key)
+    try:
+        existing = await _claim(db, request_key)
+    except sqlite3.Error as exc:
+        logger.warning("Couldn't claim an event add: %s", type(exc).__name__)
+        raise AddEventError("storage") from None
     if existing is not None:  # a repeat of an add: never a second event, never counted
         if existing.get("state") == "done":
             return {"id": existing.get("id"), "summary": existing.get("summary", summary),
@@ -289,51 +316,103 @@ async def add_family_event(
     # concurrent adds can't all pass the check before any of them counts.
     slot = _time.monotonic()
     if _rate_limited(slot):
-        await _finish(db, request_key, None)
+        await _release(db, request_key)
         raise AddEventError("rate")
     _recent_adds.append(slot)
     try:
         created = await _insert(db, request_key, family, summary, the_day, start, end)
     except BaseException:
         _give_back(slot)
-        await _finish(db, request_key, None)  # the same form can be sent again
+        await _release(db, request_key)  # the same form can be sent again
         raise
-    await _finish(db, request_key, created)
-    await _refresh(db)
+    try:
+        await _finish(db, request_key, created)
+    except sqlite3.Error as exc:  # it's in Google: say so; a resubmit finds it (409 + a match)
+        logger.warning("Couldn't record an added event: %s", type(exc).__name__)
+    start_refresh()
     return {**created, "duplicate": False}
 
 
+async def _release(db, key: str) -> None:
+    try:
+        await _finish(db, key, None)
+    except sqlite3.Error as exc:  # the claim then ages out (CLAIM_KEEP)
+        logger.warning("Couldn't release an event-add claim: %s", type(exc).__name__)
+
+
+def _matches(event: dict, summary: str, day: date) -> bool:
+    """Whether an existing Google event is this very add: not deleted, the
+    same title and the same day."""
+    start = event.get("start") or {}
+    begins = str(start.get("date") or start.get("dateTime") or "")[:10]
+    return event.get("status") != "cancelled" and event.get("summary") == summary and begins == day.isoformat()
+
+
 async def _insert(db, key: str, family: dict, summary: str, day: date, start, end) -> dict:
+    """events.insert under this add's id. A 409 means that id is taken:
+    by this very event (a lost answer, then a resubmit), which counts as
+    added, or by a different one (the form was changed after a failure
+    under the same key, or the event was deleted in Google), which is
+    retried once under an id derived from the key and the new content."""
     access_token, offline = await google_oauth.connect(db)
     if offline:
         raise AddEventError("offline")
     if not access_token:  # disconnected since (e.g. a revoked grant)
         raise AddEventError("scope")
     tz = await family_timezone(db)
-    resource = event_resource(event_id(key, family["id"]), summary, day, start, end, tz)
+    ids = (event_id(key, family["id"]), event_id(f"{key}:{summary}:{day.isoformat()}", family["id"]))
     try:
-        try:
-            created = await google_calendar.insert_event(access_token, family["id"], resource)
-            created_id = created.get("id") or resource["id"]
-        except httpx.HTTPStatusError as exc:
-            if exc.response.status_code != 409:  # 409: this very event already exists
-                raise
-            created_id = resource["id"]
+        for eid in ids:
+            resource = event_resource(eid, summary, day, start, end, tz)
+            try:
+                created = await google_calendar.insert_event(access_token, family["id"], resource)
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code != 409:
+                    raise
+                if _matches(await google_calendar.get_event(access_token, family["id"], eid), summary, day):
+                    break
+                continue
+            eid = created.get("id") or eid
+            break
+        else:
+            raise AddEventError("failed")
     except httpx.HTTPError as exc:
         http_client.report_failure(logger, OUTAGE_KEY, "Couldn't add an event from the wall: %s",
                                    http_client.describe(exc))
         raise AddEventError(_failure_code(exc)) from None
+    except (ValueError, AttributeError) as exc:
+        if isinstance(exc, AddEventError):
+            raise
+        logger.warning("Google Calendar's answer to an event add wasn't readable: %s", type(exc).__name__)
+        raise AddEventError("failed") from None
     http_client.report_success(logger, OUTAGE_KEY)
-    return {"id": created_id, "summary": summary, "date": day.isoformat(), "calendar": family["summary"]}
+    return {"id": eid, "summary": summary, "date": day.isoformat(), "calendar": family["summary"]}
 
 
-async def _refresh(db) -> None:
-    """The wall's saved copy predates the new event: drop it and fetch again
-    (best effort, and never longer than the calendar's own deadline; the
-    widget's next render fetches anyway)."""
-    await calendar_cache.clear(db)
-    await db.commit()
+# --- The cache refresh after an add ------------------------------------------------------
+
+_refreshes: set[asyncio.Task] = set()
+
+
+def start_refresh() -> None:
+    """Brings the wall's saved copy up to date with the new event in the
+    background (an upsert, never a clear: the rest stays usable offline),
+    so the add's answer never waits on it. The widget's own re-render
+    fetches live anyway, and saves what it fetched."""
+    task = asyncio.get_running_loop().create_task(_refresh())
+    _refreshes.add(task)
+    task.add_done_callback(_refreshes.discard)
+
+
+async def wait_for_refreshes() -> None:
+    """Tests: let any background refresh finish."""
+    while _refreshes:
+        await asyncio.gather(*list(_refreshes), return_exceptions=True)
+
+
+async def _refresh() -> None:
     try:
-        await asyncio.wait_for(google_calendar.refresh_cache(db), google_calendar.CALENDAR_DEADLINE)
+        async with get_db() as db:
+            await google_calendar.refresh_cache(db)
     except Exception as exc:
         logger.warning("Couldn't refresh the calendar after adding an event: %s", type(exc).__name__)

@@ -370,6 +370,16 @@ async def insert_event(access_token: str, calendar_id: str, event: dict) -> dict
         return resp.json()
 
 
+async def get_event(access_token: str, calendar_id: str, event_id: str) -> dict:
+    """events.get: one event by id (a deleted one comes back with status
+    "cancelled"). Raises httpx.HTTPError, or ValueError for a non-JSON body."""
+    url = CALENDAR_EVENTS_ENDPOINT_TEMPLATE.format(calendar_id=quote(calendar_id, safe=""))
+    async with http_client.client() as client:
+        resp = await client.get(f"{url}/{quote(event_id, safe='')}", headers={"Authorization": f"Bearer {access_token}"})
+        resp.raise_for_status()
+        return resp.json()
+
+
 async def refresh_cache(db) -> bool:
     """Scheduler job: re-fetch the current month's grid range, stretched to
     cover the agenda's week ahead too (no request deadline: background work

@@ -22,7 +22,7 @@ import respx  # noqa: E402
 
 from app import database, google_oauth, google_photos, http_client, security  # noqa: E402
 from app.main import app  # noqa: E402
-from app.services import extraction  # noqa: E402
+from app.services import calendar_add, extraction  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -72,10 +72,13 @@ async def connected(db):
 
 
 @pytest.fixture
-def google():
-    """Mocks every outbound httpx call; unmatched requests fail loudly."""
+async def google():
+    """Mocks every outbound httpx call; unmatched requests fail loudly.
+    Background work a test started (the calendar refresh after an add)
+    finishes while the mock is still in place."""
     with respx.mock(assert_all_called=False, assert_all_mocked=True) as mock:
         yield mock
+        await calendar_add.wait_for_refreshes()
 
 
 @pytest.fixture

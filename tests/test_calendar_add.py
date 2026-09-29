@@ -5,11 +5,13 @@ double tap, a rate limit, validation, and the scope / setup gates."""
 import asyncio
 import json
 import re
+import sqlite3
 import time
-from datetime import timedelta
+from datetime import date, timedelta
 
 import httpx
 import pytest
+from markupsafe import escape
 
 from app import database, google_oauth
 from app.services import calendar_add, calendar_prefs
@@ -44,14 +46,39 @@ async def family(db, with_scope):
     await calendar_prefs.set_family_calendar(db, {"id": CALENDARS[0]["id"], "summary": "Family"})
 
 
+class FakeFamilyCalendar:
+    """events.insert / events.get on the Family calendar, like Google: an id
+    that's taken gets 409. `lose_answer`: the next insert is made, but its
+    answer never arrives (a timeout)."""
+
+    def __init__(self):
+        self.events: dict[str, dict] = {}
+        self.lose_answer = False
+
+    def insert(self, request):
+        body = json.loads(request.content)
+        if body["id"] in self.events:
+            return httpx.Response(409, json={"error": {"code": 409, "errors": [{"reason": "duplicate"}]}})
+        self.events[body["id"]] = body
+        if self.lose_answer:
+            self.lose_answer = False
+            raise httpx.ReadTimeout("slow")
+        return httpx.Response(200, json=body)
+
+    def get(self, request):
+        event = self.events.get(request.url.path.rsplit("/", 1)[1])
+        return httpx.Response(200, json=event) if event else httpx.Response(404)
+
+
 @pytest.fixture
 def gcal(google):
-    """Every events.list answers empty; events.insert on the Family calendar
-    echoes the event back. Any other POST is unmocked and fails the test."""
-    google.get(url__regex=EVENTS_URL_PATTERN).respond(200, json={"items": []})
-    insert = google.post(FAMILY_INSERT, name="insert").mock(
-        side_effect=lambda request: httpx.Response(200, json=json.loads(request.content))
-    )
+    """Every events.list answers empty; the Family calendar takes inserts
+    (gcal.fake holds them). Any other POST is unmocked and fails the test."""
+    fake = FakeFamilyCalendar()
+    google.get(url__regex=re.escape(FAMILY_INSERT) + r"/[^/?]+$", name="get").mock(side_effect=fake.get)
+    google.get(url__regex=EVENTS_URL_PATTERN, name="list").respond(200, json={"items": []})
+    insert = google.post(FAMILY_INSERT, name="insert").mock(side_effect=fake.insert)
+    insert.fake = fake
     return insert
 
 
@@ -131,28 +158,106 @@ async def test_two_taps_at_once_create_one_event(db, family, gcal):
     assert gcal.call_count == 1
 
 
-async def test_a_lost_response_retried_is_not_a_second_event(db, family, gcal):
-    """Google made it, but the answer never came: the same form again gets 409."""
+async def test_a_lost_response_retried_is_not_a_second_event(db, family, gcal, google):
+    """Google made it, but the answer never came: the same form again gets
+    409, reads the event back, and it matches: added, once."""
     today = (await _today(db)).isoformat()
-    gcal.mock(side_effect=httpx.ReadTimeout("slow"))
+    gcal.fake.lose_answer = True
     with pytest.raises(calendar_add.AddEventError) as exc:
         await calendar_add.add_family_event(db, title="X", day=today, request_key=KEY)
     assert exc.value.code == "offline"
 
-    gcal.mock(side_effect=None, return_value=httpx.Response(409, json={"error": {"code": 409}}))
     added = await calendar_add.add_family_event(db, title="X", day=today, request_key=KEY)
     assert added["id"] == calendar_add.event_id(KEY, CALENDARS[0]["id"]) and not added["duplicate"]
+    assert len(gcal.fake.events) == 1 and google.routes["get"].call_count == 1
 
 
-@pytest.mark.parametrize(("status", "code"), [(403, "scope"), (404, "missing"), (400, "failed"), (503, "offline")])
-async def test_google_refusals_release_the_claim(db, family, gcal, status, code):
+async def test_a_changed_form_under_a_used_key_is_its_own_event(db, family, gcal):
+    """Lost answer, then the form is edited but sent under the same key: the
+    taken id holds a different event, so it's added once under a new id, and
+    sending that again finds it rather than adding a third."""
     today = (await _today(db)).isoformat()
-    gcal.mock(side_effect=None, return_value=httpx.Response(status))
+    gcal.fake.lose_answer = True
+    with pytest.raises(calendar_add.AddEventError):
+        await calendar_add.add_family_event(db, title="Swim", day=today, request_key=KEY)
+
+    added = await calendar_add.add_family_event(db, title="Swimming", day=today, request_key=KEY)
+    assert added["id"] != calendar_add.event_id(KEY, CALENDARS[0]["id"])
+    assert sorted(e["summary"] for e in gcal.fake.events.values()) == ["Swim", "Swimming"]
+
+    await database.set_setting(db, calendar_add.CLAIMS_KEY, "{}")  # as if that answer was lost too
+    await db.commit()
+    again = await calendar_add.add_family_event(db, title="Swimming", day=today, request_key=KEY)
+    assert again["id"] == added["id"] and len(gcal.fake.events) == 2
+
+
+async def test_an_event_deleted_in_google_is_not_mistaken_for_this_one(db, family, gcal):
+    today = (await _today(db)).isoformat()
+    gcal.fake.events[calendar_add.event_id(KEY, CALENDARS[0]["id"])] = {
+        "summary": "X", "start": {"date": today}, "status": "cancelled"}
+    added = await calendar_add.add_family_event(db, title="X", day=today, request_key=KEY)
+    assert gcal.fake.events[added["id"]].get("status") != "cancelled"
+
+
+@pytest.mark.parametrize(("status", "body", "code"), [
+    (401, {}, "scope"),
+    (403, {"error": {"errors": [{"reason": "forbidden"}]}}, "scope"),
+    (403, {"error": {"errors": [{"reason": "rateLimitExceeded"}]}}, "google-busy"),
+    (403, {"error": {"errors": [{"reason": "userRateLimitExceeded"}]}}, "google-busy"),
+    (429, {}, "google-busy"),
+    (404, {}, "missing"),
+    (400, {}, "failed"),
+    (503, {}, "offline"),
+])
+async def test_google_refusals_release_the_claim(db, family, gcal, status, body, code):
+    today = (await _today(db)).isoformat()
+    gcal.mock(side_effect=None, return_value=httpx.Response(status, json=body))
     with pytest.raises(calendar_add.AddEventError) as exc:
         await calendar_add.add_family_event(db, title="X", day=today, request_key=KEY)
     assert exc.value.code == code
+    if code == "google-busy":
+        assert "reconnect" not in exc.value.message.lower() and "shortly" in exc.value.message
     claims = json.loads(await database.get_setting(db, calendar_add.CLAIMS_KEY))
     assert KEY not in claims  # the same form can be sent again
+
+
+async def test_unreadable_google_answer_is_a_failure_not_a_500(db, family, gcal, client):
+    today = await _today(db)
+    gcal.mock(side_effect=None, return_value=httpx.Response(200, text="<html>oops</html>"))
+    with pytest.raises(calendar_add.AddEventError) as exc:
+        await calendar_add.add_family_event(db, title="X", day=today.isoformat(), request_key=KEY)
+    assert exc.value.code == "failed"
+    assert KEY not in json.loads(await database.get_setting(db, calendar_add.CLAIMS_KEY))
+
+    resp = await client.post("/widgets/calendar/events", data=_form(today, request_key=KEY + "b"))
+    assert resp.status_code == 200 and str(escape(calendar_add.ERRORS["failed"])) in resp.text
+
+
+async def test_a_database_error_claiming_is_a_message_not_a_500(db, family, gcal, client, monkeypatch):
+    async def locked(*args, **kwargs):
+        raise sqlite3.OperationalError("database is locked")
+    monkeypatch.setattr(calendar_add, "_update_claims", locked)
+    today = await _today(db)
+
+    resp = await client.post("/widgets/calendar/events", data=_form(today))
+
+    assert resp.status_code == 200 and str(escape(calendar_add.ERRORS["storage"])) in resp.text
+    assert gcal.call_count == 0
+
+
+async def test_a_database_error_recording_the_add_still_reports_it(db, family, gcal, monkeypatch):
+    real = calendar_add._update_claims
+    calls = []
+
+    async def fail_second(db_, change):
+        calls.append(1)
+        if len(calls) > 1:
+            raise sqlite3.OperationalError("database is locked")
+        return await real(db_, change)
+    monkeypatch.setattr(calendar_add, "_update_claims", fail_second)
+
+    added = await calendar_add.add_family_event(db, title="X", day=(await _today(db)).isoformat(), request_key=KEY)
+    assert added["summary"] == "X" and len(gcal.fake.events) == 1
 
 
 async def test_rate_limit(db, family, gcal, monkeypatch):
@@ -219,11 +324,48 @@ async def test_no_family_calendar_is_refused(db, gcal, with_scope):
     assert gcal.call_count == 0
 
 
-async def test_adding_refreshes_the_cache(db, family, gcal, google):
+async def _cache_rows(db):
+    return [tuple(r) for r in await (await db.execute(
+        "SELECT range_start, range_end, calendar_id FROM calendar_cache ORDER BY 1, 3")).fetchall()]
+
+
+async def test_adding_refreshes_the_cache_in_the_background(db, family, gcal, monkeypatch):
+    """An upsert, never a clear (another month's copy stays for offline use),
+    and the add doesn't wait for it."""
+    from app import calendar_cache, google_calendar
+    _, selection = await google_calendar._selection(db)
+    other_month = (date(2020, 1, 1), date(2020, 2, 1))
+    await calendar_cache.store(db, selection, *other_month, {CALENDARS[0]["id"]: []})
+    release = asyncio.Event()
+    real = google_calendar.refresh_cache
+
+    async def slow_refresh(db_):
+        await release.wait()
+        return await real(db_)
+    monkeypatch.setattr(google_calendar, "refresh_cache", slow_refresh)
+
     today = await _today(db)
-    await calendar_add.add_family_event(db, title="X", day=today.isoformat(), request_key=KEY)
-    rows = (await (await db.execute("SELECT COUNT(*) FROM calendar_cache")).fetchone())[0]
-    assert rows == len(CALENDARS)  # refetched straight away
+    await asyncio.wait_for(
+        calendar_add.add_family_event(db, title="X", day=today.isoformat(), request_key=KEY), 2)
+    assert len(calendar_add._refreshes) == 1  # still running: the add didn't wait
+    release.set()
+    await calendar_add.wait_for_refreshes()
+
+    rows = await _cache_rows(db)
+    assert ("2020-01-01", "2020-02-01", CALENDARS[0]["id"]) in rows  # not cleared
+    assert len(rows) == 1 + len(CALENDARS)  # this month refetched for every calendar
+
+
+async def test_the_widget_shows_the_new_event_straight_away(client, db, family, gcal, google):
+    """The re-render after an add fetches live, so the event is there even
+    before the background refresh has run."""
+    today = await _today(db)
+    # events.list now answers with whatever was inserted.
+    google.routes["list"].mock(side_effect=lambda request: httpx.Response(
+        200, json={"items": list(gcal.fake.events.values())}))
+    resp = await client.post("/widgets/calendar/events", data=_form(today, view="agenda"))
+    assert "Added “Dentist” to Family." in resp.text
+    assert resp.text.count("Dentist") >= 2  # the note and the agenda row
 
 
 # --- The widget ---------------------------------------------------------------------------
