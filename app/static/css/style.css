@@ -1020,6 +1020,86 @@ html:has(.admin-shell), html:has(.admin-shell) body { height: auto; overflow-y: 
 .pin-rules { display: inline-block; text-align: left; margin: 4px 0 0; padding-left: 1.2em; color: var(--ink-soft); font-size: 0.95rem; line-height: 1.6; }
 .pin-back { display: inline-flex; align-items: center; gap: 6px; margin-top: 28px; }
 
+/* --- Idle screen (templates/_idle.html, static/js/idle.js, spec 10.2) ---
+   Full-screen over the dashboard. Photos crossfade with opacity only (cheap
+   on the tablet). It's dark in both palettes, so its text is white on a
+   scrim rather than the page tokens. The banner bar is lifted above the
+   slideshow so banners stay visible; the dim overlay covers them. */
+.idle-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: #0d1014;
+  color: #fff;
+  overflow: hidden;
+}
+.idle-screen[hidden] { display: none; }
+.idle-screen.is-dim { background: rgba(0, 0, 0, 0.85); }
+.idle-screen.is-dim-backlight { background: transparent; }
+.idle-screen.is-dim .idle-photo, .idle-screen.is-dim .idle-overlay,
+.idle-screen.is-dim-backlight .idle-photo, .idle-screen.is-dim-backlight .idle-overlay { display: none; }
+.idle-photo {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  object-fit: contain;
+  opacity: 0;
+  transition: opacity 1.5s ease-in-out;
+  will-change: opacity;
+}
+.idle-photo.is-shown { opacity: 1; }
+.idle-screen.is-clock .idle-photo { display: none; }
+.idle-overlay {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px 40px;
+  padding: 96px 48px 40px;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.72), rgba(0, 0, 0, 0.4) 60%, transparent);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+}
+.idle-time { font-size: clamp(4rem, 11vw, 9rem); font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
+.idle-date { font-size: clamp(1.4rem, 2.6vw, 2.2rem); font-weight: 600; margin-top: 8px; }
+.idle-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 10px; font-size: clamp(1.2rem, 2.2vw, 1.8rem); font-weight: 600; }
+.idle-event[hidden], .idle-weather[hidden] { display: none; }
+.idle-event-label { opacity: 0.8; font-weight: 500; }
+.idle-weather { display: flex; align-items: center; gap: 10px; }
+.idle-weather-temp { font-size: 1.3em; font-weight: 700; }
+/* No photos: a calm clock in the middle of the screen. */
+.idle-screen.is-clock .idle-overlay {
+  inset: 0;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  background: none;
+  padding: 48px;
+}
+.idle-screen.is-clock .idle-meta { align-items: center; }
+html.idle-slideshow #banner-bar { position: relative; z-index: 1001; }
+
+/* Admin → Display → Idle screen and Photos. */
+.idle-choice { border: 0; margin: 0 0 8px; padding: 0; }
+.idle-choice legend { font-weight: 600; padding: 0; margin-bottom: 2px; }
+.idle-numbers { flex-wrap: wrap; }
+.admin-note { margin-top: 16px; padding: 12px 16px; border-radius: 12px; background: var(--sunken); color: var(--ink); font-size: 0.95rem; }
+.admin-note p { margin: 0 0 6px; }
+.admin-note ul { margin: 0; padding-left: 1.2em; line-height: 1.6; }
+.photos-picker { display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start; margin: 8px 0 12px; }
+.photos-qr { flex: 0 0 auto; line-height: 0; background: #fff; padding: 6px; border-radius: 8px; }
+.photos-qr svg { width: 220px; height: 220px; }
+.photos-picker-text { flex: 1 1 260px; min-width: 0; }
+.photos-picker-text p { margin: 0 0 12px; }
+.photos-strip { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 12px; }
+.photos-strip img { width: 96px; height: 60px; object-fit: cover; border-radius: 6px; background: var(--sunken); }
+
 /* Motion: keep it, unless the viewer asked for less. */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

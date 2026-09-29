@@ -530,6 +530,52 @@
     </form>
   </div>
 
+  <!-- Idle screen (spec 10.2, app/idle.py, static/js/idle.js) -->
+  <div class="admin-panel" id="idle">
+    <h2>Idle screen</h2>
+    {{ section_error("idle") }}
+    <form method="post" action="/admin/idle">
+      <fieldset class="idle-choice">
+        <legend>When nobody has touched the wall for a while</legend>
+        {% for value, label in idle_modes.items() %}
+        <label class="admin-check"><input type="radio" name="mode" value="{{ value }}" {{ 'checked' if value == idle_settings.mode else '' }}> {{ label }}</label>
+        {% endfor %}
+      </fieldset>
+      <fieldset class="idle-choice">
+        <legend>At night</legend>
+        {% for value, label in idle_modes.items() %}
+        <label class="admin-check"><input type="radio" name="night_mode" value="{{ value }}" {{ 'checked' if value == idle_settings.night_mode else '' }}> {{ label }}</label>
+        {% endfor %}
+      </fieldset>
+      <div class="admin-form idle-numbers">
+        <label class="hw-field">Idle after (minutes) <input type="number" name="delay_minutes" value="{{ idle_settings.delay_minutes }}" min="{{ idle_ranges.delay_minutes[0] }}" max="{{ idle_ranges.delay_minutes[1] }}" step="1" required inputmode="numeric"{% if onscreen_keyboard %} data-osk="numeric"{% endif %}></label>
+        <label class="hw-field">Each photo (seconds) <input type="number" name="interval_seconds" value="{{ idle_settings.interval_seconds }}" min="{{ idle_ranges.interval_seconds[0] }}" max="{{ idle_ranges.interval_seconds[1] }}" step="1" required inputmode="numeric"{% if onscreen_keyboard %} data-osk="numeric"{% endif %}></label>
+        <label class="hw-field">Dim to (%) <input type="number" name="dim_percent" value="{{ idle_settings.dim_percent }}" min="{{ idle_ranges.dim_percent[0] }}" max="{{ idle_ranges.dim_percent[1] }}" step="1" required inputmode="numeric"{% if onscreen_keyboard %} data-osk="numeric"{% endif %}></label>
+      </div>
+      <div class="admin-form idle-numbers">
+        <label class="hw-field">Night starts <input type="time" name="night_start" value="{{ idle_settings.night_start }}"></label>
+        <label class="hw-field">Night ends <input type="time" name="night_end" value="{{ idle_settings.night_end }}"></label>
+      </div>
+      <p class="admin-hint">Leave both night times blank to follow Appearance (night colours). The slideshow shows the time, the next event today and the weather; with no photos chosen it's a calm clock. The first tap on an idle wall only wakes it. It never goes idle while someone is typing, dragging or has a list open, or just after a banner appears.</p>
+      <button type="submit" class="btn btn-small">Save</button>
+    </form>
+    <div class="admin-note">
+      <p><strong>Set up Fully Kiosk to match</strong> (Fully PLUS is needed for real dimming: without it the wall dims with a dark overlay and the backlight stays on):</p>
+      <ul>
+        <li>Turn <strong>off</strong> Fully's own screensaver and its screen-off timer. Huddle does idle itself.</li>
+        <li>For overnight screen-off, set Fully's own wake/sleep schedule (Device Management → Scheduled Wakeup/Sleep). A screen Fully has turned off doesn't wake on a tap, so keep that for the night only.</li>
+        <li>Enable Fully's JavaScript Interface (Advanced Web Settings) so Huddle can lower the brightness.</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- Photos (spec 10.2, app/google_photos.py): a separate sign-in -->
+  <div class="admin-panel" id="photos">
+    <h2>Photos</h2>
+    {{ section_error("photos") }}
+    {% include "admin/_photos_status.html" %}
+  </div>
+
   <!-- Device management -->
   <div class="admin-panel" id="device">
     <h2>Device</h2>

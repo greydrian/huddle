@@ -7,6 +7,10 @@ import time
 os.environ["DATA_DIR"] = tempfile.mkdtemp(prefix="huddle-test-")
 os.environ["GOOGLE_CLIENT_ID"] = "test-client-id"
 os.environ["GOOGLE_CLIENT_SECRET"] = "test-client-secret"
+# The Photos account (a second OAuth client) starts unconfigured; tests that
+# need it set these with monkeypatch.setenv (google_photos reads them per call).
+os.environ["GOOGLE_PHOTOS_CLIENT_ID"] = ""
+os.environ["GOOGLE_PHOTOS_CLIENT_SECRET"] = ""
 # The school inbox starts unconfigured (and load_dotenv never overrides a set
 # variable, so a developer's .env key can't leak in); tests that need it set one.
 os.environ["ANTHROPIC_API_KEY"] = ""
@@ -16,7 +20,7 @@ import httpx  # noqa: E402
 import pytest  # noqa: E402
 import respx  # noqa: E402
 
-from app import database, google_oauth, http_client, security  # noqa: E402
+from app import database, google_oauth, google_photos, http_client, security  # noqa: E402
 from app.main import app  # noqa: E402
 from app.services import extraction  # noqa: E402
 
@@ -26,6 +30,7 @@ async def isolated_db(tmp_path, monkeypatch):
     """Every test gets its own fresh SQLite file and secret key."""
     monkeypatch.setattr(database, "DB_PATH", tmp_path / "test.db")
     monkeypatch.setattr(security, "SECRET_KEY_PATH", tmp_path / ".secret_key")
+    monkeypatch.setattr(google_photos, "PHOTOS_DIR", tmp_path / "photos")
     http_client.reset_failures()  # outage log state is module-level
     await database.init_db()
     async with database.get_db() as db:
@@ -37,6 +42,7 @@ async def isolated_db(tmp_path, monkeypatch):
         await database.set_setting(db, "pin_is_default", "0")
         await db.commit()
     yield
+    google_photos.stop_poller()  # a picker poll a test started must not outlive it
 
 
 @pytest.fixture(autouse=True)

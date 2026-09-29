@@ -11,7 +11,7 @@ import sqlite3
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
-from app import scheduler, sync_status
+from app import idle, scheduler, sync_status
 from app.appearance import current_mode
 from app.database import get_db
 from app.freshness import BANNERS, today_info, widget_revisions
@@ -65,6 +65,7 @@ async def dashboard(request: Request):
         widget_revs = widget_revisions({**contexts, BANNERS: banner_context})
         layout_generation = await layout.generation(db, list(contexts))
         appearance = await current_mode(db)
+        idle_screen = await idle.context(db)
 
     return templates.TemplateResponse(
         request,
@@ -79,5 +80,6 @@ async def dashboard(request: Request):
             "today_next_change": today["next_change_in"],
             "widget_revs": widget_revs,
             "appearance": appearance,
+            "idle": idle_screen,
         },
     )

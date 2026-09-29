@@ -511,6 +511,27 @@ async def m0005_widget_visibility(db):
             await db.execute("UPDATE layout_state SET grid_y = ? WHERE widget_id = ?", (row["grid_y"], row["widget_id"]))
 
 
+async def m0006_photos(db):
+    """Spec 10.2: the idle slideshow's photos, picked with the Google Photos
+    Picker and copied into DATA_DIR/photos/ (app/google_photos.py). One row
+    per file on disk: `filename` and `thumb` are names we generated (never
+    Google's), so the serving route can only ever open these. The files
+    aren't in backups (they can be re-picked); a restored database whose
+    files are missing just shows fewer photos. The Photos account's token
+    goes in auth_tokens under its own service_name, so it needs no schema."""
+    await db.execute(
+        """CREATE TABLE IF NOT EXISTS photos (
+                   id INTEGER PRIMARY KEY AUTOINCREMENT,  -- never reused: /photos/{id} can be cached for good
+                   filename TEXT NOT NULL,
+                   thumb TEXT NOT NULL,
+                   width INTEGER,
+                   height INTEGER,
+                   bytes INTEGER,
+                   created_at TEXT NOT NULL DEFAULT (datetime('now'))
+               )"""
+    )
+
+
 # Append only: see the module docstring.
 MIGRATIONS: list[Migration] = [
     Migration(1, "baseline", m0001_baseline),
@@ -518,6 +539,7 @@ MIGRATIONS: list[Migration] = [
     Migration(3, "term_dates", m0003_term_dates),
     Migration(4, "task_groups", m0004_task_groups),
     Migration(5, "widget_visibility", m0005_widget_visibility),
+    Migration(6, "photos", m0006_photos),
 ]
 
 

@@ -1,0 +1,18 @@
+{#- The idle screen (spec 10.2): hidden until static/js/idle.js shows it.
+    data-config is app/idle.py context(): the Admin settings, the family's
+    time now, the next event, the weather and this week's photo order. The
+    banner bar stays above it (style.css, "Idle screen"). -#}
+<div id="idle-screen" class="idle-screen" hidden aria-hidden="true" data-config='{{ idle | tojson }}'>
+  <img class="idle-photo" alt="" decoding="async">
+  <img class="idle-photo" alt="" decoding="async">
+  <div class="idle-overlay">
+    <div class="idle-clock">
+      <div class="idle-time"></div>
+      <div class="idle-date"></div>
+    </div>
+    <div class="idle-meta">
+      <div class="idle-event" hidden><span class="idle-event-label">Next</span> <span class="idle-event-time"></span> <span class="idle-event-title"></span></div>
+      <div class="idle-weather" hidden><img class="idle-weather-icon" alt="" width="56" height="56"><span class="idle-weather-temp"></span> <span class="idle-weather-condition"></span></div>
+    </div>
+  </div>
+</div>

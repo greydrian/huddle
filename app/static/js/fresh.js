@@ -122,6 +122,8 @@
     if (grid && grid.querySelector('.htmx-request, .just-ticked, .ui-draggable-dragging, .ui-resizable-resizing')) return true;
     return false;
   }
+  // The idle screen (idle.js) never starts while the wall is in use.
+  window.huddleBusy = pageBusy;
 
   function reloadIfWanted() {
     if (reloadWanted && !pageBusy()) window.location.reload();

@@ -23,6 +23,7 @@ from app import (
     bank_holidays,
     google_oauth,
     google_tasks,
+    idle,
     recurrence,
     school_email,
     sync_status,
@@ -42,6 +43,7 @@ from app.auth import (
     start_session,
 )
 from app.database import family_timezone, family_today, get_db, get_setting, set_onscreen_keyboard, set_setting
+from app.routers import photos as photos_admin
 from app.security import (
     FAILURE_DECAY_SECONDS,
     LONG_LOCKOUT_AFTER,
@@ -82,6 +84,13 @@ ADMIN_ERRORS = {
     "words-missing": ("practice-words", "That word list no longer exists. It may have just been deleted."),
     "handwriting-style": ("practice-words", "Pick one of the handwriting styles."),
     "appearance": ("display", "Pick one of the appearance options."),
+    "idle-mode": ("idle", "Pick what the wall does when idle, by day and at night."),
+    "idle-numbers": ("idle", "Use whole numbers: an idle delay of 1 to 120 minutes, dimming to 1 to 50% and "
+                             "5 to 300 seconds a photo. Nothing was changed."),
+    "idle-night": ("idle", "Give night both a start and an end, like 21:00 and 07:00 (different times), or "
+                           "leave both blank to follow Appearance. Nothing was changed."),
+    "photos-signin": ("photos", "Signing in to the Photos account didn't finish. Try Choose photos again."),
+    "photos-offline": ("photos", "Couldn't reach Google Photos just now. Try again in a minute."),
     "widget-missing": ("widgets", "That widget no longer exists. Nothing was changed."),
     "banner-lead": ("banners", f"The lead time must be a whole number of minutes from {banners.MIN_LEAD} to "
                                f"{banners.MAX_LEAD}. Nothing was changed."),
@@ -430,6 +439,10 @@ async def _render_admin(
                 "banner_settings": await banners.get_settings(db),
                 "banner_triggers": banners.TRIGGERS,
                 "banner_lead_range": (banners.MIN_LEAD, banners.MAX_LEAD),
+                "idle_settings": await idle.get_settings(db),
+                "idle_modes": idle.MODES,
+                "idle_ranges": idle.RANGES,
+                **await photos_admin.panel_context(db),
             })
         elif tab == "google":
             context.update(await _google_lists(db, google_account))
