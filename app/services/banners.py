@@ -112,7 +112,8 @@ async def get_settings(db) -> dict:
         saved = {}
     if not isinstance(saved, dict):
         return settings
-    for kind, value in (saved.get("triggers") or {}).items():
+    triggers = saved.get("triggers")
+    for kind, value in (triggers if isinstance(triggers, dict) else {}).items():
         if kind in TRIGGERS and isinstance(value, dict):
             settings["triggers"][kind] = {"on": bool(value.get("on", True)), "sound": bool(value.get("sound"))}
     lead = saved.get("lead_minutes")
@@ -354,7 +355,8 @@ async def active_banners(db, now: datetime, settings: dict | None = None) -> lis
     banners = [b for b in banners if b["key"] not in hidden]
     for b in banners:
         b["sound"] = settings["triggers"][b["kind"]]["sound"]
-    banners.sort(key=lambda b: (_RANK[b["kind"]], b["sort_time"], b["text"]))
+    # Stable: ties keep the triggers' own order (family members in order).
+    banners.sort(key=lambda b: (_RANK[b["kind"]], b["sort_time"]))
     return banners
 
 
