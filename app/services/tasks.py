@@ -335,7 +335,9 @@ async def _update_and_queue(db, where: str, set_clause: str) -> int:
 
 async def archive_completed_one_off_tasks(db) -> int:
     """End-of-day cleanup (spec 4.3): ticked one-off tasks are removed from
-    view — archived locally, deleted from Google on the next sync."""
+    view — archived locally, deleted from Google on the next sync. Unticked
+    one-offs are left alone: they carry over, labelled late from their
+    due_on (spec 10.4), keeping the same row and Google id."""
     return await _update_and_queue(
         db, "is_recurring = 0 AND is_completed = 1 AND archived = 0", "archived = 1"
     )

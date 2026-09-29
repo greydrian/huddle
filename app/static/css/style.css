@@ -381,7 +381,7 @@ body:has(> .dashboard-scroll) > .topbar { flex-shrink: 0; }
 .task-local { display: inline-flex; flex-shrink: 0; color: var(--ink-soft); }
 .task-late {
   display: inline-block; margin-left: 6px; padding: 1px 8px; vertical-align: 2px;
-  border-radius: 999px; background: var(--warn-soft); color: var(--ink);
+  border-radius: 999px; border: 1px solid var(--warn); background: var(--warn-soft); color: var(--ink);
   font-size: 0.8rem; font-weight: 600; white-space: nowrap;
 }
 /* Time-of-day sections: the current one first, tinted and labelled "Now". */
@@ -411,6 +411,7 @@ body:has(> .dashboard-scroll) > .topbar { flex-shrink: 0; }
   display: flex; flex-direction: column; gap: 8px;
   margin: 0 0 12px; padding: 10px; border-radius: 16px; background: var(--sunken);
 }
+.task-add-form[hidden] { display: none; }
 .task-add-error { margin: 0; color: var(--danger); font-weight: 600; font-size: 0.95rem; }
 .task-add-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .task-chip { position: relative; }
