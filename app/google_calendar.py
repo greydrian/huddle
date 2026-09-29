@@ -432,7 +432,8 @@ def _pack_week(events: list[dict], first: date, days: list[dict], slots: int = M
     # school's, placed afterwards, can then fill any free span, even
     # one to the left of a Google bar.
     slot_cols: list[set[int]] = [set() for _ in range(slots)]
-    bars = []
+    bars: list[dict] = []
+    rows = 0
     for event in week_events:
         e_start = date.fromisoformat(event["date"])
         e_end = date.fromisoformat(event["end_date"])
@@ -447,7 +448,8 @@ def _pack_week(events: list[dict], first: date, days: list[dict], slots: int = M
             continue
         slot_cols[slot] |= cols
         bars.append({"event": event, "col_start": col_start, "col_end": col_end, "slot": slot})
-    return bars, max((bar["slot"] for bar in bars), default=-1) + 1
+        rows = max(rows, slot + 1)
+    return bars, rows
 
 
 def _day_cell(d: date, today: date, term_markers: dict[str, str], month: int | None = None) -> dict:

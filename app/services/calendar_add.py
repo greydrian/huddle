@@ -28,6 +28,7 @@ import logging
 import re
 import time as _time
 from collections import deque
+from collections.abc import Callable
 from datetime import UTC, date, datetime, timedelta
 from datetime import time as dtime
 
@@ -190,7 +191,7 @@ def _prune(claims: dict[str, dict], now: datetime) -> dict[str, dict]:
     return dict(sorted(kept.items(), key=lambda kv: kv[1]["at"], reverse=True)[:MAX_CLAIMS])
 
 
-async def _update_claims(db, change) -> object:
+async def _update_claims(db, change: Callable[[dict[str, dict]], dict | None]) -> dict | None:
     """Read-modify-write the claims under SQLite's write lock (two taps are
     two requests: only one can claim). `change(claims)` edits in place and
     returns the result passed back."""
@@ -226,6 +227,7 @@ async def _finish(db, key: str, done: dict | None) -> None:
             claims.pop(key, None)
         else:
             claims[key] = {"state": "done", "at": datetime.now(UTC).isoformat(), **done}
+        return None
     await _update_claims(db, change)
 
 

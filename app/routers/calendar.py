@@ -168,16 +168,18 @@ async def add_calendar_event(request: Request):
         "view", "year", "month", "start", "date", "back", "person",
     )}
     view = fields["view"] if fields["view"] in calendar_view.VIEWS else None
-    state = {
-        "year": int(fields["year"]) if fields["year"].isdigit() and 1970 <= int(fields["year"]) <= 2100 else None,
-        "month": int(fields["month"]) if fields["month"].isdigit() and 1 <= int(fields["month"]) <= 12 else None,
-        "start": calendar_view.parse_date(fields["start"]),
-        "day": calendar_view.parse_date(fields["date"]),
-        "back": fields["back"] or None,
-        "person": _person(fields["person"]),
-    }
-    if view == "day" and state["day"] is None:
+    year = int(fields["year"]) if fields["year"].isdigit() and 1970 <= int(fields["year"]) <= 2100 else None
+    month = int(fields["month"]) if fields["month"].isdigit() and 1 <= int(fields["month"]) <= 12 else None
+    day = calendar_view.parse_date(fields["date"])
+    if view == "day" and day is None:
         view = None
+
+    async def render(**extra):
+        return await calendar_view.widget_context(
+            db, view, year=year, month=month, start=calendar_view.parse_date(fields["start"]), day=day,
+            back=fields["back"] or None, person=_person(fields["person"]), **extra,
+        )
+
     async with get_db() as db:
         try:
             added = await calendar_add.add_family_event(
@@ -186,9 +188,9 @@ async def add_calendar_event(request: Request):
                 request_key=fields["request_key"],
             )
         except calendar_add.AddEventError as exc:
-            context = await calendar_view.widget_context(db, view, **state, add_error=exc.message, add_form={
+            context = await render(add_error=exc.message, add_form={
                 key: fields[key] for key in ("title", "day", "start_time", "end_time", "person_id", "request_key")
             })
         else:
-            context = await calendar_view.widget_context(db, view, **state, added=added)
+            context = await render(added=added)
     return _render(request, context)
