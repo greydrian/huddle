@@ -201,6 +201,9 @@ def attach(profile: dict, id_key: str = "id") -> dict:
 
 # The avatar columns to add to a SELECT on profiles (never the photo bytes).
 COLUMNS = "avatar_kind, avatar_emoji, avatar_hash"
+# Every profiles column a page needs, instead of SELECT *: the photo's bytes
+# (and the unused avatar_path) stay out of widget loads and /api/rev polls.
+PROFILE_COLUMNS = f"id, name, colour_hex, sort_order, google_tasklist_id, school_year, is_parent, email, {COLUMNS}"
 
 
 def columns(alias: str) -> str:

@@ -467,6 +467,27 @@ async def test_homework_and_practice_words_widgets(db, client, faces):
     _assert_faces(word_pills, faces, names=("Riley",))
 
 
+async def test_photo_bytes_stay_out_of_widget_loads(db, client, faces):
+    """Tasks (loaded on every /api/rev poll) and the other loaders never read
+    the photo's bytes; PROFILE_COLUMNS lists every other profiles column."""
+    from app.services import tasks as task_service
+
+    with sqlite3.connect(database.DB_PATH) as conn:
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(profiles)")}
+    listed = {c.strip() for c in avatars.PROFILE_COLUMNS.split(",")}
+    assert listed == columns - {"avatar_photo", "avatar_path"}
+
+    statements = []
+    await db.set_trace_callback(statements.append)
+    try:
+        profiles = await task_service.get_profiles_with_tasks(db)
+    finally:
+        await db.set_trace_callback(None)
+    assert all("avatar_photo" not in p for p in profiles)
+    assert profiles[0]["avatar"]["kind"] == "photo"
+    assert not [s for s in statements if "FROM profiles" in s and "*" in s.split("FROM profiles")[0]]
+
+
 async def test_read_tonight_chips(db, client, faces):
     """The reading log's compact chips (spec 10.10) show each child's avatar too."""
     await db.execute("UPDATE profiles SET school_year = 'Year 4' WHERE id IN (?, ?)", (RILEY, JAMIE))

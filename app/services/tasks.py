@@ -133,7 +133,7 @@ async def get_profiles_with_tasks(db, today: date | None = None) -> list[dict]:
     Google list, so it's on this display only) and `late` (a missed one-off
     carried over: "from yesterday")."""
     profiles = [avatars.attach(dict(row)) for row in await (await db.execute(
-        "SELECT * FROM profiles ORDER BY sort_order"
+        f"SELECT {avatars.PROFILE_COLUMNS} FROM profiles ORDER BY sort_order"
     )).fetchall()]
 
     today = today or await family_today(db)

@@ -414,7 +414,7 @@ async def _render_admin(
     async with get_db() as db:
         context["appearance"] = await appearance.current_mode(db)
         context["profiles"] = [avatars.attach(dict(r)) for r in await (await db.execute(
-            "SELECT * FROM profiles ORDER BY sort_order"
+            f"SELECT {avatars.PROFILE_COLUMNS} FROM profiles ORDER BY sort_order"
         )).fetchall()]
         context["curated_emoji"] = avatars.CURATED_EMOJI
         context["avatar_kinds"] = avatars.KIND_LABELS
