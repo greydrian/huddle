@@ -140,8 +140,12 @@
     {% endif %}
     {% if c.can_add %}
     {% set f = c.add_form %}
-    {#- data-panel: fresh.js and idle.js treat an open form as in use. -#}
+    {#- data-panel: fresh.js, idle.js and calendar.js treat an open form as in
+        use. After a refused add, editing the form swaps in a fresh request key:
+        the same key then means the same event (services/calendar_add.py). -#}
     <form id="cal-add-form" class="cal-add-form" data-panel{% if not c.add_open %} hidden{% endif %}
+          {% if c.add_error %}data-fresh-key="{{ c.fresh_key }}"
+          hx-on:input="calendarFreshKey(this)" hx-on:change="calendarFreshKey(this)"{% endif %}
           hx-post="/widgets/calendar/events" hx-target="#widget-calendar" hx-swap="outerHTML"
           hx-sync="this:drop" hx-disabled-elt="find .cal-add-submit">
       {% if c.add_error %}<p class="cal-add-error" role="alert">{{ c.add_error }}</p>{% endif %}

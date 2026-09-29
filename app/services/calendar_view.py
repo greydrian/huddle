@@ -218,6 +218,7 @@ async def widget_context(
         "add_error": add_error,
         "added": added,
         "request_key": (add_form or {}).get("request_key") or secrets.token_urlsafe(16),
+        "fresh_key": secrets.token_urlsafe(16),  # swapped in once a refused form is edited
         "day_choices": _day_choices(today) if adding else [],
         "form_day": form_day or today.isoformat(),
         "time_choices": _time_choices() if adding else [],

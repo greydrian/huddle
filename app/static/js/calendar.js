@@ -1,17 +1,25 @@
-/* The calendar widget's return to its default view (spec 10.5).
+/* The calendar widget's return to its default view (spec 10.5), and its
+ * add form's request key.
  *
  * #widget-calendar polls /widgets/calendar (the Admin default view for
- * today, unfiltered) every IDLE seconds, and each re-render restarts that
- * timer; its hx-trigger asks huddleCalendarIdle() first. The poll is held
- * while someone is still using the widget without re-rendering it: a tap,
- * key or focus inside it in the last HOLD_MS (e.g. scrolling, filling in
- * the add form), or its input focused with the on-screen keyboard open.
- * A held poll simply tries again one interval later.
+ * today, unfiltered) every 180 s (calendar_view.IDLE_SECONDS). Each
+ * re-render restarts that timer, so it only fires 180 s after the last
+ * tap that re-rendered the widget. Its hx-trigger first asks
+ * huddleCalendarIdle(), which holds the poll while someone is still using
+ * the widget without re-rendering it:
+ *   - a tap, key, focus or scroll inside it in the last RECENT_MS;
+ *   - the add form open (data-panel), or a field in it focused, unless
+ *     nothing inside the widget was touched for ABANDONED_MS (fresh.js's
+ *     cap): a form or select left open and walked away from doesn't hold
+ *     the wall off its default view for good;
+ *   - one of its own requests in flight.
+ * A held poll tries again one interval later.
  */
 (function () {
   'use strict';
 
-  var HOLD_MS = 150000;
+  var RECENT_MS = 60000;
+  var ABANDONED_MS = 120000;  // as fresh.js
   var lastUse = 0;
 
   function noteUse(evt) {
@@ -22,12 +30,26 @@
   document.addEventListener('keydown', noteUse, true);
   document.addEventListener('focusin', noteUse, true);
   document.addEventListener('scroll', noteUse, true);
+  document.addEventListener('input', noteUse, true);
 
   window.huddleCalendarIdle = function (card) {
-    if (Date.now() - lastUse < HOLD_MS) return false;
-    var active = document.activeElement;
-    if (active && card.contains(active) && active.matches('input, textarea, select')) return false;
+    var since = Date.now() - lastUse;
+    if (since < RECENT_MS) return false;
     if (card.querySelector('.htmx-request')) return false;
+    if (since < ABANDONED_MS) {
+      if (card.querySelector('[data-panel]:not([hidden])')) return false;
+      var active = document.activeElement;
+      if (active && card.contains(active) && active.matches('input, textarea, select')) return false;
+    }
     return true;
+  };
+
+  // After a refused add, the first edit gives the form a fresh request key
+  // (data-fresh-key): an edited form is a different event.
+  window.calendarFreshKey = function (form) {
+    var fresh = form.dataset.freshKey;
+    if (!fresh) return;
+    form.querySelector('input[name=request_key]').value = fresh;
+    delete form.dataset.freshKey;
   };
 })();

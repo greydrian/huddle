@@ -97,7 +97,32 @@ async def test_add_event_with_the_on_screen_keyboard(start_server, page):
     assert await page.input_value("#cal-add-form input[name=title]") == "Gym"
     assert await page.is_checked("#cal-add-form .task-chip-person:has-text('Riley') input")
     assert await page.input_value("#cal-add-form select[name=start_time]") == "16:30"
+    # Sent again unchanged: the same key (the same event). Edited: a fresh key.
+    key = await page.input_value("#cal-add-form input[name=request_key]")
+    await page.tap("#cal-add-form input[name=title]")
+    await page.wait_for_selector(".osk.osk--open", state="visible")
+    await page.tap(".osk .hg-button[data-skbtn='{bksp}']")
+    new_key = await page.input_value("#cal-add-form input[name=request_key]")
+    assert new_key != key and len(new_key) >= 16
     assert _layout(server) == before
+
+
+async def test_an_open_add_form_holds_the_return_until_abandoned(start_server, page):
+    server = start_server()
+    server.seed_calendar()
+    await page.clock.install()
+    await page.goto(server.url + "/")
+    await page.tap("#widget-calendar .cal-view-btn >> text=Week")
+    await page.wait_for_selector("#widget-calendar[data-view=week]")
+    await page.tap("#widget-calendar .cal-add-toggle")
+    await page.wait_for_selector("#cal-add-form:not([hidden])")
+
+    await page.clock.run_for("01:40")
+    await page.tap("#cal-add-form .task-chip-person >> text=Riley")  # still filling it in
+    await page.clock.run_for("01:25")  # the 180 s poll: 85 s since that tap, form open: held
+    assert await page.locator("#widget-calendar[data-view=week] #cal-add-form:not([hidden])").count() == 1
+    await page.clock.run_for("03:05")  # the next poll: untouched for 4+ minutes, so abandoned
+    await page.wait_for_selector("#widget-calendar[data-view=month]")
 
 
 async def test_returns_to_the_default_view_after_three_idle_minutes(start_server, page):
