@@ -498,7 +498,8 @@ async def edit_task(
 ):
     # Ticking any day (or School days) implies the task repeats; "Repeats"
     # with no days ticked means every day. Rules are only stored for
-    # recurring tasks. No time_of_day field at all leaves the group as it is.
+    # recurring tasks. No time_of_day field at all leaves the group as it is
+    # ("any" clears it: FastAPI reads an empty form value as missing).
     recurring = is_recurring or bool(days) or school_days
     rule: str | None = None
     if school_days:

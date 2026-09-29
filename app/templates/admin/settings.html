@@ -95,7 +95,7 @@
             </div>
             <div class="day-picker" role="radiogroup" aria-label="Time of day">
               <span class="admin-meta">Time of day:</span>
-              <label class="day-chip"><input type="radio" name="time_of_day" value="" {{ 'checked' if not t.group_label else '' }}><span>Any time</span></label>
+              <label class="day-chip"><input type="radio" name="time_of_day" value="any" {{ 'checked' if not t.group_label else '' }}><span>Any time</span></label>
               {% for key, label in task_groups %}
               <label class="day-chip"><input type="radio" name="time_of_day" value="{{ key }}" {{ 'checked' if t.time_of_day == key else '' }}><span>{{ label }}</span></label>
               {% endfor %}

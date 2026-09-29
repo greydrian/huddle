@@ -93,9 +93,9 @@ async def current_group(db) -> str:
 
 
 def clean_group(value) -> str | None:
-    """A form's group value -> stored value. '' / missing = no group;
-    anything else unknown raises ValueError."""
-    if value in (None, ""):
+    """A form's group value -> stored value. '' / 'any' / missing = no
+    group; anything else unknown raises ValueError."""
+    if value in (None, "", "any"):
         return None
     if value not in GROUPS:
         raise ValueError("group")
