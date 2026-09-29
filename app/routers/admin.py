@@ -543,8 +543,8 @@ async def save_profile_details(
 
 
 # --- Avatars (spec 10.9) ---
-# The photo upload is also guarded by app/upload_guard.py (session and size
-# checked before the body is read).
+# Like every Admin write, these are also guarded by app/upload_guard.py
+# (session and size checked before the body is read; the photo gets 8 MB).
 
 @router.post("/profiles/{profile_id}/avatar", dependencies=[Depends(require_admin)])
 async def save_avatar(
