@@ -10,12 +10,14 @@
     <div class="rd-row" role="group" aria-labelledby="rd-heading">
       <span class="rd-heading" id="rd-heading">{{ icon("book-open-text", 18) }}Read tonight</span>
       {% for child in reading_children %}
-      {% call tick_button("/api/reading/" ~ child.id ~ "/toggle", "#widget-homework", child.read_today,
-                          "rd-tick ink-" ~ (child.colour_hex | person_ink) ~ (" on" if child.read_today else ""), "on",
+      <span class="rd-item ink-{{ child.colour_hex | person_ink }}" style="--person: {{ child.colour_hex }};">
+      {%- call tick_button("/api/reading/" ~ child.id ~ "/toggle", "#widget-homework", child.read_today,
+                          "rd-tick" ~ (" on" if child.read_today else ""), "on",
                           aria_label=child.name ~ " read tonight", pressed=true) %}
-        <span class="rd-check" style="--person: {{ child.colour_hex }};" aria-hidden="true">{{ icon("check", 18) }}</span>
+        <span class="rd-check" aria-hidden="true">{{ icon("check", 18) }}</span>
         <span class="rd-name">{{ child.name }}</span>
-      {% endcall %}
+      {% endcall -%}
+      </span>
       {% endfor %}
     </div>
     {% endif %}

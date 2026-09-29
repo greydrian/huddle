@@ -54,7 +54,99 @@
 .hw-item.just-ticked .hw-check .icon { animation: tick-draw 0.3s ease-out 0.08s both; }
 .hw-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .hw-title { font-size: 1rem; line-height: 1.3; overflow-wrap: break-word; }
-.hw-subject { font-weight: 700; }
+/* Subject chips (spec 10.10): icon + name in the subject's colour on a tint
+   of it. Every colour is at least 4.5:1 on its own tint, day and night
+   (tests/test_homework_extras.py checks the values below). */
+:root {
+  --subj-maths: #2F5DA8;
+  --subj-english: #A2356A;
+  --subj-reading: #2B7148;
+  --subj-science: #6B44A8;
+  --subj-topic: #8E5410;
+  --subj-other: #5B636E;
+  --subj-tint: 12%;
+}
+:root[data-mode="night"] {
+  --subj-maths: #8DB2F2;
+  --subj-english: #EE9AC4;
+  --subj-reading: #86D0A2;
+  --subj-science: #BFA6F2;
+  --subj-topic: #E8AE62;
+  --subj-other: #A3AAB4;
+  --subj-tint: 18%;
+}
+.subj-maths { --subj: var(--subj-maths); }
+.subj-english { --subj: var(--subj-english); }
+.subj-reading { --subj: var(--subj-reading); }
+.subj-science { --subj: var(--subj-science); }
+.subj-topic { --subj: var(--subj-topic); }
+.subj-other { --subj: var(--subj-other); }
+.hw-subject {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  padding: 2px 9px 2px 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--subj, var(--subj-other)) var(--subj-tint), var(--card));
+  color: var(--subj, var(--subj-other));
+  font-size: 0.8rem;
+  font-weight: 700;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.hw-subject .icon { flex-shrink: 0; }
+
+/* Reading log: "Read tonight" + one toggle per child, in their colour. */
+.rd-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  padding: 2px 0 10px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+}
+.rd-heading {
+  flex-basis: 100%;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--ink-soft);
+}
+.rd-item { display: inline-flex; min-width: 0; }
+.rd-tick {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 48px;  /* touch target (spec 10.0) */
+  max-width: 100%;
+  padding: 6px 14px 6px 8px;
+  border-radius: 999px;
+  border: 2px solid var(--person, var(--control));
+  background: transparent;
+  color: var(--ink);
+  font-weight: 600;
+  font-size: 1rem;
+  cursor: pointer;
+}
+.rd-check {
+  width: 30px; height: 30px;
+  flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 50%;
+  border: 2px solid var(--person, var(--control));
+  color: transparent;
+}
+.rd-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rd-tick.on { background: color-mix(in srgb, var(--person, var(--accent)) var(--event-tint), var(--card)); }
+.rd-tick.on .rd-check { background: var(--person, var(--accent)); color: var(--person-ink, var(--on-accent)); }
+.rd-tick.just-ticked .rd-check { animation: tick-bounce 0.45s cubic-bezier(0.3, 1.6, 0.5, 1); }
 .hw-details { font-size: 0.85rem; color: var(--ink-soft); overflow-wrap: break-word; }
 .hw-item.done .hw-title, .hw-item.done .hw-details { text-decoration: line-through; color: var(--ink-soft); }
 .hw-due {
