@@ -415,6 +415,20 @@ async def test_a_stale_page_cannot_undo_a_hide(admin_client, client, db):
     assert resp.status_code == 200 and (await _saved(db))[items[0]["id"]][1] == 20
 
 
+async def test_a_widget_refreshing_itself_doesnt_make_the_page_stale(client, db):
+    generation = await _generation(client)
+    # A quick-add re-renders the tasks widget (and changes its revision), not the grid.
+    before = (await client.get("/api/rev")).json()
+    resp = await client.post("/api/tasks", data={"profile_id": 1, "title": "Water plants", "time_of_day": ""})
+    assert resp.status_code == 200 and "Water plants" in (await client.get("/widgets/tasks")).text
+    after = (await client.get("/api/rev")).json()
+    assert after["widgets"]["tasks"] != before["widgets"]["tasks"]
+    assert after["layout"] == before["layout"] == generation
+    items = [{"id": "tasks", "x": 0, "y": 30, "w": 4, "h": 4}]
+    assert (await client.post("/api/layout", json={"items": items, "generation": generation})).status_code == 200
+    assert (await _saved(db))["tasks"] == (0, 30, 4, 4)
+
+
 async def test_a_page_from_yesterday_is_stale(client, db, on_day):
     on_day(date(2026, 10, 1))
     yesterday = await _generation(client)
