@@ -98,55 +98,70 @@
 }
 .hw-subject .icon { flex-shrink: 0; }
 
-/* Reading log: "Read tonight" + one toggle per child, in their colour. */
+/* Reading log: "Read tonight" + one compact chip per child, in their colour.
+   The chip is 36px tall; its ::after hit area makes it a 48px target
+   (--hit-y: 8px each way beyond the 32px padding box; see "Hit areas" in
+   style.css). The 16px row gap keeps the hit areas of wrapped rows apart,
+   and the row's 8px top padding keeps the first row's inside the scroller. */
 .rd-row {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px 8px;
-  padding: 2px 0 10px;
-  margin-bottom: 8px;
+  gap: 16px 6px;
+  padding: 8px 0 12px;
+  margin-bottom: 6px;
   border-bottom: 1px solid var(--line);
 }
 .rd-heading {
-  flex-basis: 100%;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  font-size: 0.8rem;
+  gap: 5px;
+  margin-right: 2px;
+  font-size: 0.75rem;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.03em;
   color: var(--ink-soft);
+  white-space: nowrap;
 }
-.rd-item { display: inline-flex; min-width: 0; }
+.rd-item { display: inline-flex; min-width: 0; max-width: 100%; }
 .rd-tick {
+  --hit-x: 0px;
+  --hit-y: -8px;
+  position: relative;
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  min-height: 48px;  /* touch target (spec 10.0) */
+  gap: 6px;
+  height: 36px;
+  min-width: 48px;
   max-width: 100%;
-  padding: 6px 14px 6px 8px;
+  padding: 0 10px 0 3px;
   border-radius: 999px;
   border: 2px solid var(--person, var(--control));
   background: transparent;
   color: var(--ink);
   font-weight: 600;
-  font-size: 1rem;
+  font-size: 0.9rem;
   cursor: pointer;
 }
-.rd-check {
-  width: 30px; height: 30px;
+.rd-tick::after { content: ""; position: absolute; inset: var(--hit-y) var(--hit-x); }
+.rd-dot {
+  width: 26px; height: 26px;
   flex-shrink: 0;
   display: flex; align-items: center; justify-content: center;
   border-radius: 50%;
   border: 2px solid var(--person, var(--control));
-  color: transparent;
+  color: var(--ink);
+  font-size: 0.8rem;
+  font-weight: 700;
 }
-.rd-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rd-dot .icon { display: none; }
+.rd-name { min-width: 0; max-width: 7em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rd-tick.on { background: color-mix(in srgb, var(--person, var(--accent)) var(--event-tint), var(--card)); }
-.rd-tick.on .rd-check { background: var(--person, var(--accent)); color: var(--person-ink, var(--on-accent)); }
-.rd-tick.just-ticked .rd-check { animation: tick-bounce 0.45s cubic-bezier(0.3, 1.6, 0.5, 1); }
+.rd-tick.on .rd-dot { background: var(--person, var(--accent)); color: var(--person-ink, var(--on-accent)); }
+.rd-tick.on .rd-initial { display: none; }
+.rd-tick.on .rd-dot .icon { display: block; }
+.rd-tick.just-ticked .rd-dot { animation: tick-bounce 0.45s cubic-bezier(0.3, 1.6, 0.5, 1); }
 .hw-details { font-size: 0.85rem; color: var(--ink-soft); overflow-wrap: break-word; }
 .hw-item.done .hw-title, .hw-item.done .hw-details { text-decoration: line-through; color: var(--ink-soft); }
 .hw-due {

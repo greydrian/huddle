@@ -4,17 +4,19 @@
 <div class="widget-card" id="widget-homework" data-refresh="/widgets/homework" data-rev-key="homework">
   {{ widget_header("book-open", "Homework") }}
   <div class="widget-body hw-body">
-    {#- Reading log (spec 10.10): one "Read tonight" tick per child, every day,
-        at the top so it's never scrolled out of sight under a long list. -#}
+    {#- Reading log (spec 10.10): one compact "Read tonight" chip per child
+        (a year group and not a parent), every day, at the top so it's never
+        scrolled out of sight, and small so the homework below still shows.
+        Each chip is a 48px toggle through its hit area (.rd-tick::after). -#}
     {% if reading_children %}
     <div class="rd-row" role="group" aria-labelledby="rd-heading">
-      <span class="rd-heading" id="rd-heading">{{ icon("book-open-text", 18) }}Read tonight</span>
+      <span class="rd-heading" id="rd-heading">{{ icon("book-open-text", 16) }}Read tonight</span>
       {% for child in reading_children %}
       <span class="rd-item ink-{{ child.colour_hex | person_ink }}" style="--person: {{ child.colour_hex }};">
       {%- call tick_button("/api/reading/" ~ child.id ~ "/toggle", "#widget-homework", child.read_today,
                           "rd-tick" ~ (" on" if child.read_today else ""), "on",
                           aria_label=child.name ~ " read tonight", pressed=true) %}
-        <span class="rd-check" aria-hidden="true">{{ icon("check", 18) }}</span>
+        <span class="rd-dot" aria-hidden="true"><span class="rd-initial">{{ child.name[:1] | upper }}</span>{{ icon("check", 16) }}</span>
         <span class="rd-name">{{ child.name }}</span>
       {% endcall -%}
       </span>

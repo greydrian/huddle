@@ -88,6 +88,8 @@ def _seed_content(server):
     """Homework and a word list, so their widgets and Admin rows show buttons."""
     server.query("INSERT INTO homework (profile_id, subject, title, due_date) VALUES (3, 'Maths', 'Fractions', NULL)")
     server.query("INSERT INTO practice_word_lists (profile_id, title, words) VALUES (3, 'Week 4', 'because\nwhich')")
+    # Two readers, so the Read tonight chips (and their hit areas) are measured too.
+    server.query("UPDATE profiles SET school_year = 'Year 4' WHERE name IN ('Riley', 'Jamie')")
 
 
 async def test_dashboard_touch_targets(start_server, page):
