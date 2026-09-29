@@ -1,7 +1,7 @@
 """The idle screen's server side (spec 10.2, app/idle.py): the Admin
 settings, /api/idle (family clock, next event from calendar_cache, weather
 from its cache, this week's photos) and the dashboard wiring. The browser
-behaviour is in tests/e2e/test_idle.py."""
+behaviour is in tests/e2e/test_idle_screen.py."""
 
 import json
 from datetime import date, datetime, timedelta, timezone
