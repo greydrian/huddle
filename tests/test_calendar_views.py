@@ -317,6 +317,20 @@ async def test_unknown_person_shows_everyone(client, events):
     assert "Bins out" in html and 'aria-pressed="true"' not in html.split("cal-people")[1]
 
 
+async def test_person_filter_chips_show_each_avatar(client, db, events):
+    """Spec 10.9: the calendar's person chips carry the same avatar as the pills."""
+    ids = await _profile_ids(db)
+    await db.execute("UPDATE profiles SET avatar_kind = 'emoji', avatar_emoji = '🦖' WHERE id = ?", (ids["Riley"],))
+    await db.commit()
+    events(timed("Bins out", "2026-08-11", "19:00", "19:15"))
+    html = (await client.get("/widgets/calendar?view=week&start=2026-08-10")).text
+    chips = {name: face for face, name in re.findall(
+        r'<button type="button" class="cal-person[^>]*>\s*(<span class="person-dot[^>]*>[^<]*</span>)([^<]+)</button>',
+        html)}
+    assert "avatar-emoji" in chips["Riley"] and "🦖" in chips["Riley"]
+    assert "avatar-initial" in chips["Jamie"] and chips["Jamie"].endswith(">J</span>")
+
+
 async def test_cached_events_learn_their_calendar(db):
     await calendar_cache.store(db, (await google_calendar._selection(db))[1], date(2026, 8, 1), date(2026, 9, 1),
                                {"primary": [{"title": "Old row", "date": "2026-08-03", "end_date": "2026-08-03"}]})

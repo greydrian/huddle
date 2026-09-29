@@ -718,6 +718,11 @@ body:has(> .dashboard-scroll) > .topbar, body:has(> .dashboard-scroll) > .banner
   color: var(--ink); font-size: 0.95rem; font-weight: 600; cursor: pointer;
 }
 .cal-person[aria-pressed="true"] { background: var(--person); color: var(--person-ink); }
+/* The filter chips carry each person's avatar (spec 10.9) before the name. */
+.cal-person { display: inline-flex; align-items: center; gap: 8px; }
+.cal-person:has(.person-dot) { padding-left: 6px; }
+.cal-person .person-dot { width: 30px; height: 30px; font-size: 1rem; }
+.cal-person .person-dot.avatar-emoji { font-size: 1.15rem; }
 .cal-add-toggle {
   display: inline-flex; align-items: center; justify-content: center; gap: 4px; flex-shrink: 0;
   min-width: 48px; min-height: 48px; padding: 0 14px;
