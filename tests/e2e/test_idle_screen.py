@@ -30,6 +30,9 @@ def _settings(server, **values):
                 "dim_percent": 8, "interval_seconds": 20, **values}
     server.query("INSERT INTO app_settings (key, value) VALUES ('idle_settings', ?) "
                  "ON CONFLICT(key) DO UPDATE SET value = excluded.value", (json.dumps(settings),))
+    # Appearance defaults to "auto" (night after sunset), which would swap in night_mode
+    # when the suite runs in the evening. Pin it to day unless the test chose a mode.
+    server.query("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('appearance', 'light')")
 
 
 def _appearance(server, mode):

@@ -12,6 +12,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from app import database, freshness
+from app.services import banners
 from app.widgets import WIDGETS
 
 STATIC_JS = Path(database.__file__).parent / "static" / "js"
@@ -22,6 +23,13 @@ REFRESH_ROUTES = {
     "homework": "/widgets/homework",
     "practice_words": "/widgets/practice-words",
 }
+
+
+@pytest.fixture(autouse=True)
+def _mid_morning(monkeypatch):
+    """Freeze the banner clock at 10:00: in the evening an unticked chore raises the
+    late-chore banner, so a task change would also move the banners revision."""
+    monkeypatch.setattr(banners, "_clock", lambda tz: datetime.now(tz).replace(hour=10, minute=0))
 
 
 async def _revs(client):
