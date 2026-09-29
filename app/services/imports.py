@@ -620,12 +620,14 @@ async def approve_candidate(db, candidate_id: int, form: dict) -> tuple[str, int
     elif candidate["kind"] == "homework":
         fields = await homework.homework_fields(
             db, form.get("profile_id"), form.get("subject"), form.get("title"),
-            form.get("details"), form.get("due_date"),
+            form.get("details"), form.get("due_date"), form.get("subject_key"),
         )
         table = "homework"
-        insert = """INSERT INTO homework (profile_id, subject, title, details, due_date, source)
-                    VALUES (?, ?, ?, ?, ?, ?)"""
-        payload = {"subject": fields[1], "title": fields[2], "details": fields[3] or "", "due_date": fields[4]}
+        # subject_key: the pick in the approve form, else the extracted subject mapped (spec 10.10).
+        insert = """INSERT INTO homework (profile_id, subject, title, details, due_date, subject_key, source)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)"""
+        payload = {"subject": fields[1], "title": fields[2], "details": fields[3] or "", "due_date": fields[4],
+                   "subject_key": fields[5]}
     else:
         raise CandidateError("import-event")
     try:
@@ -702,7 +704,7 @@ def form_from_payload(candidate: dict) -> dict:
     """The approve form's values for a stored candidate, as the Admin form
     would submit them."""
     payload = candidate["payload"]
-    form = {key: payload.get(key) or "" for key in ("title", "subject", "details", "due_date", "starts_on", "ends_on")}
+    form = {key: payload.get(key) or "" for key in ("title", "subject", "subject_key", "details", "due_date", "starts_on", "ends_on")}
     form["words"] = "\n".join(payload.get("words") or [])
     form["profile_id"] = candidate["profile_id"] or ""
     return form

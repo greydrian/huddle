@@ -130,7 +130,7 @@ async def test_widget_groups_sorts_and_flags(db, client, today):
     html = (await client.get("/widgets/homework")).text
     assert 'id="widget-homework"' in html
     assert "hw-item overdue" in html and "Due tomorrow" in html
-    assert '<span class="hw-subject">Maths</span>' in html
+    assert 'class="hw-subject subj-other"' in html and 'Maths</span>' in html  # raw insert: no subject_key
 
 
 async def test_done_items_drop_off_after_their_day(db, today):

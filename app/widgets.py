@@ -40,16 +40,12 @@ async def _weather(db) -> dict:
     return {"weather": await weather.get_weather(db)}
 
 
-async def _homework(db) -> dict:
-    return {"homework_groups": await homework.get_homework_groups(db)}
-
-
 WIDGETS: dict[str, Widget] = {
     "calendar": Widget("calendar.html", _calendar, "Calendar"),
     "tasks": Widget("tasks.html", tasks.widget_context, "Today's tasks"),
     "shopping": Widget("shopping.html", _shopping, "Shopping list"),
     "meals": Widget("meals.html", _meals, "Meal plan"),
     "weather": Widget("weather.html", _weather, "Weather"),
-    "homework": Widget("homework.html", _homework, "Homework"),
+    "homework": Widget("homework.html", homework.homework_context, "Homework"),
     "practice_words": Widget("practice_words.html", homework.practice_context, "Practice words"),
 }

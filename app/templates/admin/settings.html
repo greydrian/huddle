@@ -123,12 +123,20 @@
   <!-- Homework -->
   {#- After a validation error, homework_form / words_form hold what was submitted
       ("id" none = the add form) so the form comes back as typed. -#}
+  {#- The fixed subject (icon + colour, spec 10.10). "Match the subject" maps the
+      typed subject through the synonym table (services/homework.subject_key_for). -#}
+  {% macro subject_select(pick) %}
+  <select name="subject_key" aria-label="Subject icon">
+    <option value="">Icon: match the subject</option>
+    {% for key, (label, _icon) in homework_subjects.items() %}<option value="{{ key }}" {{ 'selected' if key == pick else '' }}>Icon: {{ label }}</option>{% endfor %}
+  </select>
+  {% endmacro %}
   {% macro homework_row(h) %}
   {% set editing = homework_form and homework_form.id == h.id %}
   {% set f = homework_form if editing else h %}
   <div class="admin-row admin-item">
-    <span class="admin-item-label">{{ h.profile_name }} — {% if h.subject %}{{ h.subject }}: {% endif %}{{ h.title }}
-      <span class="admin-meta">{% if h.due_date %}· due {{ h.due_date }}{% else %}· no due date{% endif %}{% if h.done %} · done{% endif %}{% if h.archived %} · archived{% endif %}</span></span>
+    <span class="admin-item-label">{{ h.profile_name }} — <span class="hw-subject subj-{{ h.subj.key }}">{{ icon(h.subj.icon, 16) }}{{ h.subj.text }}</span> {{ h.title }}
+      <span class="admin-meta">{% if h.due_date %}· due {{ h.due_date }}{% else %}· no due date{% endif %}{% if h.done %} · done{% if h.done_when %} {{ h.done_when }}{% endif %}{% endif %}{% if h.archived %} · archived{% endif %}</span></span>
     <details class="task-edit"{{ ' open' if editing else '' }}>
       <summary class="btn"><span class="task-edit-open">Edit</span><span class="task-edit-close">Cancel</span></summary>
       <form class="admin-form" method="post" action="/admin/homework/{{ h.id }}/edit">
@@ -136,6 +144,7 @@
           {% for p in profiles %}<option value="{{ p.id }}" {{ 'selected' if p.id|string == f.profile_id|string else '' }}>{{ p.name }}</option>{% endfor %}
         </select>
         <input type="text" name="subject" value="{{ f.subject or '' }}" maxlength="60" placeholder="Subject" aria-label="Subject" autocomplete="off"{% if onscreen_keyboard %} data-osk="text"{% endif %}>
+        {{ subject_select(f.subject_pick) }}
         <input type="text" name="title" value="{{ f.title }}" maxlength="120" required aria-label="Homework" autocomplete="off"{% if onscreen_keyboard %} data-osk="text"{% endif %}>
         <input type="text" name="details" value="{{ f.details or '' }}" maxlength="1000" placeholder="Details (optional)" aria-label="Details" autocomplete="off"{% if onscreen_keyboard %} data-osk="text"{% endif %}>
         <label class="hw-field">Due <input type="date" name="due_date" value="{{ f.due_date or '' }}"></label>
@@ -171,11 +180,57 @@
         {% for p in profiles %}<option value="{{ p.id }}" {{ 'selected' if hf and p.id|string == hf.profile_id|string else '' }}>{{ p.name }}</option>{% endfor %}
       </select>
       <input type="text" name="subject" value="{{ hf.subject or '' }}" maxlength="60" placeholder="Subject (e.g. Maths)" aria-label="Subject" autocomplete="off"{% if onscreen_keyboard %} data-osk="text"{% endif %}>
+      {{ subject_select(hf.subject_pick) }}
       <input type="text" name="title" value="{{ hf.title or '' }}" maxlength="120" placeholder="What's the homework?" required aria-label="Homework" autocomplete="off"{% if onscreen_keyboard %} data-osk="text"{% endif %}>
       <input type="text" name="details" value="{{ hf.details or '' }}" maxlength="1000" placeholder="Details (optional)" aria-label="Details" autocomplete="off"{% if onscreen_keyboard %} data-osk="text"{% endif %}>
       <label class="hw-field">Due (optional) <input type="date" name="due_date" value="{{ hf.due_date or '' }}"></label>
       <button type="submit" class="btn">Add homework</button>
     </form>
+
+    {#- Done history (spec 10.10): every tick and untick on the wall, with when
+        (family time). Who isn't known: the kiosk has no sign-in. -#}
+    <div class="admin-subsection hw-history">
+      <h3>Recently ticked</h3>
+      {% for e in homework_events %}
+      <p class="hw-event"><span class="hw-event-when">{{ e.when }}</span>
+        <span>{{ e.profile_name }} {{ 'ticked' if e.done else 'unticked' }} <span class="hw-subject subj-{{ e.subj.key }}">{{ icon(e.subj.icon, 16) }}{{ e.subj.text }}</span> {{ e.title }}</span></p>
+      {% else %}
+      <p class="admin-meta">Nothing ticked yet. When homework is ticked done on the wall, it shows here with the time.</p>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- Reading log -->
+  {#- Last 4 weeks, Monday to Sunday, per child (spec 10.10). A tick is a night
+      they read; days off school are shaded. No points, no totals. -#}
+  <div class="admin-panel" id="reading">
+    <h2>Reading Log</h2>
+    <p class="admin-hint">Children tick “Read tonight” on the Homework widget. Here are the last 4 weeks, to help fill in the school reading record.</p>
+    {% for child in reading_history.children %}
+    <div class="rd-history">
+      <h3 class="rd-history-name">{{ person_avatar(child.name, child.colour_hex) }}{{ child.name }}</h3>
+      <div class="rd-grid-scroll">
+      <table class="rd-grid">
+        <thead><tr>{% for d in reading_history.weekdays %}<th scope="col">{{ d }}</th>{% endfor %}</tr></thead>
+        <tbody>
+          {% for week in child.weeks %}
+          <tr>
+            {% for c in week %}
+            <td class="{{ 'is-read' if c.read else '' }}{{ ' is-off' if not c.school_day else '' }}{{ ' is-future' if c.future else '' }}{{ ' is-today' if c.today else '' }}"
+                title="{{ c.label }}{{ ': read' if c.read else '' }}">
+              <span class="rd-day">{{ c.day }}</span>
+              {% if c.read %}{{ icon("check", 18) }}<span class="visually-hidden">read</span>{% endif %}
+            </td>
+            {% endfor %}
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      </div>
+    </div>
+    {% else %}
+    <p class="admin-meta">Set a year group for each child in Family Members to start the reading log.</p>
+    {% endfor %}
   </div>
 
   <!-- Handwriting practice words -->

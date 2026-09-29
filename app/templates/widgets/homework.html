@@ -4,6 +4,25 @@
 <div class="widget-card" id="widget-homework" data-refresh="/widgets/homework" data-rev-key="homework">
   {{ widget_header("book-open", "Homework") }}
   <div class="widget-body hw-body">
+    {#- Reading log (spec 10.10): one compact "Read tonight" chip per child
+        (a year group and not a parent), every day, at the top so it's never
+        scrolled out of sight, and small so the homework below still shows.
+        Each chip is a 48px toggle through its hit area (.rd-tick::after). -#}
+    {% if reading_children %}
+    <div class="rd-row" role="group" aria-labelledby="rd-heading">
+      <span class="rd-heading" id="rd-heading">{{ icon("book-open-text", 16) }}Read tonight</span>
+      {% for child in reading_children %}
+      <span class="rd-item ink-{{ child.colour_hex | person_ink }}" style="--person: {{ child.colour_hex }};">
+      {%- call tick_button("/api/reading/" ~ child.id ~ "/toggle", "#widget-homework", child.read_today,
+                          "rd-tick" ~ (" on" if child.read_today else ""), "on",
+                          aria_label=child.name ~ " read tonight", pressed=true) %}
+        <span class="rd-dot" aria-hidden="true"><span class="rd-initial">{{ child.name[:1] | upper }}</span>{{ icon("check", 16) }}</span>
+        <span class="rd-name">{{ child.name }}</span>
+      {% endcall -%}
+      </span>
+      {% endfor %}
+    </div>
+    {% endif %}
     {% for child in homework_groups %}
     <div class="hw-group">
       {{ person_pill(child.name, child.colour_hex) }}
@@ -13,7 +32,8 @@
                           "done", pressed=true) %}
         <span class="hw-check" aria-hidden="true">{{ icon("check", 18) }}</span>
         <span class="hw-text">
-          <span class="hw-title">{% if hw.subject %}<span class="hw-subject">{{ hw.subject }}</span> {% endif %}{{ hw.title }}</span>
+          <span class="hw-subject subj-{{ hw.subj.key }}">{{ icon(hw.subj.icon, 16) }}{{ hw.subj.text }}</span>
+          <span class="hw-title">{{ hw.title }}</span>
           {% if hw.details %}<span class="hw-details">{{ hw.details }}</span>{% endif %}
           {% if hw.label %}<span class="hw-due">{{ hw.label }}</span>{% endif %}
         </span>
