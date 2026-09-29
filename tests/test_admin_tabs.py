@@ -116,6 +116,7 @@ ROUTES: dict[tuple[str, str], tuple[str, dict | str]] = {
     ("POST", "/admin/widgets/{widget_id}/visibility"): (TAB, {"visible": "false"}),
     ("POST", "/admin/widgets/{widget_id}/school-days"): (TAB, {"enabled": "true"}),
     ("POST", "/admin/appearance"): (TAB, {"value": "nope"}),
+    ("POST", "/admin/banners"): (TAB, {"lead_minutes": "3", "quiet_start": "21:00", "quiet_end": "07:00"}),
     ("POST", "/admin/change-pin"): (TAB, {"new_pin": "2580", "confirm_pin": "2580"}),
     ("POST", "/admin/backups/run"): (TAB, {}),
     ("POST", "/admin/sync"): (TAB, {}),

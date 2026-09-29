@@ -50,7 +50,7 @@ from app.security import (
     lockout_seconds_for,
     verify_pin,
 )
-from app.services import extraction, homework, imports, layout, school_events, term_dates, weather
+from app.services import banners, extraction, homework, imports, layout, school_events, term_dates, weather
 from app.services import tasks as task_service
 from app.templating import templates
 from app.widgets import WIDGETS
@@ -83,6 +83,10 @@ ADMIN_ERRORS = {
     "handwriting-style": ("practice-words", "Pick one of the handwriting styles."),
     "appearance": ("display", "Pick one of the appearance options."),
     "widget-missing": ("widgets", "That widget no longer exists. Nothing was changed."),
+    "banner-lead": ("banners", f"The lead time must be a whole number of minutes from {banners.MIN_LEAD} to "
+                               f"{banners.MAX_LEAD}. Nothing was changed."),
+    "banner-quiet": ("banners", "Quiet hours need a start and an end like 21:00 and 07:00, and they can't be "
+                                "the same. Nothing was changed."),
     "pin-invalid": ("pin", "A PIN must be 4 to 8 digits, numbers only. Your PIN hasn't changed."),
     "backup-failed": ("backups", "The backup didn't complete. Check the logs (docker compose logs)."),
     "pin-weak": ("pin", "That PIN is too easy to guess: avoid one digit repeated (like 0000) or a "
@@ -423,6 +427,9 @@ async def _render_admin(
                 "appearances": appearance.APPEARANCES,
                 "widget_settings": await layout.admin_widgets(db),
                 "school_day_today": await term_dates.is_school_day(db, await family_today(db)),
+                "banner_settings": await banners.get_settings(db),
+                "banner_triggers": banners.TRIGGERS,
+                "banner_lead_range": (banners.MIN_LEAD, banners.MAX_LEAD),
             })
         elif tab == "google":
             context.update(await _google_lists(db, google_account))
@@ -1179,6 +1186,20 @@ async def save_appearance(value: str = Form("")):
     async with get_db() as db:
         await appearance.set_appearance(db, value)
     return RedirectResponse(url=admin_url("display"), status_code=303)
+
+
+@router.post("/banners", dependencies=[Depends(require_admin)])
+async def save_banners(request: Request):
+    """The notification banner's triggers, sounds, default lead time and
+    quiet hours (spec 10.1)."""
+    form = await request.form()
+    try:
+        settings = banners.clean_settings({key: form.get(key) for key in form.keys()})
+    except banners.SettingsError as exc:
+        return _admin_error(exc.code)
+    async with get_db() as db:
+        await banners.save_settings(db, settings)
+    return RedirectResponse(url=admin_url("banners"), status_code=303)
 
 
 # --- PIN management ---

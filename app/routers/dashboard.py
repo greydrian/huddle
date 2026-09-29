@@ -14,8 +14,8 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from app import scheduler, sync_status
 from app.appearance import current_mode
 from app.database import get_db
-from app.freshness import today_info, widget_revisions
-from app.services import layout
+from app.freshness import BANNERS, today_info, widget_revisions
+from app.services import banners, layout
 from app.templating import templates
 from app.widgets import WIDGETS
 
@@ -61,7 +61,8 @@ async def dashboard(request: Request):
         contexts = {row["widget_id"]: await WIDGETS[row["widget_id"]].load(db) for row in shown}
         context = {name: value for widget_context in contexts.values() for name, value in widget_context.items()}
         today = await today_info(db)
-        widget_revs = widget_revisions(contexts)
+        banner_context = await banners.context(db)
+        widget_revs = widget_revisions({**contexts, BANNERS: banner_context})
         layout_generation = await layout.generation(db, list(contexts))
         appearance = await current_mode(db)
 
@@ -70,6 +71,7 @@ async def dashboard(request: Request):
         "dashboard.html",
         {
             **context,
+            **banner_context,
             "layout": shown,
             "layout_generation": layout_generation,
             "widget_templates": {widget_id: widget.template for widget_id, widget in WIDGETS.items()},

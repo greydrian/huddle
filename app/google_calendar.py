@@ -81,7 +81,28 @@ def _parse_google_datetime(raw: str) -> datetime:
     return datetime.fromisoformat(raw.replace("Z", "+00:00"))
 
 
-def _format_event(raw: dict) -> dict:
+def _popup_minutes(reminders) -> int | None:
+    """The smallest popup reminder's minutes, or None if there's none."""
+    minutes = [
+        r["minutes"] for r in reminders or []
+        if isinstance(r, dict) and r.get("method") == "popup" and isinstance(r.get("minutes"), int)
+        and r["minutes"] >= 0
+    ]
+    return min(minutes) if minutes else None
+
+
+def reminder_minutes(raw: dict, default_reminders: list | None) -> int | None:
+    """The event's own lead time for the notification banner (spec 10.1):
+    its smallest popup override, or with useDefault the calendar's
+    defaultReminders (from the same events.list response). None = no popup
+    reminder either way (the banner then uses its Admin default)."""
+    reminders = raw.get("reminders") or {}
+    if reminders.get("useDefault", True) and not reminders.get("overrides"):
+        return _popup_minutes(default_reminders)
+    return _popup_minutes(reminders.get("overrides"))
+
+
+def _format_event(raw: dict, default_reminders: list | None = None) -> dict:
     start = raw.get("start", {})
     end = raw.get("end", {})
     all_day = "date" in start
@@ -112,6 +133,11 @@ def _format_event(raw: dict) -> dict:
         "end_date": end_date.isoformat(),
         "is_multi_day": end_date != start_date,
         "sort_key": start_dt.isoformat(),
+        # For the notification banner (app/services/banners.py), which reads
+        # events from calendar_cache. Rows cached before these existed lack
+        # them: banners treats that as "no id" / "no reminder".
+        "id": raw.get("id"),
+        "reminder_minutes": reminder_minutes(raw, default_reminders),
     }
 
 
@@ -140,14 +166,15 @@ async def _school_periods(db, first: date, last: date) -> tuple[list[dict], dict
 
 async def fetch_events(access_token: str, calendar_id: str, time_min: datetime, time_max: datetime) -> list[dict]:
     url = CALENDAR_EVENTS_ENDPOINT_TEMPLATE.format(calendar_id=quote(calendar_id, safe=""))
+    meta: dict = {}
     items = await get_all_pages(url, access_token, {
         "timeMin": time_min.isoformat(),
         "timeMax": time_max.isoformat(),
         "singleEvents": "true",
         "orderBy": "startTime",
         "maxResults": 250,
-    })
-    events = [_format_event(item) for item in items]
+    }, meta=meta)
+    events = [_format_event(item, meta.get("defaultReminders")) for item in items]
     events.sort(key=lambda e: e["sort_key"])
     return events
 
@@ -292,6 +319,20 @@ async def _load_events(db, span: Callable[[datetime], tuple[date, date]], cache:
         updated_label=_updated_label(oldest, loaded["now"]) if oldest else None,
     )
     return loaded
+
+
+async def cached_events(db, start: date, end: date) -> list[dict]:
+    """Every selected calendar's events touching [start, end) from
+    calendar_cache only — no Google call, so it answers the same online or
+    off. The cache is kept fresh by the month grid and refresh_cache (every
+    5 min). Calendars with no copy covering the range are skipped."""
+    calendars, selection = await _selection(db)
+    events: list[dict] = []
+    for cal in calendars:
+        cached = await calendar_cache.load(db, selection, start, end, cal["id"])
+        if cached is not None:
+            events.extend(cached[0])
+    return events
 
 
 async def insert_event(access_token: str, calendar_id: str, event: dict) -> dict:

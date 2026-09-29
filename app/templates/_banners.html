@@ -1,0 +1,29 @@
+{#- Notification banner (spec 10.1, app/services/banners.py), under the top
+    bar. Re-fetched by static/js/fresh.js when /api/rev's "banners" revision
+    changes; data-busy-any holds that back while anything on the wall is in
+    use, so the grid never jumps under a finger. Tapping a banner dismisses
+    that occurrence; the first SHOWN are on show and "+N more" reveals the
+    rest (static/js/banners.js, which also plays the chime). -#}
+{% from "_icons.html" import icon, person_pill %}
+<div id="banner-bar" class="banner-bar{{ '' if banners else ' is-empty' }}" data-refresh="/banners"
+     data-rev-key="banners" data-busy-any role="region" aria-label="Coming up" aria-live="polite">
+  {%- for b in banners %}
+  {%- set extra = loop.index > banners_shown %}
+  <button type="button" class="banner banner-{{ b.kind }}{{ ' banner-extra' if extra else '' }}"
+          {%- if extra %} data-panel hidden{% endif %}
+          hx-post="/api/banners/dismiss" hx-vals='{{ {"key": b.key} | tojson }}'
+          hx-target="#banner-bar" hx-swap="outerHTML"
+          data-key="{{ b.key }}"{% if b.sound %} data-sound{% endif %}
+          aria-label="{{ b.text }} (tap to dismiss)">
+    {%- if b.person %}{{ person_pill(b.person.name, b.person.colour) }}
+    {%- else %}<span class="person-pill person-pill-everyone"><span class="person-name">Everyone</span></span>{% endif %}
+    <span class="banner-text">{{ b.text }}</span>
+    <span class="banner-close" aria-hidden="true">{{ icon("x", 20) }}</span>
+  </button>
+  {%- endfor %}
+  {%- if banners | length > banners_shown %}
+  {%- set more = banners | length - banners_shown %}
+  <button type="button" class="banner-more" data-more aria-expanded="false"
+          data-more-label="+{{ more }} more" data-less-label="Show less">+{{ more }} more</button>
+  {%- endif %}
+</div>

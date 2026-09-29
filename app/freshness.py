@@ -28,12 +28,15 @@ from fastapi import APIRouter
 
 from app import database
 from app.database import family_timezone, get_db
-from app.services import layout
+from app.services import banners, layout
 from app.widgets import WIDGETS
 
 # Widgets refreshed through /api/rev. Each template's root carries
 # data-refresh="<its /widgets/... route>" (tests/test_freshness.py).
 REFRESHED = ("tasks", "shopping", "meals", "homework", "practice_words")
+# Not a widget, refreshed the same way: the notification banner bar
+# (templates/_banners.html, data-refresh="/banners").
+BANNERS = "banners"
 
 router = APIRouter()
 
@@ -45,16 +48,20 @@ def revision(context: dict) -> str:
 
 
 def widget_revisions(contexts: dict[str, dict]) -> dict[str, str]:
-    """{widget_id: revision} for the REFRESHED widgets in `contexts`: the
-    dashboard passes the contexts it just rendered (only the widgets it
-    shows), so the page's starting revisions describe exactly what it shows."""
-    return {widget_id: revision(contexts[widget_id]) for widget_id in REFRESHED if widget_id in contexts}
+    """{widget_id: revision} for the REFRESHED widgets (and BANNERS) in
+    `contexts`: the dashboard passes the contexts it just rendered (only the
+    widgets it shows), so the page's starting revisions describe exactly
+    what it shows."""
+    return {key: revision(contexts[key]) for key in (*REFRESHED, BANNERS) if key in contexts}
 
 
 async def shown_revisions(db, shown: list[str]) -> dict[str, str]:
-    """Revisions for the REFRESHED widgets the wall shows today. A hidden
-    widget (or a "school days only" one on a day off) isn't loaded at all."""
-    return {widget_id: revision(await WIDGETS[widget_id].load(db)) for widget_id in REFRESHED if widget_id in shown}
+    """Revisions for the REFRESHED widgets the wall shows today, plus the
+    banner bar (always there). A hidden widget (or a "school days only" one
+    on a day off) isn't loaded at all."""
+    revs = {widget_id: revision(await WIDGETS[widget_id].load(db)) for widget_id in REFRESHED if widget_id in shown}
+    revs[BANNERS] = revision(await banners.context(db))
+    return revs
 
 
 def seconds_until_tomorrow(now: datetime) -> int:

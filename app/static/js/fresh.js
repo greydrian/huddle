@@ -76,6 +76,13 @@
     if (card.querySelector('.htmx-request, .just-ticked')) return true;
     if (grid && grid.querySelector('.ui-draggable-dragging, .ui-resizable-resizing')) return true;
     if (card.querySelector('details[open], [data-panel]:not([hidden])') && Date.now() - (lastTouch[card.dataset.revKey] || 0) < ABANDONED_MS) return true;
+    // data-busy-any (the banner bar): its swap can change its height and
+    // move the whole grid, so it also waits while anything else is in use.
+    if (card.hasAttribute('data-busy-any')) {
+      if (active && grid && grid.contains(active) && active.matches('input, textarea, select, [contenteditable]')) return true;
+      var others = document.querySelectorAll('[data-rev-key]:not([data-busy-any])');
+      for (var i = 0; i < others.length; i++) if (busy(others[i])) return true;
+    }
     return false;
   }
 
