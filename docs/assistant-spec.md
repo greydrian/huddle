@@ -1,7 +1,8 @@
 # Huddle Assistant: specification
 
-**Status:** v0.2, agreed in the spec review on 28 September 2026 and updated after the
-external-sources review the same day. Companion to `family-display-spec.md`. That document
+**Status:** v0.3. v0.2 was agreed in the spec review on 28 September 2026; v0.3 applies the
+decisions of the 30 September 2026 review (main spec section 11.6): the cap in US dollars, the
+digest email deferred, voice still out of scope, and corrected data-retention facts. Companion to `family-display-spec.md`. That document
 describes the app. This one covers everything the app does with an AI model (Claude, via the
 Anthropic API): what it may do, what it may read, and the rules every assistant feature follows.
 
@@ -55,8 +56,8 @@ assistant capability, and the model for the rest.
 installed PWA, which the home-network-only setup doesn't have. So phones open the upload page
 instead. The QR pairing stays.
 
-**Voice (future).** Voice is out of scope for now. The tablet box is designed so that
-speech-to-text can feed it later, with nothing else changing.
+**Voice (future).** Voice is out of scope for the next two releases (decided 30 Sep 2026). The
+tablet box is designed so that speech-to-text can feed it later, with nothing else changing.
 
 ## 3. Capabilities
 
@@ -125,11 +126,11 @@ if it's from, or mentions, the SENDCo address**. Applying the label is the paren
   - homework due and school events
   - payments and reply deadlines
   - anything still waiting in the inbox
-- Delivered as:
-  - **a card on the display**, shown until dismissed
-  - **an email to both parents**: the family members with the `is_parent` flag, using their email
-    addresses (main spec 10.0). This needs the **Gmail send** permission, which is fine for an
-    Internal app, and a Google reconnect.
+- Delivered as **a card on the display**, shown until dismissed.
+- *Deferred (30 Sep 2026):* **an email to both parents** (the `is_parent` family members, main
+  spec 10.0). It needs the Gmail send permission and a Google reconnect, so it waits until a
+  delivery channel is chosen: email, or a phone notification through Home Assistant (main spec
+  11.5).
 - Sends the coming week's slice of family data to Claude.
 
 ### A5. Meal planning helper
@@ -143,21 +144,25 @@ if it's from, or mentions, the SENDCo address**. Applying the label is the paren
 - Depends on main spec 10.7, which is due in v1.2.
 
 ## 4. Budget, models, data and the activity log
-- **A monthly spending cap set in Admin, in pounds (£). The default cap is £10.** When it's
+- **A monthly spending cap set in Admin, in US dollars. The default cap is $12.** When it's
   reached, the assistant pauses and the tablet and Admin say so. Manual features still work.
   - Existing safety limits stay underneath it: 25 emails per check, and 60 documents a day.
-  - **All costs are shown in pounds**: the cap, each log entry, and the monthly total. Anthropic
-    bills in US dollars, so Huddle converts at an exchange rate set in Admin (defaulting to a
-    sensible current rate). The cap is enforced in pounds, which makes it approximate by the
-    exchange-rate difference.
+  - **All costs are shown in US dollars**, the currency Anthropic bills in: the cap, each log
+    entry, and the monthly total. No conversion and no exchange-rate setting, so the cap matches
+    the bill exactly. (Changed 30 Sep 2026 from pounds.)
   - Costs are computed from the API's `usage` token counts.
-  - Typical estimate: about £2.50–4 a month.
+  - **Before sending a document or photo, Huddle counts its tokens** (`count_tokens`) and refuses
+    the request with a clear message if it alone would take the month past the cap. The cap is a
+    hard line, not something noticed afterwards.
+  - Typical estimate: about $3–6 a month.
 - **The model is chosen per task automatically:**
   - the **cheap model is Claude Haiku** (currently `claude-haiku-4-5`), for quick add and Q&A
   - the **strong model is Claude Sonnet** (currently `claude-sonnet-5`, the code's default), for
-    PDFs, photos, the digest and meal planning
+    PDFs, photos, the digest and meal planning. Claude Sonnet 5.5 is the same price and is the
+    candidate to move to once it has been checked on a few real letters.
 
-  Both can be overridden in Admin. Opus was considered (about 2.5× the cost) and not chosen.
+  Both can be overridden in Admin. Opus was considered (Opus 5.5 is about 2× Sonnet's price) and
+  not chosen.
 - **Keeping costs down.** Use **prompt caching** across a multi-email run, and consider the
   **Batch API (50% off)** for the scheduled 18:00 check.
 - **Data sent per capability:**
@@ -170,9 +175,11 @@ if it's from, or mentions, the SENDCo address**. Applying the label is the paren
   | A4 | the coming week's events, homework, school items and deadlines |
   | A5 | allergies, dislikes, busy evenings, meal favourites |
 
-  **Anthropic keeps API data for 30 days by default**, or up to 2 years if it's flagged by safety
-  systems, and **doesn't train on it**. Zero data retention needs an enterprise contract, so it
-  doesn't apply here. The family's consent is recorded in main spec 7.
+  **Anthropic does not retain API prompts or outputs by default** for the Sonnet and Haiku models,
+  and **doesn't train on them**. Content flagged by its automated safety systems may be kept for
+  up to 2 years. The 30-day retention requirement applies only to the Claude Fable and Mythos
+  models, which Huddle does not use. Zero data retention is a contract arrangement and doesn't
+  apply here. (Corrected 30 Sep 2026.) The family's consent is recorded in main spec 7.
 - **Activity log in Admin.** Each request records:
   - when, which capability and which surface
   - a one-line summary of what was suggested (no document content)
@@ -191,11 +198,12 @@ if it's from, or mentions, the SENDCo address**. Applying the label is the paren
   - Pairings can be revoked individually. A PIN change prompts whether to revoke them all.
 - **Tablet box.** It's PIN-free, like the rest of the kiosk. It can only create what the kiosk
   could create by hand anyway (Family-calendar events, tasks, shopping), and it's rate-limited
-  (30 requests an hour, 100 a day) to stop runaway costs.
+  (30 requests an hour, 100 a day) to stop runaway costs. Each request is also capped at 300
+  characters, so a child leaning on the keyboard can't send a wall of text 30 times.
 - **Scopes added over time:**
   - `gmail.readonly`: already granted; also covers the label. It can't remove the label, so
     processed message IDs are tracked instead (A1).
-  - `gmail.send`: for the digest (A4)
+  - `gmail.send`: for the digest email (A4), deferred
   - `tasks`: already granted; parent tasks go through it
 
   Each is gated by the scopes actually granted, as today.
@@ -204,6 +212,7 @@ if it's from, or mentions, the SENDCo address**. Applying the label is the paren
 1. A parent-applied "Huddle" label overrides the SENDCo exclusion (see A1). The automatic school
    check never does.
 2. Budget and costs are shown and capped in pounds, converted at an exchange rate set in Admin.
+   *Superseded 30 Sep 2026: US dollars, no conversion (section 4).*
 3. Answers show for 30 seconds by default, changeable, and can be dismissed. Spoken answers are
    part of the future voice work.
 4. No quote is stored for a SENDCo-related email a parent labelled; only the approved item is kept.
@@ -217,6 +226,16 @@ if it's from, or mentions, the SENDCo address**. Applying the label is the paren
    requests an hour and 100 a day.
 9. The default monthly cap is £10. Haiku is the cheap model and Sonnet the strong one; Opus was not
    chosen. Costs come from the API's `usage` counts, with prompt caching across multi-email runs.
+   *Updated 30 Sep 2026: the default cap is $12.*
+
+## 7. Decided in the review (30 Sep 2026)
+1. The cap and all costs are in US dollars (section 4).
+2. The digest ships as the display card; its email is deferred (A4).
+3. Voice stays out of scope for the next two releases (section 2).
+4. A document or photo that alone would breach the cap is refused before it is sent (section 4).
+5. Tablet-box requests are capped at 300 characters (section 5).
+6. Arbor and ParentMail messages come in by email if their notifications carry the content, else
+   by screenshot or PDF upload; Huddle never logs in to them (main spec 11.3).
 
 ---
 
