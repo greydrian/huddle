@@ -52,21 +52,39 @@ async def events(db, connected):
 
 # --- Settings ---
 
+
 async def test_defaults(db):
     assert await idle.get_settings(db) == {
-        "mode": "slideshow", "night_mode": "dim", "delay_minutes": 5, "night_start": "", "night_end": "",
-        "dim_percent": 8, "interval_seconds": 20,
+        "mode": "slideshow",
+        "night_mode": "dim",
+        "delay_minutes": 5,
+        "night_start": "",
+        "night_end": "",
+        "dim_percent": 8,
+        "interval_seconds": 20,
     }
 
 
 async def test_admin_saves_the_settings(admin_client, db):
-    form = {"mode": "dim", "night_mode": "dashboard", "delay_minutes": "10", "interval_seconds": "30",
-            "dim_percent": "5", "night_start": "21:30", "night_end": "6:45"}
+    form = {
+        "mode": "dim",
+        "night_mode": "dashboard",
+        "delay_minutes": "10",
+        "interval_seconds": "30",
+        "dim_percent": "5",
+        "night_start": "21:30",
+        "night_end": "6:45",
+    }
     resp = await admin_client.post("/admin/idle", data=form)
     assert resp.headers["location"] == admin_url("idle")
     assert await idle.get_settings(db) == {
-        "mode": "dim", "night_mode": "dashboard", "delay_minutes": 10, "interval_seconds": 30,
-        "dim_percent": 5, "night_start": "21:30", "night_end": "06:45",
+        "mode": "dim",
+        "night_mode": "dashboard",
+        "delay_minutes": 10,
+        "interval_seconds": 30,
+        "dim_percent": 5,
+        "night_start": "21:30",
+        "night_end": "06:45",
     }
     html = (await admin_client.get("/admin?tab=display")).text
     assert 'name="night_start" value="21:30"' in html
@@ -74,20 +92,29 @@ async def test_admin_saves_the_settings(admin_client, db):
     assert "Fully PLUS is needed for real dimming" in html and "screen-off timer" in html
 
 
-@pytest.mark.parametrize(("change", "code"), [
-    ({"mode": "party"}, "idle-mode"),
-    ({"night_mode": ""}, "idle-mode"),
-    ({"delay_minutes": "0"}, "idle-numbers"),
-    ({"delay_minutes": "5.5"}, "idle-numbers"),
-    ({"interval_seconds": "1"}, "idle-numbers"),
-    ({"dim_percent": "80"}, "idle-numbers"),
-    ({"night_start": "21:00"}, "idle-night"),
-    ({"night_start": "21:00", "night_end": "21:00"}, "idle-night"),
-    ({"night_start": "25:00", "night_end": "07:00"}, "idle-night"),
-])
+@pytest.mark.parametrize(
+    ("change", "code"),
+    [
+        ({"mode": "party"}, "idle-mode"),
+        ({"night_mode": ""}, "idle-mode"),
+        ({"delay_minutes": "0"}, "idle-numbers"),
+        ({"delay_minutes": "5.5"}, "idle-numbers"),
+        ({"interval_seconds": "1"}, "idle-numbers"),
+        ({"dim_percent": "80"}, "idle-numbers"),
+        ({"night_start": "21:00"}, "idle-night"),
+        ({"night_start": "21:00", "night_end": "21:00"}, "idle-night"),
+        ({"night_start": "25:00", "night_end": "07:00"}, "idle-night"),
+    ],
+)
 async def test_bad_settings_change_nothing(admin_client, db, change, code):
-    form = {"mode": "slideshow", "night_mode": "dim", "delay_minutes": "5", "interval_seconds": "20",
-            "dim_percent": "8", **change}
+    form = {
+        "mode": "slideshow",
+        "night_mode": "dim",
+        "delay_minutes": "5",
+        "interval_seconds": "20",
+        "dim_percent": "8",
+        **change,
+    }
     resp = await admin_client.post("/admin/idle", data=form)
     assert resp.headers["location"] == admin_url("idle", error=code)
     assert await idle.get_settings(db) == idle.DEFAULTS
@@ -96,13 +123,16 @@ async def test_bad_settings_change_nothing(admin_client, db, change, code):
 
 
 async def test_unreadable_saved_settings_fall_back_to_defaults(db):
-    await db.execute("INSERT INTO app_settings (key, value) VALUES (?, ?)",
-                     (idle.SETTINGS_KEY, json.dumps({"mode": "x", "delay_minutes": 999, "night_start": "21:00"})))
+    await db.execute(
+        "INSERT INTO app_settings (key, value) VALUES (?, ?)",
+        (idle.SETTINGS_KEY, json.dumps({"mode": "x", "delay_minutes": 999, "night_start": "21:00"})),
+    )
     await db.commit()
     assert await idle.get_settings(db) == idle.DEFAULTS
 
 
 # --- What the idle screen shows ---
+
 
 async def test_next_event_is_the_next_timed_one_today(db, events):
     assert await idle.next_event(db, at(9)) == {"title": "Swimming", "time": "16:30"}
@@ -119,11 +149,25 @@ async def test_weather_comes_from_the_cache_only(db, google):
     await weather.set_location(db, LOCATION)
     assert await weather.cached_now(db) is None  # no forecast yet: never fetched from here
     now = datetime.now(timezone.utc)
-    forecast = {"utc_offset_seconds": 0, "current": {"temperature": 13.6, "weather_code": 61},
-                "daily": [{"date": now.date().isoformat(), "weather_code": 61, "max": 15.0, "min": 8.0}]}
-    await db.execute("INSERT INTO app_settings (key, value) VALUES (?, ?)", (weather.CACHE_SETTING, json.dumps({
-        "fetched_at": (now - timedelta(hours=3)).isoformat(), "latitude": LOCATION["latitude"],
-        "longitude": LOCATION["longitude"], "forecast": forecast})))
+    forecast = {
+        "utc_offset_seconds": 0,
+        "current": {"temperature": 13.6, "weather_code": 61},
+        "daily": [{"date": now.date().isoformat(), "weather_code": 61, "max": 15.0, "min": 8.0}],
+    }
+    await db.execute(
+        "INSERT INTO app_settings (key, value) VALUES (?, ?)",
+        (
+            weather.CACHE_SETTING,
+            json.dumps(
+                {
+                    "fetched_at": (now - timedelta(hours=3)).isoformat(),
+                    "latitude": LOCATION["latitude"],
+                    "longitude": LOCATION["longitude"],
+                    "forecast": forecast,
+                }
+            ),
+        ),
+    )
     await db.commit()
     assert await weather.cached_now(db) == {"temperature": 14, "category": "rain", "condition": "Rain"}
     assert not google.calls
@@ -146,6 +190,7 @@ def google_photos_jpeg(i):
     import io
 
     from PIL import Image
+
     out = io.BytesIO()
     Image.new("RGB", (40, 30), (i * 40, 90, 90)).save(out, "JPEG")
     return out.getvalue()
@@ -161,5 +206,5 @@ async def test_api_idle_is_pin_free_and_json(client):
 async def test_the_dashboard_carries_the_idle_screen(client):
     html = (await client.get("/")).text
     assert 'id="idle-screen"' in html and "/static/js/idle.js" in html
-    config = html.split('data-config=\'')[1].split("'")[0]
+    config = html.split("data-config='")[1].split("'")[0]
     assert json.loads(config.replace("&#34;", '"').replace("&amp;", "&"))["mode"] == "slideshow"

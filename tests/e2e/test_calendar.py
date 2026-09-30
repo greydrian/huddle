@@ -25,8 +25,11 @@ async def _open(start_server, page, **kwargs):
 @pytest.mark.parametrize("mode", ["light", "dark"])
 async def test_switch_views_and_filter_by_touch(start_server, page, mode):
     server = start_server()
-    server.query("INSERT INTO app_settings (key, value) VALUES ('appearance', ?) "
-                 "ON CONFLICT(key) DO UPDATE SET value = excluded.value", (mode,))
+    server.query(
+        "INSERT INTO app_settings (key, value) VALUES ('appearance', ?) "
+        "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        (mode,),
+    )
     server.seed_calendar()
     before = _layout(server)
     await page.goto(server.url + "/")
@@ -66,7 +69,8 @@ async def _tap_today(page):
     """Today's hit area in the month grid (a tap anywhere in its column)."""
     week = page.locator("#widget-calendar .cal-week", has=page.locator(".cal-day-num.today"))
     today = await week.locator(".cal-day-num").evaluate_all(
-        "(els) => els.findIndex((e) => e.classList.contains('today'))")
+        "(els) => els.findIndex((e) => e.classList.contains('today'))"
+    )
     await week.locator(".cal-day-hit").nth(today).tap()
 
 

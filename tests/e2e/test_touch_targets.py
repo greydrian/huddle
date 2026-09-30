@@ -71,13 +71,22 @@ MEASURE = """
 }
 """
 
-SELECTORS = ", ".join([
-    "a[href]", "button", "select", "textarea", "summary",
-    # hx-* on a form is submitted by its button; a polling hx-get (every Ns) isn't tapped.
-    "[hx-get]:not(form):not([hx-trigger^=every])", "[hx-post]:not(form)",
-    "input:not([type=hidden])", "label:has(input[type=checkbox])", "label:has(input[type=radio])",
-    ".osk .hg-button",
-])
+SELECTORS = ", ".join(
+    [
+        "a[href]",
+        "button",
+        "select",
+        "textarea",
+        "summary",
+        # hx-* on a form is submitted by its button; a polling hx-get (every Ns) isn't tapped.
+        "[hx-get]:not(form):not([hx-trigger^=every])",
+        "[hx-post]:not(form)",
+        "input:not([type=hidden])",
+        "label:has(input[type=checkbox])",
+        "label:has(input[type=radio])",
+        ".osk .hg-button",
+    ]
+)
 
 
 async def _too_small(page):
@@ -141,8 +150,11 @@ async def test_calendar_views_touch_targets(start_server, page):
 async def test_admin_touch_targets(start_server, page, mode):
     server = start_server(keyboard=True)
     _seed_content(server)
-    server.query("INSERT INTO app_settings (key, value) VALUES ('appearance', ?) "
-                 "ON CONFLICT(key) DO UPDATE SET value = excluded.value", ("light" if mode == "day" else "dark",))
+    server.query(
+        "INSERT INTO app_settings (key, value) VALUES ('appearance', ?) "
+        "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        ("light" if mode == "day" else "dark",),
+    )
     await page.goto(server.url + "/admin/login")
     await page.fill("input[name=pin]", "1234")
     await page.click("button[type=submit]")

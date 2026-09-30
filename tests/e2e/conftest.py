@@ -37,22 +37,24 @@ def _free_port() -> int:
 
 def _server_env(data_dir: Path) -> dict:
     env = dict(os.environ)
-    env.update({
-        "DATA_DIR": str(data_dir),
-        # Set (even blank) so a developer's .env can't leak in: load_dotenv
-        # never overrides a variable that's already present.
-        "GOOGLE_CLIENT_ID": "",
-        "GOOGLE_CLIENT_SECRET": "",
-        "GOOGLE_PHOTOS_CLIENT_ID": "",
-        "GOOGLE_PHOTOS_CLIENT_SECRET": "",
-        "ANTHROPIC_API_KEY": "",
-        "ANTHROPIC_MODEL": "",
-        # Anything that still tries the internet fails fast instead of leaking.
-        "HTTP_PROXY": "http://127.0.0.1:9",
-        "HTTPS_PROXY": "http://127.0.0.1:9",
-        "NO_PROXY": "127.0.0.1,localhost",
-        "PYTHONUNBUFFERED": "1",
-    })
+    env.update(
+        {
+            "DATA_DIR": str(data_dir),
+            # Set (even blank) so a developer's .env can't leak in: load_dotenv
+            # never overrides a variable that's already present.
+            "GOOGLE_CLIENT_ID": "",
+            "GOOGLE_CLIENT_SECRET": "",
+            "GOOGLE_PHOTOS_CLIENT_ID": "",
+            "GOOGLE_PHOTOS_CLIENT_SECRET": "",
+            "ANTHROPIC_API_KEY": "",
+            "ANTHROPIC_MODEL": "",
+            # Anything that still tries the internet fails fast instead of leaking.
+            "HTTP_PROXY": "http://127.0.0.1:9",
+            "HTTPS_PROXY": "http://127.0.0.1:9",
+            "NO_PROXY": "127.0.0.1,localhost",
+            "PYTHONUNBUFFERED": "1",
+        }
+    )
     return env
 
 
@@ -70,18 +72,19 @@ def _seed(db_path: Path, *, keyboard: bool) -> None:
         "pin_is_default": "0",  # PIN is still 1234, but past the forced-change screen
         "calendar_timezone": "Europe/London",
         "weather_location": json.dumps(LOCATION),
-        "weather_cache": json.dumps({
-            "fetched_at": now.isoformat(),
-            "latitude": LOCATION["latitude"],
-            "longitude": LOCATION["longitude"],
-            "forecast": forecast,
-        }),
+        "weather_cache": json.dumps(
+            {
+                "fetched_at": now.isoformat(),
+                "latitude": LOCATION["latitude"],
+                "longitude": LOCATION["longitude"],
+                "forecast": forecast,
+            }
+        ),
         "onscreen_keyboard": "1" if keyboard else "0",
     }
     with sqlite3.connect(db_path) as conn:
         conn.executemany(
-            "INSERT INTO app_settings (key, value) VALUES (?, ?) "
-            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            "INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
             settings.items(),
         )
         profile_id = conn.execute("SELECT id FROM profiles ORDER BY sort_order LIMIT 1").fetchone()[0]
@@ -109,14 +112,19 @@ class Server:
         (_seed); Riley and Jamie get one each, so three banners: "+1 more"."""
         settings = {
             "triggers": {kind: {"on": True, "sound": sound} for kind in ("events", "homework", "school", "chores")},
-            "lead_minutes": 30, "quiet_start": "00:00", "quiet_end": "00:02",
+            "lead_minutes": 30,
+            "quiet_start": "00:00",
+            "quiet_end": "00:02",
         }
         with sqlite3.connect(self.db_path) as conn:
             conn.executemany(
                 "INSERT INTO app_settings (key, value) VALUES (?, ?) "
                 "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-                [("banner_settings", json.dumps(settings)),
-                 ("task_group_after_school_start", "00:01"), ("task_group_evening_start", "00:02")],
+                [
+                    ("banner_settings", json.dumps(settings)),
+                    ("task_group_after_school_start", "00:01"),
+                    ("task_group_evening_start", "00:02"),
+                ],
             )
             conn.executemany("INSERT INTO tasks (profile_id, title) VALUES (?, ?)", [(3, "Bag"), (4, "Teeth")])
 
@@ -139,8 +147,9 @@ class Server:
         """A connected calendar with a saved copy of this month (seed_calendar.py).
         Google stays out of reach (the dead proxy), so every view is drawn
         from that copy with a "Last updated" note, and an add fails as offline."""
-        subprocess.run([sys.executable, str(Path(__file__).with_name("seed_calendar.py"))],
-                       cwd=ROOT, env=self._env, check=True)
+        subprocess.run(
+            [sys.executable, str(Path(__file__).with_name("seed_calendar.py"))], cwd=ROOT, env=self._env, check=True
+        )
 
 
 @pytest.fixture
@@ -155,7 +164,9 @@ def start_server(tmp_path):
         # Build the schema with the app's own init_db, then seed it directly.
         subprocess.run(
             [sys.executable, "-c", "import asyncio; from app import database; asyncio.run(database.init_db())"],
-            cwd=ROOT, env=env, check=True,
+            cwd=ROOT,
+            env=env,
+            check=True,
         )
         _seed(data_dir / "family_display.db", keyboard=keyboard)
 
@@ -163,7 +174,10 @@ def start_server(tmp_path):
         log = open(tmp_path / "uvicorn.log", "wb")  # closed at teardown
         proc = subprocess.Popen(
             [sys.executable, "-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", str(port)],
-            cwd=ROOT, env=env, stdout=log, stderr=subprocess.STDOUT,
+            cwd=ROOT,
+            env=env,
+            stdout=log,
+            stderr=subprocess.STDOUT,
         )
         procs.append((proc, log))
         url = f"http://127.0.0.1:{port}"

@@ -10,12 +10,12 @@ async def get_week_meal_plan(db, start: date | None = None):
     today = await family_today(db)
     start = start or today
     days = [start + timedelta(days=i) for i in range(7)]
-    rows = await (await db.execute(
-        "SELECT * FROM meal_plans WHERE date IN ({})".format(
-            ",".join("?" for _ in days)
-        ),
-        [d.isoformat() for d in days],
-    )).fetchall()
+    rows = await (
+        await db.execute(
+            "SELECT * FROM meal_plans WHERE date IN ({})".format(",".join("?" for _ in days)),
+            [d.isoformat() for d in days],
+        )
+    ).fetchall()
     plan_by_date = {row["date"]: row["meal_description"] for row in rows}
 
     return [

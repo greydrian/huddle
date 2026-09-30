@@ -83,7 +83,7 @@ def _luminance(hex_colour: str) -> float:
     h = hex_colour.strip().lstrip("#")
     if len(h) == 3:
         h = "".join(c * 2 for c in h)
-    rgb = [int(h[i:i + 2], 16) / 255 for i in (0, 2, 4)]
+    rgb = [int(h[i : i + 2], 16) / 255 for i in (0, 2, 4)]
     lin = [c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4 for c in rgb]
     return 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2]
 
@@ -94,9 +94,9 @@ def contrast(a: str, b: str) -> float:
 
 
 def person_ink(hex_colour: str) -> str:
-    """"light" or "dark": whichever ink reads better on a solid fill of this
+    """ "light" or "dark": whichever ink reads better on a solid fill of this
     person's colour. Unparseable colours get light ink (the old default)."""
     try:
         return "light" if contrast(hex_colour, LIGHT_INK) >= contrast(hex_colour, DARK_INK) else "dark"
-    except (ValueError, IndexError, AttributeError):
+    except ValueError, IndexError, AttributeError:
         return "light"

@@ -41,7 +41,9 @@ def admin_client(client):
 async def signed_in(db, monkeypatch):
     monkeypatch.setenv("GOOGLE_PHOTOS_CLIENT_ID", "photos-client-id")
     monkeypatch.setenv("GOOGLE_PHOTOS_CLIENT_SECRET", "photos-client-secret")
-    await google_photos.store_tokens(db, {"access_token": ACCESS, "refresh_token": "r", "expires_at": time.time() + 3600})
+    await google_photos.store_tokens(
+        db, {"access_token": ACCESS, "refresh_token": "r", "expires_at": time.time() + 3600}
+    )
 
 
 async def seed_set(db, n=2):
@@ -55,8 +57,17 @@ def files():
 
 
 async def set_state(db, status, **extra):
-    await google_photos._set_state(db, {"status": status, "session_id": SESSION, "expires_at": time.time() + 600,
-                                        "picker_uri": "https://photos.google.com/picker/x", "poll_seconds": 5, **extra})
+    await google_photos._set_state(
+        db,
+        {
+            "status": status,
+            "session_id": SESSION,
+            "expires_at": time.time() + 600,
+            "picker_uri": "https://photos.google.com/picker/x",
+            "poll_seconds": 5,
+            **extra,
+        },
+    )
 
 
 @pytest.fixture
@@ -71,6 +82,7 @@ async def running_poller():
 
 # --- 1. A restart mid-import ---
 
+
 async def test_an_interrupted_import_is_marked_failed_and_its_files_removed(admin_client, db, signed_in):
     await seed_set(db)
     kept = files()
@@ -84,7 +96,7 @@ async def test_an_interrupted_import_is_marked_failed_and_its_files_removed(admi
     assert files() == kept and half["filename"] not in files()
     assert "Copying was interrupted" in html
     assert 'action="/admin/photos/choose"' in html  # Choose again is offered
-    assert 'hx-trigger="every 3s"' not in html       # and it no longer polls forever
+    assert 'hx-trigger="every 3s"' not in html  # and it no longer polls forever
 
 
 async def test_startup_recovers_an_interrupted_import(db, monkeypatch):
@@ -121,6 +133,7 @@ async def test_every_state_offers_a_way_out(admin_client, db, signed_in, running
 
 # --- 2. Remove all during an import ---
 
+
 async def test_remove_all_only_deletes_its_own_rows_files(db):
     await seed_set(db)
     incoming = google_photos._save_image(jpeg((5, 5, 5)))  # an import's file, not yet a row
@@ -144,10 +157,19 @@ async def test_remove_all_is_refused_while_picking(admin_client, db, signed_in, 
 
 # --- 3. The token only goes to Google's content hosts ---
 
-@pytest.mark.parametrize("url", [
-    "https://evil.example/photo", "https://googleusercontent.com.evil.example/p", "http://lh3.googleusercontent.com/p",
-    "https://user:pw@lh3.googleusercontent.com/p", "https://lh3.googleusercontent.com:8443/p", "javascript:x", None,
-])
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://evil.example/photo",
+        "https://googleusercontent.com.evil.example/p",
+        "http://lh3.googleusercontent.com/p",
+        "https://user:pw@lh3.googleusercontent.com/p",
+        "https://lh3.googleusercontent.com:8443/p",
+        "javascript:x",
+        None,
+    ],
+)
 def test_only_google_content_urls_are_accepted(url):
     assert not google_photos.is_google_content_url(url)
 
@@ -160,8 +182,9 @@ def test_google_content_urls_are_accepted():
 async def test_a_foreign_base_url_is_skipped_and_never_gets_the_token(db, signed_in, google):
     google.get(SESSION_URL).respond(200, json={"mediaItemsSet": True})
     google.delete(SESSION_URL).respond(200, json={})
-    google.get(google_photos.MEDIA_ITEMS_ENDPOINT).respond(200, json={"mediaItems": [
-        item(1), item(2, base="https://evil.example/steal")]})
+    google.get(google_photos.MEDIA_ITEMS_ENDPOINT).respond(
+        200, json={"mediaItems": [item(1), item(2, base="https://evil.example/steal")]}
+    )
     good = google.get(url__startswith=BASE).respond(200, content=jpeg())
     evil = google.get(url__startswith="https://evil.example").respond(200, content=jpeg())
     await set_state(db, "waiting")
@@ -173,6 +196,7 @@ async def test_a_foreign_base_url_is_skipped_and_never_gets_the_token(db, signed
 
 
 # --- 4. Choose while an import is running ---
+
 
 async def test_choose_is_refused_while_importing(admin_client, db, signed_in, running_poller, google):
     create = google.post(google_photos.SESSIONS_ENDPOINT).respond(200, json={"id": "new", "pickerUri": "https://x"})
@@ -203,6 +227,7 @@ async def test_choose_again_while_waiting_stops_the_old_poll_first(db, signed_in
 
 
 # --- 8. Cancel while a save is still running in its thread ---
+
 
 async def test_cancel_mid_save_leaves_no_files(db, signed_in, google, monkeypatch):
     google.get(SESSION_URL).respond(200, json={"mediaItemsSet": True})

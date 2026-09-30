@@ -29,9 +29,7 @@ async def test_an_outage_warns_once_and_logs_recovery_once(db, connected, google
     )
     await db.commit()
     offline = httpx.ConnectError("offline")
-    google.delete(f"{TASKS_API}/shop/tasks/g1").mock(
-        side_effect=[offline, offline, offline, httpx.Response(204)]
-    )
+    google.delete(f"{TASKS_API}/shop/tasks/g1").mock(side_effect=[offline, offline, offline, httpx.Response(204)])
     google.get(f"{TASKS_API}/shop/tasks").respond(200, json={"items": []})
 
     with caplog.at_level(logging.INFO, logger="app.task_sync"):
@@ -95,8 +93,13 @@ async def test_slow_google_cannot_stall_the_dashboard(connected, client, google,
 def test_oauth_callback_query_is_stripped_from_the_access_log():
     def access_record(path):
         record = logging.LogRecord(
-            "uvicorn.access", logging.INFO, __file__, 0,
-            '%s - "%s %s HTTP/%s" %d', ("10.0.0.2:5000", "GET", path, "1.1", 303), None,
+            "uvicorn.access",
+            logging.INFO,
+            __file__,
+            0,
+            '%s - "%s %s HTTP/%s" %d',
+            ("10.0.0.2:5000", "GET", path, "1.1", 303),
+            None,
         )
         RedactOAuthQuery().filter(record)
         return record.getMessage()

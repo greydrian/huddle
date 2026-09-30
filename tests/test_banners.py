@@ -82,9 +82,22 @@ def only(*kinds):
 
 # --- Events starting soon ---
 
+
 async def test_event_uses_its_smallest_popup_override_and_clears_at_start(db, calendar):
-    await calendar([event(reminders={"useDefault": False, "overrides": [
-        {"method": "popup", "minutes": 40}, {"method": "popup", "minutes": 25}, {"method": "email", "minutes": 5}]})])
+    await calendar(
+        [
+            event(
+                reminders={
+                    "useDefault": False,
+                    "overrides": [
+                        {"method": "popup", "minutes": 40},
+                        {"method": "popup", "minutes": 25},
+                        {"method": "email", "minutes": 5},
+                    ],
+                }
+            )
+        ]
+    )
     s = only("events")
     assert await texts(db, at(16, 4, 59), s) == []
     assert await texts(db, at(16, 5), s) == ["Swimming at 16:30 (in 25 min)"]
@@ -93,19 +106,24 @@ async def test_event_uses_its_smallest_popup_override_and_clears_at_start(db, ca
 
 
 async def test_event_with_use_default_takes_the_calendars_default_reminders(db, calendar):
-    await calendar([event(reminders={"useDefault": True})],
-                   defaults=[{"method": "email", "minutes": 60}, {"method": "popup", "minutes": 10}])
+    await calendar(
+        [event(reminders={"useDefault": True})],
+        defaults=[{"method": "email", "minutes": 60}, {"method": "popup", "minutes": 10}],
+    )
     s = only("events")
     assert await texts(db, at(16, 19), s) == []
     assert await texts(db, at(16, 20), s) == ["Swimming at 16:30 (in 10 min)"]
 
 
-@pytest.mark.parametrize("reminders", [
-    {"useDefault": False},                       # reminders switched off on the event
-    popup(5, method="email"),                    # only an email reminder
-    {"useDefault": True},                        # defaults, but the calendar has no popup default
-    None,                                        # no reminders field at all
-])
+@pytest.mark.parametrize(
+    "reminders",
+    [
+        {"useDefault": False},  # reminders switched off on the event
+        popup(5, method="email"),  # only an email reminder
+        {"useDefault": True},  # defaults, but the calendar has no popup default
+        None,  # no reminders field at all
+    ],
+)
 async def test_event_without_a_popup_reminder_uses_the_admin_default(db, calendar, reminders):
     await calendar([event(reminders=reminders)], defaults=[{"method": "email", "minutes": 10}])
     s = only("events")
@@ -131,14 +149,18 @@ async def test_all_day_events_and_other_calendars_are_left_out(db, calendar):
 
 
 async def test_event_person_comes_from_a_name_prefix(db, calendar):
-    await calendar([
-        event("Riley: Dentist", start="16:30", reminders=popup(30), event_id="a"),
-        event("Note: bring kit", start="16:40", reminders=popup(30), event_id="b"),
-    ])
+    await calendar(
+        [
+            event("Riley: Dentist", start="16:30", reminders=popup(30), event_id="a"),
+            event("Note: bring kit", start="16:40", reminders=popup(30), event_id="b"),
+        ]
+    )
     found = await banners.active_banners(db, at(16, 15), only("events"))
     assert [(b["text"], b["person"]) for b in found] == [
-        ("Dentist at 16:30 (in 15 min)", {"name": "Riley", "colour": "#D6A02C",
-                                          "avatar": {"kind": "initial", "emoji": None, "url": None}}),
+        (
+            "Dentist at 16:30 (in 15 min)",
+            {"name": "Riley", "colour": "#D6A02C", "avatar": {"kind": "initial", "emoji": None, "url": None}},
+        ),
         ("Note: bring kit at 16:40 (in 25 min)", None),  # "Note" isn't a family member: Everyone
     ]
     assert found[0]["key"] == "event:a:2026-10-05T16:30:00+01:00"
@@ -147,32 +169,40 @@ async def test_event_person_comes_from_a_name_prefix(db, calendar):
 async def test_event_just_after_midnight_shows_the_evening_before(db, calendar):
     await calendar([event("Night ferry", start="00:30", reminders=popup(60), day=DAY + timedelta(days=1))])
     assert await texts(db, at(23, 45), only("events") | {"quiet_start": "01:00", "quiet_end": "05:00"}) == [
-        "Night ferry at 00:30 (in 45 min)"]
+        "Night ferry at 00:30 (in 45 min)"
+    ]
 
 
 async def test_event_window_across_the_clocks_going_back(db, calendar):
     """25 Oct 2026: 02:00 BST becomes 01:00 GMT. At 01:50 BST (00:50 UTC)
     an event at the second 01:20 (GMT, 01:20 UTC) is 30 real minutes away,
     though its wall-clock time looks earlier."""
-    ferry = {"id": "ferry", "summary": "Late ferry", "start": {"dateTime": "2026-10-25T01:20:00+00:00"},
-             "end": {"dateTime": "2026-10-25T02:00:00+00:00"}, "reminders": popup(45)}
+    ferry = {
+        "id": "ferry",
+        "summary": "Late ferry",
+        "start": {"dateTime": "2026-10-25T01:20:00+00:00"},
+        "end": {"dateTime": "2026-10-25T02:00:00+00:00"},
+        "reminders": popup(45),
+    }
     await calendar([ferry])
     s = only("events") | {"quiet_start": "12:00", "quiet_end": "13:00"}
-    bst = datetime(2026, 10, 25, 1, 50, tzinfo=TZ)            # fold=0: the first 01:50, BST
+    bst = datetime(2026, 10, 25, 1, 50, tzinfo=TZ)  # fold=0: the first 01:50, BST
     assert bst.utcoffset() == timedelta(hours=1)
     assert await texts(db, bst, s) == ["Late ferry at 01:20 (in 30 min)"]
     assert await texts(db, datetime(2026, 10, 25, 0, 34, tzinfo=TZ), s) == []  # 76 min before: too early
-    gmt = datetime(2026, 10, 25, 1, 19, tzinfo=TZ, fold=1)     # the second 01:19, GMT
+    gmt = datetime(2026, 10, 25, 1, 19, tzinfo=TZ, fold=1)  # the second 01:19, GMT
     assert await texts(db, gmt, s) == ["Late ferry at 01:20 (in 1 min)"]
     assert await texts(db, datetime(2026, 10, 25, 1, 20, tzinfo=TZ, fold=1), s) == []  # started
 
 
 async def test_recurring_instances_and_a_rescheduled_event_get_new_keys(db, calendar, client, frozen):
     # singleEvents=true: each instance of a series has its own id and start.
-    await calendar([
-        event("Swimming", reminders=popup(30), event_id="swim_20261005T153000Z"),
-        event("Swimming", reminders=popup(30), event_id="swim_20261006T153000Z", day=DAY + timedelta(days=1)),
-    ])
+    await calendar(
+        [
+            event("Swimming", reminders=popup(30), event_id="swim_20261005T153000Z"),
+            event("Swimming", reminders=popup(30), event_id="swim_20261006T153000Z", day=DAY + timedelta(days=1)),
+        ]
+    )
     s = only("events")
     [today] = await banners.active_banners(db, at(16, 10), s)
     await client.post("/api/banners/dismiss", data={"key": today["key"]})
@@ -203,19 +233,27 @@ async def test_reminders_come_through_from_googles_response(db, connected, googl
     works from the cache alone: no Google call, even with Google down."""
     await google_oauth.set_selected_calendars(db, [CAL])
     route = google.get(url__regex=EVENTS_URL_PATTERN)
-    route.respond(200, json={"defaultReminders": [{"method": "popup", "minutes": 15}],
-                             "items": [event(reminders={"useDefault": True}), event("Piano", "17:00", popup(50), "p")]})
+    route.respond(
+        200,
+        json={
+            "defaultReminders": [{"method": "popup", "minutes": 15}],
+            "items": [event(reminders={"useDefault": True}), event("Piano", "17:00", popup(50), "p")],
+        },
+    )
     grid = await google_calendar.get_month_grid(db, 2026, 10)
     assert grid["offline"] is False
 
     route.respond(503)  # Google down now
     calls = route.call_count
-    assert await texts(db, at(16, 15), only("events")) == ["Swimming at 16:30 (in 15 min)",
-                                                           "Piano at 17:00 (in 45 min)"]
+    assert await texts(db, at(16, 15), only("events")) == [
+        "Swimming at 16:30 (in 15 min)",
+        "Piano at 17:00 (in 45 min)",
+    ]
     assert route.call_count == calls
 
 
 # --- Homework ---
+
 
 async def _homework(db, title, due, profile=RILEY, done=0, archived=0, subject="Maths"):
     await db.execute(
@@ -254,9 +292,12 @@ async def test_overdue_archived_and_later_homework_make_no_banner(db):
 
 # --- Today's school events ---
 
+
 async def _approved_event(db, payload, status="approved", profile=None, external_id=None):
-    source = await db.execute("INSERT INTO import_sources (kind, source_ref, status) VALUES ('gmail', ?, 'extracted')",
-                              (f"m{time.monotonic_ns()}",))
+    source = await db.execute(
+        "INSERT INTO import_sources (kind, source_ref, status) VALUES ('gmail', ?, 'extracted')",
+        (f"m{time.monotonic_ns()}",),
+    )
     await db.execute(
         "INSERT INTO import_candidates (source_id, kind, profile_id, payload_json, status, created_table, external_id) "
         "VALUES (?, 'event', ?, ?, ?, 'google_calendar', ?)",
@@ -267,15 +308,18 @@ async def _approved_event(db, payload, status="approved", profile=None, external
 
 async def test_school_events_show_from_seven_until_six_on_the_day(db):
     await _approved_event(db, {"title": "Non-uniform day", "date": DAY.isoformat(), "all_day": True})
-    await _approved_event(db, {"title": "Sports day", "date": DAY.isoformat(), "all_day": False,
-                               "start_time": "14:00"}, profile=RILEY)
+    await _approved_event(
+        db, {"title": "Sports day", "date": DAY.isoformat(), "all_day": False, "start_time": "14:00"}, profile=RILEY
+    )
     await _approved_event(db, {"title": "Still pending", "date": DAY.isoformat(), "all_day": True}, status="pending")
     await _approved_event(db, {"title": "Tomorrow", "date": (DAY + timedelta(days=1)).isoformat(), "all_day": True})
     s = only("school") | {"quiet_start": "23:00", "quiet_end": "05:00"}
     assert await texts(db, at(6, 59), s) == []
     found = await banners.active_banners(db, at(7, 0), s)
     assert [(b["text"], b["person"] and b["person"]["name"]) for b in found] == [
-        ("Today: Non-uniform day", None), ("Today: Sports day at 14:00", "Riley")]
+        ("Today: Non-uniform day", None),
+        ("Today: Sports day at 14:00", "Riley"),
+    ]
     assert len(await texts(db, at(17, 59), s)) == 2
     assert await texts(db, at(18, 0), s) == []
 
@@ -283,32 +327,45 @@ async def test_school_events_show_from_seven_until_six_on_the_day(db):
 async def test_a_school_event_also_in_google_shows_once(db, calendar):
     """Approving it wrote it to Google, so it's in the calendar cache too:
     only the school trigger shows it."""
-    await _approved_event(db, {"title": "Sports day", "date": DAY.isoformat(), "all_day": False,
-                               "start_time": "14:00"}, external_id="hs123")
+    await _approved_event(
+        db,
+        {"title": "Sports day", "date": DAY.isoformat(), "all_day": False, "start_time": "14:00"},
+        external_id="hs123",
+    )
     await calendar([event("Sports day", "14:00", popup(60), "hs123"), event("Piano", "14:10", popup(60), "p")])
     assert await texts(db, at(13, 30)) == ["Piano at 14:10 (in 40 min)", "Today: Sports day at 14:00"]
 
 
 async def test_inset_days_and_closures_from_the_term_dates(db):
-    await db.execute("INSERT INTO school_periods (kind, start_date, end_date, label, source) "
-                     "VALUES ('inset', ?, ?, '', 'manual')", (DAY.isoformat(), DAY.isoformat()))
-    await db.execute("INSERT INTO school_periods (kind, start_date, end_date, label, source) "
-                     "VALUES ('half_term', ?, ?, 'Half term', 'manual')", (DAY.isoformat(), DAY.isoformat()))
+    await db.execute(
+        "INSERT INTO school_periods (kind, start_date, end_date, label, source) VALUES ('inset', ?, ?, '', 'manual')",
+        (DAY.isoformat(), DAY.isoformat()),
+    )
+    await db.execute(
+        "INSERT INTO school_periods (kind, start_date, end_date, label, source) "
+        "VALUES ('half_term', ?, ?, 'Half term', 'manual')",
+        (DAY.isoformat(), DAY.isoformat()),
+    )
     await db.commit()
     assert await texts(db, at(8), only("school")) == ["Today: INSET day (no school)"]
 
 
 # --- Chores left late ---
 
+
 async def test_chores_show_per_person_once_the_evening_group_starts(db):
-    await db.executemany("INSERT INTO tasks (profile_id, title, is_completed) VALUES (?, ?, ?)",
-                         [(MUM, "Bins", 0), (MUM, "Dishes", 0), (MUM, "Done", 1), (RILEY, "Bag", 0), (3, "Teeth", 1)])
+    await db.executemany(
+        "INSERT INTO tasks (profile_id, title, is_completed) VALUES (?, ?, ?)",
+        [(MUM, "Bins", 0), (MUM, "Dishes", 0), (MUM, "Done", 1), (RILEY, "Bag", 0), (3, "Teeth", 1)],
+    )
     await db.commit()
     s = only("chores")
     assert await texts(db, at(17, 59), s) == []
     found = await banners.active_banners(db, at(18, 0), s)
     assert [(b["text"], b["person"]["name"]) for b in found] == [
-        ("2 chores still to do", "Mum"), ("1 chore still to do", "Riley")]
+        ("2 chores still to do", "Mum"),
+        ("1 chore still to do", "Riley"),
+    ]
 
     await task_service.set_group_boundaries(db, "12:00", "17:00")
     assert len(await texts(db, at(17, 0), s)) == 2
@@ -319,9 +376,19 @@ async def test_chores_show_per_person_once_the_evening_group_starts(db):
 
 # --- Quiet hours ---
 
-@pytest.mark.parametrize(("hour", "minute", "quiet"), [
-    (20, 59, False), (21, 0, True), (23, 59, True), (0, 0, True), (6, 59, True), (7, 0, False), (12, 0, False),
-])
+
+@pytest.mark.parametrize(
+    ("hour", "minute", "quiet"),
+    [
+        (20, 59, False),
+        (21, 0, True),
+        (23, 59, True),
+        (0, 0, True),
+        (6, 59, True),
+        (7, 0, False),
+        (12, 0, False),
+    ],
+)
 def test_quiet_hours_across_midnight(hour, minute, quiet):
     assert banners.in_quiet_hours(at(hour, minute).time(), "21:00", "07:00") is quiet
 
@@ -342,11 +409,14 @@ async def test_nothing_shows_in_quiet_hours(db):
 
 # --- Dismissal, ordering, sound ---
 
+
 @pytest.fixture
 def frozen(monkeypatch):
     """Freeze the banner clock for routes: frozen(datetime)."""
+
     def freeze(now):
         monkeypatch.setattr(banners, "_clock", lambda tz: now.astimezone(tz))
+
     return freeze
 
 
@@ -364,13 +434,14 @@ async def test_tapping_a_banner_dismisses_that_occurrence_across_reloads(db, cli
     resp = await client.post("/api/banners/dismiss", data={"key": key})
     assert resp.status_code == 200
     assert key not in resp.text and "chores:3:" in resp.text  # the other one stays
-    assert key not in (await client.get("/banners")).text      # stored server-side
+    assert key not in (await client.get("/banners")).text  # stored server-side
     assert key not in (await client.get("/")).text
     # The next day's occurrence is a new key, so it shows again.
     await db.execute("UPDATE tasks SET is_completed = 0")
     await db.commit()
     assert f"chores:{MUM}:{(DAY + timedelta(days=1)).isoformat()}" in [
-        b["key"] for b in await banners.active_banners(db, at(19, day=DAY + timedelta(days=1)))]
+        b["key"] for b in await banners.active_banners(db, at(19, day=DAY + timedelta(days=1)))
+    ]
 
 
 @pytest.mark.parametrize("key", ["", "nope", "chores:1:" + "x" * 300, "<script>:x"])
@@ -391,6 +462,7 @@ async def test_old_dismissals_are_pruned(db):
 
 async def test_concurrent_dismissals_are_all_kept(db):
     """Quick taps are separate requests on separate connections: none is lost."""
+
     async def tap(n):
         async with database.get_db() as conn:
             assert await banners.dismiss(conn, f"term:{n}:2026-10-05")
@@ -399,11 +471,14 @@ async def test_concurrent_dismissals_are_all_kept(db):
     assert await banners.dismissed_keys(db) == {f"term:{n}:2026-10-05" for n in range(12)}
 
 
-@pytest.mark.parametrize(("event_id", "title"), [
-    ("x" * 300, "Swimming"),             # an id far longer than a key may be
-    ("id with spaces/and:colons", "Swimming"),
-    (None, "Swimming lessons: with a very long title " * 8),  # no id: the title stands in
-])
+@pytest.mark.parametrize(
+    ("event_id", "title"),
+    [
+        ("x" * 300, "Swimming"),  # an id far longer than a key may be
+        ("id with spaces/and:colons", "Swimming"),
+        (None, "Swimming lessons: with a very long title " * 8),  # no id: the title stands in
+    ],
+)
 async def test_every_event_key_fits_and_can_be_dismissed(db, calendar, client, frozen, event_id, title):
     raw = event(title, reminders=popup(30))
     if event_id is None:
@@ -434,9 +509,12 @@ async def test_more_than_two_banners_order_and_plus_n_more(db, calendar, client,
     await calendar([event("Piano", "16:50", popup(60), "p"), event("Swimming", "16:30", popup(60), "s")])
     now = at(16, 10)
     assert await texts(db, now) == [
-        "Swimming at 16:30 (in 20 min)", "Piano at 16:50 (in 40 min)",  # events first, soonest first
-        "Today: Non-uniform day", "Homework due tomorrow: Fractions (Maths)",
-        "1 chore still to do", "1 chore still to do",  # same time: family order, Mum then Riley
+        "Swimming at 16:30 (in 20 min)",
+        "Piano at 16:50 (in 40 min)",  # events first, soonest first
+        "Today: Non-uniform day",
+        "Homework due tomorrow: Fractions (Maths)",
+        "1 chore still to do",
+        "1 chore still to do",  # same time: family order, Mum then Riley
     ]
 
     frozen(now)
@@ -468,6 +546,7 @@ async def test_switched_off_triggers_show_nothing(db):
 
 async def test_unreadable_settings_fall_back_to_the_defaults(db):
     from app.database import set_setting
+
     for junk in ("{not json", "[1, 2]", json.dumps({"lead_minutes": 999, "quiet_start": "7pm", "triggers": "x"})):
         await set_setting(db, banners.SETTINGS_KEY, junk)
         await db.commit()
@@ -475,6 +554,7 @@ async def test_unreadable_settings_fall_back_to_the_defaults(db):
 
 
 # --- The dashboard and /api/rev ---
+
 
 async def test_dashboard_renders_the_bar_between_top_bar_and_grid(db, client, frozen):
     await _two_chores(db)
@@ -498,8 +578,11 @@ async def test_api_rev_changes_when_a_banner_appears(db, client, frozen, calenda
 
 
 async def test_everyone_pill_for_a_banner_with_no_person(db, client, frozen):
-    await db.execute("INSERT INTO school_periods (kind, start_date, end_date, label, source) "
-                     "VALUES ('closure', ?, ?, 'Snow day', 'manual')", (DAY.isoformat(), DAY.isoformat()))
+    await db.execute(
+        "INSERT INTO school_periods (kind, start_date, end_date, label, source) "
+        "VALUES ('closure', ?, ?, 'Snow day', 'manual')",
+        (DAY.isoformat(), DAY.isoformat()),
+    )
     await db.commit()
     frozen(at(8))
     html = (await client.get("/banners")).text
@@ -508,14 +591,21 @@ async def test_everyone_pill_for_a_banner_with_no_person(db, client, frozen):
 
 # --- Admin ---
 
+
 @pytest.fixture
 def admin_client(client):
     client.cookies.set(admin.SESSION_COOKIE, create_session_token())
     return client
 
 
-FORM = {"on_events": "1", "on_homework": "1", "sound_homework": "1", "lead_minutes": "45",
-        "quiet_start": "22:00", "quiet_end": "06:30"}
+FORM = {
+    "on_events": "1",
+    "on_homework": "1",
+    "sound_homework": "1",
+    "lead_minutes": "45",
+    "quiet_start": "22:00",
+    "quiet_end": "06:30",
+}
 
 
 async def test_admin_saves_the_banner_settings(db, admin_client):
@@ -523,24 +613,33 @@ async def test_admin_saves_the_banner_settings(db, admin_client):
     assert resp.status_code == 303 and resp.headers["location"] == admin_url("banners")
     settings = await banners.get_settings(db)
     assert settings == {
-        "triggers": {"events": {"on": True, "sound": False}, "homework": {"on": True, "sound": True},
-                     "school": {"on": False, "sound": False}, "chores": {"on": False, "sound": False}},
-        "lead_minutes": 45, "quiet_start": "22:00", "quiet_end": "06:30",
+        "triggers": {
+            "events": {"on": True, "sound": False},
+            "homework": {"on": True, "sound": True},
+            "school": {"on": False, "sound": False},
+            "chores": {"on": False, "sound": False},
+        },
+        "lead_minutes": 45,
+        "quiet_start": "22:00",
+        "quiet_end": "06:30",
     }
     html = (await admin_client.get(admin_url("banners").split("#")[0])).text
     assert 'id="banners"' in html and 'name="sound_homework" value="1" checked' in html
     assert 'value="45"' in html and 'value="06:30"' in html
 
 
-@pytest.mark.parametrize(("changes", "code"), [
-    ({"lead_minutes": "4"}, "banner-lead"),
-    ({"lead_minutes": "121"}, "banner-lead"),
-    ({"lead_minutes": "ten"}, "banner-lead"),
-    ({"lead_minutes": ""}, "banner-lead"),
-    ({"quiet_start": "25:00"}, "banner-quiet"),
-    ({"quiet_end": "7am"}, "banner-quiet"),
-    ({"quiet_start": "07:00", "quiet_end": "07:00"}, "banner-quiet"),
-])
+@pytest.mark.parametrize(
+    ("changes", "code"),
+    [
+        ({"lead_minutes": "4"}, "banner-lead"),
+        ({"lead_minutes": "121"}, "banner-lead"),
+        ({"lead_minutes": "ten"}, "banner-lead"),
+        ({"lead_minutes": ""}, "banner-lead"),
+        ({"quiet_start": "25:00"}, "banner-quiet"),
+        ({"quiet_end": "7am"}, "banner-quiet"),
+        ({"quiet_start": "07:00", "quiet_end": "07:00"}, "banner-quiet"),
+    ],
+)
 async def test_admin_rejects_bad_times_and_lead(db, admin_client, changes, code):
     resp = await admin_client.post("/admin/banners", data=FORM | changes)
     assert resp.status_code == 303 and resp.headers["location"] == admin_url("banners", error=code)

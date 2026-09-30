@@ -35,14 +35,19 @@ ALL_SCOPES = google_oauth.SCOPES
 LEGACY = f"{google_oauth.CALENDAR_READ_SCOPE} {google_oauth.TASKS_SCOPE} openid email"
 PDF = b"%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n"
 
-SCOPE_403 = {"error": {
-    "code": 403, "status": "PERMISSION_DENIED", "message": "Request had insufficient authentication scopes.",
-    "errors": [{"reason": "insufficientPermissions"}],
-}}
+SCOPE_403 = {
+    "error": {
+        "code": 403,
+        "status": "PERMISSION_DENIED",
+        "message": "Request had insufficient authentication scopes.",
+        "errors": [{"reason": "insufficientPermissions"}],
+    }
+}
 DISABLED_403 = {"error": {"code": 403, "errors": [{"reason": "accessNotConfigured"}]}}
 
 
 # --- Fixtures ---
+
 
 async def _store(db, scope: str | None = ALL_SCOPES, expires_in: float = 3600):
     tokens = {"access_token": ACCESS, "refresh_token": REFRESH, "expires_at": time.time() + expires_in}
@@ -65,14 +70,25 @@ def configured(monkeypatch):
 def _reply(items=None):
     items = items or {"word_lists": [], "homework": [], "events": []}
     return {
-        "id": "msg_1", "type": "message", "role": "assistant", "model": "claude-sonnet-5",
+        "id": "msg_1",
+        "type": "message",
+        "role": "assistant",
+        "model": "claude-sonnet-5",
         "content": [{"type": "tool_use", "id": "toolu_1", "name": extraction.TOOL_NAME, "input": items}],
-        "stop_reason": "tool_use", "stop_sequence": None, "usage": {"input_tokens": 1, "output_tokens": 1},
+        "stop_reason": "tool_use",
+        "stop_sequence": None,
+        "usage": {"input_tokens": 1, "output_tokens": 1},
     }
 
 
-READING = {"subject": "English", "title": "Read chapter 3", "details": "", "due_date": None,
-           "child": None, "evidence": "read chapter 3"}
+READING = {
+    "subject": "English",
+    "title": "Read chapter 3",
+    "details": "",
+    "due_date": None,
+    "child": None,
+    "evidence": "read chapter 3",
+}
 
 
 class FakeClaude:
@@ -130,11 +146,30 @@ class Mailbox:
         self.message_route = google.get(url__regex=MESSAGE_URL.pattern).mock(side_effect=self._get)
         self.attachment_route = google.get(url__regex=ATTACHMENT_URL.pattern).mock(side_effect=self._attachment)
 
-    def add(self, mid, sender="Year 4 <year4@gresham.croydon.sch.uk>", subject="Homework this week",
-            text="Please read chapter 3.", html=None, to="family@example.com", cc=None, attachments=(),
-            received=NOW - timedelta(hours=3), auth="mx.google.com; dkim=pass; spf=pass; dmarc=pass"):
-        self.messages[mid] = {"from": sender, "subject": subject, "text": text, "html": html, "to": to,
-                              "cc": cc, "attachments": list(attachments), "received": received, "auth": auth}
+    def add(
+        self,
+        mid,
+        sender="Year 4 <year4@gresham.croydon.sch.uk>",
+        subject="Homework this week",
+        text="Please read chapter 3.",
+        html=None,
+        to="family@example.com",
+        cc=None,
+        attachments=(),
+        received=NOW - timedelta(hours=3),
+        auth="mx.google.com; dkim=pass; spf=pass; dmarc=pass",
+    ):
+        self.messages[mid] = {
+            "from": sender,
+            "subject": subject,
+            "text": text,
+            "html": html,
+            "to": to,
+            "cc": cc,
+            "attachments": list(attachments),
+            "received": received,
+            "auth": auth,
+        }
         return mid
 
     def _ids(self):
@@ -146,7 +181,7 @@ class Mailbox:
         self.queries.append(request.url.params["q"])
         ids = self._ids()
         start = int(request.url.params.get("pageToken") or 0)
-        page = ids[start:start + self.page_size]
+        page = ids[start : start + self.page_size]
         body = {"messages": [{"id": m, "threadId": m} for m in page]} if page else {"resultSizeEstimate": 0}
         if start + self.page_size < len(ids):
             body["nextPageToken"] = str(start + self.page_size)
@@ -166,8 +201,14 @@ class Mailbox:
         if request.url.params.get("format") == "metadata":
             self.metadata_fetches.append(mid)
             names = request.url.params.get_list("metadataHeaders")
-            return httpx.Response(200, json={"id": mid, "internalDate": self._internal(msg),
-                                             "payload": {"headers": self._headers(msg, names)}})
+            return httpx.Response(
+                200,
+                json={
+                    "id": mid,
+                    "internalDate": self._internal(msg),
+                    "payload": {"headers": self._headers(msg, names)},
+                },
+            )
         self.full_fetches.append(mid)
         parts = []
         if msg["text"] is not None:
@@ -175,8 +216,13 @@ class Mailbox:
         if msg["html"] is not None:
             parts.append({"mimeType": "text/html", "body": {"data": _b64(msg["html"].encode())}})
         for index, (filename, mime, data, size) in enumerate(msg["attachments"]):
-            parts.append({"mimeType": mime, "filename": filename,
-                          "body": {"attachmentId": f"{mid}-a{index}", "size": size if size is not None else len(data)}})
+            parts.append(
+                {
+                    "mimeType": mime,
+                    "filename": filename,
+                    "body": {"attachmentId": f"{mid}-a{index}", "size": size if size is not None else len(data)},
+                }
+            )
         payload = {"mimeType": "multipart/mixed", "headers": self._headers(msg), "parts": parts}
         return httpx.Response(200, json={"id": mid, "internalDate": self._internal(msg), "payload": payload})
 
@@ -205,12 +251,14 @@ def admin_client(client):
 
 
 async def _sources(db):
-    return [dict(r) for r in await (await db.execute(
-        "SELECT * FROM import_sources WHERE kind = 'gmail' ORDER BY id"
-    )).fetchall()]
+    return [
+        dict(r)
+        for r in await (await db.execute("SELECT * FROM import_sources WHERE kind = 'gmail' ORDER BY id")).fetchall()
+    ]
 
 
 # --- Query building and sender lists ---
+
 
 def test_query_has_allowlist_exclusions_and_checkpoint():
     query = school_email.build_query(list(school_email.DEFAULT_SENDERS), [], 1_790_000_000)
@@ -220,7 +268,9 @@ def test_query_has_allowlist_exclusions_and_checkpoint():
         '-"sen@gresham.croydon.sch.uk" after:1790000000'
     )
     # The SENDCo address is excluded even when the editable list doesn't name it, and only once when it does.
-    query = school_email.build_query(["office@greshamprimary.school"], ["*@spam.example", "sen@gresham.croydon.sch.uk"], 5)
+    query = school_email.build_query(
+        ["office@greshamprimary.school"], ["*@spam.example", "sen@gresham.croydon.sch.uk"], 5
+    )
     assert query.count("-from:sen@gresham.croydon.sch.uk") == 1
     assert "-from:@spam.example -to:@spam.example -cc:@spam.example after:5" in query  # no text term for a domain
     with pytest.raises(ValueError):
@@ -229,7 +279,10 @@ def test_query_has_allowlist_exclusions_and_checkpoint():
 
 def test_sender_entries_are_validated():
     assert school_email.parse_entries(" Office@GreshamPrimary.school\n*@gresham.croydon.sch.uk, x@a.co ") == [
-        "office@greshamprimary.school", "*@gresham.croydon.sch.uk", "x@a.co"]
+        "office@greshamprimary.school",
+        "*@gresham.croydon.sch.uk",
+        "x@a.co",
+    ]
     for bad in ("from:(evil)", "office", "a@b", "*@*.com", "a)@b.com", "x@y.com OR z"):
         with pytest.raises(school_email.InvalidEntry):
             school_email.parse_entries(bad)
@@ -252,13 +305,19 @@ def test_allowed_rechecks_from_and_every_recipient():
 
 
 async def test_admin_saves_sender_lists(db, admin_client):
-    r = await admin_client.post("/admin/school-email/senders", data={
-        "senders": "office@greshamprimary.school\n*@gresham.croydon.sch.uk\nclubs@example.org",
-        "exclusions": "sen@gresham.croydon.sch.uk\nhead@gresham.croydon.sch.uk",
-    })
+    r = await admin_client.post(
+        "/admin/school-email/senders",
+        data={
+            "senders": "office@greshamprimary.school\n*@gresham.croydon.sch.uk\nclubs@example.org",
+            "exclusions": "sen@gresham.croydon.sch.uk\nhead@gresham.croydon.sch.uk",
+        },
+    )
     assert r.headers["location"] == "/admin?tab=school#school-email"
     assert await school_email.get_senders(db) == [
-        "office@greshamprimary.school", "*@gresham.croydon.sch.uk", "clubs@example.org"]
+        "office@greshamprimary.school",
+        "*@gresham.croydon.sch.uk",
+        "clubs@example.org",
+    ]
     assert await school_email.get_exclusions(db) == ["sen@gresham.croydon.sch.uk", "head@gresham.croydon.sch.uk"]
 
     r = await admin_client.post("/admin/school-email/senders", data={"senders": "not an address", "exclusions": ""})
@@ -269,6 +328,7 @@ async def test_admin_saves_sender_lists(db, admin_client):
 
 
 # --- The check ---
+
 
 async def test_school_emails_become_inbox_items(db, gmail, claude, mailbox):
     mailbox.add("m1", text="Year 4: please read chapter 3 by Friday.")
@@ -287,8 +347,9 @@ async def test_school_emails_become_inbox_items(db, gmail, claude, mailbox):
 
 async def test_sendco_is_never_fetched_or_sent_even_if_the_search_returns_it(db, gmail, claude, mailbox):
     mailbox.add("sen1", sender="SENDCo <sen@gresham.croydon.sch.uk>", text="PRIVATE-SENDCO-NOTE")
-    mailbox.add("cc1", sender="year4@gresham.croydon.sch.uk", cc="sen@gresham.croydon.sch.uk",
-                text="PRIVATE-THREAD-NOTE")
+    mailbox.add(
+        "cc1", sender="year4@gresham.croydon.sch.uk", cc="sen@gresham.croydon.sch.uk", text="PRIVATE-THREAD-NOTE"
+    )
     mailbox.add("fake", sender="Office <office@greshamprimary.school.evil.com>", text="PHISH")
     mailbox.add("ok", text="Non-uniform day on Friday")
 
@@ -338,14 +399,17 @@ async def test_attachments_pdfs_and_images_within_the_caps(db, gmail, claude, ma
     photo = photo.getvalue()
     logo = io.BytesIO()
     Image.new("RGB", (8, 8), "red").save(logo, format="PNG")
-    mailbox.add("m1", attachments=[
-        ("logo.png", "image/png", logo.getvalue(), None),                          # a signature logo: skipped
-        ("newsletter.pdf", "application/pdf", PDF, None),
-        ("letter.docx", "application/vnd.openxmlformats", b"PK..", None),          # not a PDF or image
-        ("huge.pdf", "application/pdf", b"", extraction.MAX_ATTACHMENT_BYTES + 1),  # over the cap: never downloaded
-        ("page.png", "image/png", photo, None),
-        ("fake.pdf", "application/pdf", b"not a pdf at all", None),              # sniffed: rejected
-    ])
+    mailbox.add(
+        "m1",
+        attachments=[
+            ("logo.png", "image/png", logo.getvalue(), None),  # a signature logo: skipped
+            ("newsletter.pdf", "application/pdf", PDF, None),
+            ("letter.docx", "application/vnd.openxmlformats", b"PK..", None),  # not a PDF or image
+            ("huge.pdf", "application/pdf", b"", extraction.MAX_ATTACHMENT_BYTES + 1),  # over the cap: never downloaded
+            ("page.png", "image/png", photo, None),
+            ("fake.pdf", "application/pdf", b"not a pdf at all", None),  # sniffed: rejected
+        ],
+    )
     await school_email.check_now(db, NOW)
 
     assert sorted(mailbox.downloads) == ["m1-a1", "m1-a4", "m1-a5"]
@@ -363,11 +427,15 @@ async def test_at_most_three_attachments(db, gmail, claude, mailbox):
 
 
 async def test_html_only_body_is_converted_to_text(db, gmail, claude, mailbox):
-    mailbox.add("m1", text=None, html=(
-        "<html><head><style>p{color:red}</style><script>alert(1)</script></head><body>"
-        "<p>Dear parents,</p><p>Flu consent forms are due&nbsp;by <b>Friday 2 October</b>.</p>"
-        "<table><tr><td>Year 4</td><td>Trip</td></tr></table></body></html>"
-    ))
+    mailbox.add(
+        "m1",
+        text=None,
+        html=(
+            "<html><head><style>p{color:red}</style><script>alert(1)</script></head><body>"
+            "<p>Dear parents,</p><p>Flu consent forms are due&nbsp;by <b>Friday 2 October</b>.</p>"
+            "<table><tr><td>Year 4</td><td>Trip</td></tr></table></body></html>"
+        ),
+    )
     await school_email.check_now(db, NOW)
     sent = claude.calls[0]["messages"][0]["content"][-1]["text"]
     assert "Flu consent forms are due by Friday 2 October." in sent
@@ -396,11 +464,16 @@ async def test_newsletter_correction_resend_is_deduped(db, gmail, claude, mailbo
     it, and its dedupe marks items already waiting in the inbox."""
     await db.execute("UPDATE profiles SET school_year = 'Year 4' WHERE name = 'Riley'")
     await db.commit()
-    claude.reply = _reply({"word_lists": [], "events": [], "homework": [{**READING, "due_date": "2026-10-02",
-                                                                           "child": "Riley"}]})
+    claude.reply = _reply(
+        {"word_lists": [], "events": [], "homework": [{**READING, "due_date": "2026-10-02", "child": "Riley"}]}
+    )
     mailbox.add("news", sender="office@greshamprimary.school", subject="Newsletter")
-    mailbox.add("news2", sender="office@greshamprimary.school", subject="Newsletter (correction)",
-                received=NOW - timedelta(hours=1))
+    mailbox.add(
+        "news2",
+        sender="office@greshamprimary.school",
+        subject="Newsletter (correction)",
+        received=NOW - timedelta(hours=1),
+    )
     await school_email.check_now(db, NOW)
     rows = [dict(r) for r in await (await db.execute("SELECT duplicate FROM import_candidates ORDER BY id")).fetchall()]
     assert rows == [{"duplicate": 0}, {"duplicate": 1}]
@@ -417,7 +490,9 @@ async def test_checkpoint_advances_only_after_success(db, gmail, claude, mailbox
     mailbox.list_route.mock(side_effect=mailbox._list)
     ok = await school_email.check_now(db, NOW + timedelta(hours=1))
     assert ok.result == "ok"
-    assert await school_email.get_checkpoint(db) == int((NOW + timedelta(hours=1) - school_email.CHECKPOINT_OVERLAP).timestamp())
+    assert await school_email.get_checkpoint(db) == int(
+        (NOW + timedelta(hours=1) - school_email.CHECKPOINT_OVERLAP).timestamp()
+    )
     # The next search starts from it.
     await school_email.check_now(db, NOW + timedelta(days=1))
     assert mailbox.queries[-1].endswith(f"after:{int((NOW + timedelta(hours=1, days=-1)).timestamp())}")
@@ -470,6 +545,7 @@ async def test_a_transient_claude_failure_is_retried_next_time(db, gmail, claude
 
 # --- Scopes, reconnect and offline ---
 
+
 async def test_no_gmail_scope_means_reconnect_without_calling_google(db, claude, google, admin_client):
     await _store(db, scope=LEGACY)
     result = await school_email.check_now(db, NOW)
@@ -518,13 +594,21 @@ async def test_token_refresh_offline_is_offline(db, claude, google):
 
 async def test_nothing_sensitive_is_logged_even_at_debug(db, claude, mailbox, caplog, google):
     await _store(db, expires_in=-10)  # forces a refresh, so the refresh token is in play
-    google.post(google_oauth.TOKEN_ENDPOINT).respond(200, json={
-        "access_token": ACCESS, "expires_in": 3600, "scope": ALL_SCOPES})
-    mailbox.add("m1", subject="SUBJECT-MARKER-7", text="BODY-MARKER-8",
-                attachments=[("ATTACHMENT-NAME-9.pdf", "application/pdf", PDF, None)])
+    google.post(google_oauth.TOKEN_ENDPOINT).respond(
+        200, json={"access_token": ACCESS, "expires_in": 3600, "scope": ALL_SCOPES}
+    )
+    mailbox.add(
+        "m1",
+        subject="SUBJECT-MARKER-7",
+        text="BODY-MARKER-8",
+        attachments=[("ATTACHMENT-NAME-9.pdf", "application/pdf", PDF, None)],
+    )
     mailbox.add("sen", sender="sen@gresham.croydon.sch.uk", subject="SENDCO-SUBJECT", text="SENDCO-BODY")
-    mailbox.add("m2", subject="SUBJECT-MARKER-10", attachments=[
-        ("big.pdf", "application/pdf", b"", extraction.MAX_ATTACHMENT_BYTES + 5)])
+    mailbox.add(
+        "m2",
+        subject="SUBJECT-MARKER-10",
+        attachments=[("big.pdf", "application/pdf", b"", extraction.MAX_ATTACHMENT_BYTES + 5)],
+    )
     with caplog.at_level(logging.DEBUG):
         await school_email.check_now(db, NOW)
         mailbox.list_route.mock(side_effect=httpx.ConnectError("offline"))
@@ -533,12 +617,23 @@ async def test_nothing_sensitive_is_logged_even_at_debug(db, claude, mailbox, ca
         await school_email.check_now(db, NOW + timedelta(hours=3))
     logged = caplog.text + json.dumps([r.args for r in caplog.records], default=str)
     assert "School email check" in caplog.text  # something was logged...
-    for secret in ("SUBJECT-MARKER", "BODY-MARKER", "ATTACHMENT-NAME", "SENDCO", "sen@gresham",
-                   ACCESS, REFRESH, API_KEY, "Homework this week", "year4@"):
+    for secret in (
+        "SUBJECT-MARKER",
+        "BODY-MARKER",
+        "ATTACHMENT-NAME",
+        "SENDCO",
+        "sen@gresham",
+        ACCESS,
+        REFRESH,
+        API_KEY,
+        "Homework this week",
+        "year4@",
+    ):
         assert secret not in logged  # ...but none of this
 
 
 # --- Scope detection ---
+
 
 async def test_granted_scopes_come_from_the_token_response(db):
     assert await google_oauth.granted_scopes(db) == frozenset()
@@ -552,8 +647,9 @@ async def test_granted_scopes_come_from_the_token_response(db):
 
 async def test_refresh_keeps_working_and_learns_the_granted_scopes(db, google):
     await _store(db, scope=None, expires_in=-10)
-    route = google.post(google_oauth.TOKEN_ENDPOINT).respond(200, json={
-        "access_token": "new-access", "expires_in": 3599, "scope": LEGACY})
+    route = google.post(google_oauth.TOKEN_ENDPOINT).respond(
+        200, json={"access_token": "new-access", "expires_in": 3599, "scope": LEGACY}
+    )
     assert await google_oauth.get_valid_access_token(db) == "new-access"
     assert b"scope" not in route.calls[0].request.content  # a refresh never asks for new scopes
     tokens = await google_oauth._load_stored_tokens(db)
@@ -563,8 +659,15 @@ async def test_refresh_keeps_working_and_learns_the_granted_scopes(db, google):
 async def test_callback_stores_the_granted_scopes(db, client, google):
     from app.routers import calendar
 
-    google.post(google_oauth.TOKEN_ENDPOINT).respond(200, json={
-        "access_token": "a", "refresh_token": "r", "expires_in": 3599, "scope": LEGACY + " " + google_oauth.GMAIL_READ_SCOPE})
+    google.post(google_oauth.TOKEN_ENDPOINT).respond(
+        200,
+        json={
+            "access_token": "a",
+            "refresh_token": "r",
+            "expires_in": 3599,
+            "scope": LEGACY + " " + google_oauth.GMAIL_READ_SCOPE,
+        },
+    )
     google.get(google_oauth.USERINFO_ENDPOINT).respond(200, json={"email": "family@example.com"})
     client.cookies.set(admin.SESSION_COOKIE, create_session_token())
     client.cookies.set(calendar.STATE_COOKIE, "s")
@@ -577,11 +680,17 @@ def test_the_auth_url_asks_for_every_scope():
     url = google_oauth.build_auth_url("s", "http://localhost:8000/admin/google/callback")
     params = httpx.URL(url).params
     assert set(params["scope"].split()) == {
-        google_oauth.CALENDAR_READ_SCOPE, google_oauth.TASKS_SCOPE, google_oauth.GMAIL_READ_SCOPE,
-        google_oauth.CALENDAR_EVENTS_SCOPE, "openid", "email"}
+        google_oauth.CALENDAR_READ_SCOPE,
+        google_oauth.TASKS_SCOPE,
+        google_oauth.GMAIL_READ_SCOPE,
+        google_oauth.CALENDAR_EVENTS_SCOPE,
+        "openid",
+        "email",
+    }
 
 
 # --- Schedule ---
+
 
 def _schedule(mode="daily", at="18:00"):
     return school_email.parse_schedule(mode, at)
@@ -590,14 +699,18 @@ def _schedule(mode="daily", at="18:00"):
 def test_daily_slots_follow_london_time_across_dst():
     daily = _schedule()
     # Before the autumn change 18:00 London is 17:00 UTC; after it, 18:00 UTC.
-    assert school_email.last_slot(datetime(2026, 10, 24, 17, 30, tzinfo=UTC), daily, LONDON) == \
-        datetime(2026, 10, 24, 17, 0, tzinfo=UTC)
-    assert school_email.last_slot(datetime(2026, 10, 25, 17, 30, tzinfo=UTC), daily, LONDON) == \
-        datetime(2026, 10, 24, 17, 0, tzinfo=UTC)
-    assert school_email.last_slot(datetime(2026, 10, 25, 18, 0, tzinfo=UTC), daily, LONDON) == \
-        datetime(2026, 10, 25, 18, 0, tzinfo=UTC)
-    assert school_email.next_slot(datetime(2026, 10, 24, 17, 30, tzinfo=UTC), daily, LONDON) == \
-        datetime(2026, 10, 25, 18, 0, tzinfo=UTC)
+    assert school_email.last_slot(datetime(2026, 10, 24, 17, 30, tzinfo=UTC), daily, LONDON) == datetime(
+        2026, 10, 24, 17, 0, tzinfo=UTC
+    )
+    assert school_email.last_slot(datetime(2026, 10, 25, 17, 30, tzinfo=UTC), daily, LONDON) == datetime(
+        2026, 10, 24, 17, 0, tzinfo=UTC
+    )
+    assert school_email.last_slot(datetime(2026, 10, 25, 18, 0, tzinfo=UTC), daily, LONDON) == datetime(
+        2026, 10, 25, 18, 0, tzinfo=UTC
+    )
+    assert school_email.next_slot(datetime(2026, 10, 24, 17, 30, tzinfo=UTC), daily, LONDON) == datetime(
+        2026, 10, 25, 18, 0, tzinfo=UTC
+    )
     # Spring: 01:30 doesn't exist on 29 March; there's still exactly one check that day.
     early = _schedule(at="01:30")
     slots = [school_email.last_slot(datetime(2026, 3, 29, h, 59, tzinfo=UTC), early, LONDON) for h in range(24)]
@@ -625,8 +738,9 @@ def test_due_logic():
     daily, slot = _schedule(), datetime(2026, 9, 28, 17, 0, tzinfo=UTC)
 
     def due(**status):
-        return school_email.is_due({k: v.isoformat() if isinstance(v, datetime) else v for k, v in status.items()},
-                                   daily, NOW, LONDON)
+        return school_email.is_due(
+            {k: v.isoformat() if isinstance(v, datetime) else v for k, v in status.items()}, daily, NOW, LONDON
+        )
 
     assert due()  # never checked: catch up at startup
     assert not due(last_success_at=slot + timedelta(minutes=1), last_attempt_at=slot, result="ok")
@@ -672,8 +786,16 @@ async def test_default_schedule_is_daily_at_six_pm(db):
 
 # --- Check now ---
 
-@pytest.mark.parametrize("path", ["/admin/school-email/check", "/admin/school-email/schedule",
-                                  "/admin/school-email/senders", "/admin/school-email/calendar"])
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/admin/school-email/check",
+        "/admin/school-email/schedule",
+        "/admin/school-email/senders",
+        "/admin/school-email/calendar",
+    ],
+)
 async def test_school_email_routes_require_admin(client, path, monkeypatch):
     async def never(*args):
         pytest.fail("ran without admin")
@@ -734,24 +856,39 @@ async def test_a_crash_is_recorded_not_raised(db, monkeypatch, caplog):
 
 # --- Approving events into Google Calendar ---
 
-TRIP = {"title": "Trip to the museum", "date": "2026-10-09", "start_time": "09:00", "end_time": "15:00",
-        "all_day": False, "notes": "Packed lunch", "whole_school": True}
+TRIP = {
+    "title": "Trip to the museum",
+    "date": "2026-10-09",
+    "start_time": "09:00",
+    "end_time": "15:00",
+    "all_day": False,
+    "notes": "Packed lunch",
+    "whole_school": True,
+}
 
 
 async def _event_candidate(db, payload=None) -> int:
     cursor = await db.execute(
-        "INSERT INTO import_sources (kind, source_ref, status) VALUES ('gmail', 'm-event', 'extracted')")
+        "INSERT INTO import_sources (kind, source_ref, status) VALUES ('gmail', 'm-event', 'extracted')"
+    )
     source_id = cursor.lastrowid
     cursor = await db.execute(
         "INSERT INTO import_candidates (source_id, kind, payload_json, evidence) VALUES (?, 'event', ?, 'x')",
-        (source_id, json.dumps(payload or TRIP)))
+        (source_id, json.dumps(payload or TRIP)),
+    )
     await db.commit()
     return cursor.lastrowid
 
 
 def _form(**overrides):
-    return {"title": TRIP["title"], "date": TRIP["date"], "start_time": "09:00", "end_time": "15:00",
-            "notes": "Packed lunch", **overrides}
+    return {
+        "title": TRIP["title"],
+        "date": TRIP["date"],
+        "start_time": "09:00",
+        "end_time": "15:00",
+        "notes": "Packed lunch",
+        **overrides,
+    }
 
 
 @pytest.fixture
@@ -814,17 +951,19 @@ async def test_concurrent_approves_create_exactly_one_event(db, school_calendar,
     gate.set()
     results = await asyncio.gather(*tasks, return_exceptions=True)
     assert [r for r in results if r == "only-one"] == ["only-one"]
-    assert all(isinstance(r, imports.CandidateError) and r.code == "import-missing"
-               for r in results if r != "only-one")
+    assert all(isinstance(r, imports.CandidateError) and r.code == "import-missing" for r in results if r != "only-one")
     assert insert.call_count == 1
 
 
-@pytest.mark.parametrize(("failure", "code"), [
-    (httpx.Response(500), "import-calendar-failed"),
-    (httpx.Response(403, json=SCOPE_403), "import-calendar-scope"),
-    (httpx.Response(404), "import-calendar-missing"),
-    (httpx.ConnectError("down"), "import-calendar-offline"),
-])
+@pytest.mark.parametrize(
+    ("failure", "code"),
+    [
+        (httpx.Response(500), "import-calendar-failed"),
+        (httpx.Response(403, json=SCOPE_403), "import-calendar-scope"),
+        (httpx.Response(404), "import-calendar-missing"),
+        (httpx.ConnectError("down"), "import-calendar-offline"),
+    ],
+)
 async def test_a_calendar_failure_leaves_the_event_pending(db, school_calendar, google, failure, code):
     candidate_id = await _event_candidate(db)
     route = google.post(url__regex=EVENTS_URL.pattern)
@@ -843,6 +982,7 @@ async def test_a_calendar_failure_leaves_the_event_pending(db, school_calendar, 
 
 async def test_a_cancelled_insert_releases_the_claim(db, school_calendar, google):
     candidate_id = await _event_candidate(db)
+
     def cancelled(request, **_groups):
         raise asyncio.CancelledError()
 
@@ -883,8 +1023,13 @@ async def test_event_approval_is_gated_on_scope_and_calendar(db, google):
 
 async def test_event_form_validation(db, school_calendar, google):
     candidate_id = await _event_candidate(db)
-    for bad in ({"title": ""}, {"date": ""}, {"date": "tomorrow"}, {"start_time": "9am"},
-                {"start_time": "15:00", "end_time": "09:00"}):
+    for bad in (
+        {"title": ""},
+        {"date": ""},
+        {"date": "tomorrow"},
+        {"start_time": "9am"},
+        {"start_time": "15:00", "end_time": "09:00"},
+    ):
         with pytest.raises(Exception) as raised:
             await school_events.approve_event(db, candidate_id, _form(**bad))
         assert type(raised.value).__name__ == "ValidationError"
@@ -899,8 +1044,9 @@ async def test_admin_event_approval_and_errors(db, school_calendar, google, admi
     assert "Add to Family" in page
 
     route = google.post(url__regex=EVENTS_URL.pattern).respond(500)
-    r = await admin_client.post(f"/admin/inbox/candidates/{candidate_id}/approve", data=_form(),
-                                headers={"HX-Request": "true"})
+    r = await admin_client.post(
+        f"/admin/inbox/candidates/{candidate_id}/approve", data=_form(), headers={"HX-Request": "true"}
+    )
     assert "Google Calendar didn&#39;t accept the event" in r.text and "Add to Family" in r.text
     r = await admin_client.post(f"/admin/inbox/candidates/{candidate_id}/approve", data=_form())
     assert r.headers["location"] == "/admin?tab=school&error=import-calendar-failed#inbox"
@@ -913,11 +1059,16 @@ async def test_admin_event_approval_and_errors(db, school_calendar, google, admi
 
 
 async def test_calendar_picker_only_takes_writable_calendars(db, gmail, google, admin_client):
-    google.get(google_oauth.CALENDAR_LIST_ENDPOINT).respond(200, json={"items": [
-        {"id": "family", "summary": "Family", "accessRole": "owner", "primary": True},
-        {"id": "holidays", "summary": "UK holidays", "accessRole": "reader"},
-        {"id": "shared", "summary": "Shared <b>", "accessRole": "writer"},
-    ]})
+    google.get(google_oauth.CALENDAR_LIST_ENDPOINT).respond(
+        200,
+        json={
+            "items": [
+                {"id": "family", "summary": "Family", "accessRole": "owner", "primary": True},
+                {"id": "holidays", "summary": "UK holidays", "accessRole": "reader"},
+                {"id": "shared", "summary": "Shared <b>", "accessRole": "writer"},
+            ]
+        },
+    )
     google.get("https://tasks.googleapis.com/tasks/v1/users/@me/lists").respond(200, json={"items": []})
     page = (await admin_client.get("/admin?tab=school")).text
     picker = page.split('name="calendar_id" aria-label="Calendar for school events"')[1].split("</select>")[0]
@@ -945,6 +1096,7 @@ async def test_admin_panel_shows_status(db, gmail, google, admin_client):
 
 
 # --- Review fixes: caps, poison messages, privacy, hostile entries, auth, calendar pinning ---
+
 
 async def _source(db, ref):
     row = await (await db.execute("SELECT * FROM import_sources WHERE source_ref = ?", (ref,))).fetchone()
@@ -1019,8 +1171,7 @@ async def test_a_poison_email_is_given_up_after_three_tries(db, gmail, claude, m
 
 
 async def test_retry_only_works_on_failed_school_emails(db, admin_client):
-    cursor = await db.execute(
-        "INSERT INTO import_sources (kind, source_ref, status) VALUES ('upload', 'u1', 'failed')")
+    cursor = await db.execute("INSERT INTO import_sources (kind, source_ref, status) VALUES ('upload', 'u1', 'failed')")
     await db.commit()
     r = await admin_client.post(f"/admin/inbox/sources/{cursor.lastrowid}/retry")
     assert r.headers["location"] == "/admin?tab=school&error=import-missing#inbox"
@@ -1105,11 +1256,16 @@ async def test_concurrent_calls_cannot_exceed_the_daily_cap(db, monkeypatch):
 
 # Privacy
 
+
 async def test_mentions_of_the_sendco_address_drop_the_whole_email(db, gmail, claude, mailbox, caplog):
-    mailbox.add("fwd", text="---------- Forwarded message ---------\nFrom: SENDCo <sen@gresham.croydon.sch.uk>\n"
-                            "PRIVATE-FORWARDED")
-    mailbox.add("quoted", text="Thanks!\n\nOn Mon, 28 Sep 2026 at 10:00, SEN+notes@Gresham.Croydon.sch.uk wrote:\n"
-                               "> PRIVATE-QUOTED")
+    mailbox.add(
+        "fwd",
+        text="---------- Forwarded message ---------\nFrom: SENDCo <sen@gresham.croydon.sch.uk>\nPRIVATE-FORWARDED",
+    )
+    mailbox.add(
+        "quoted",
+        text="Thanks!\n\nOn Mon, 28 Sep 2026 at 10:00, SEN+notes@Gresham.Croydon.sch.uk wrote:\n> PRIVATE-QUOTED",
+    )
     mailbox.add("html", text=None, html='<p>See <a href="mailto:sen%40gresham.croydon.sch.uk">the SENDCo</a></p>')
     mailbox.add("ok", text="Non-uniform day on Friday")
     with caplog.at_level(logging.DEBUG):
@@ -1117,8 +1273,10 @@ async def test_mentions_of_the_sendco_address_drop_the_whole_email(db, gmail, cl
     assert (result.emails, result.skipped) == (1, 3)
     assert [s["source_ref"] for s in await _sources(db)] == ["ok"]
     assert "PRIVATE" not in claude.text_sent()
-    rows = [dict(r) for r in await (await db.execute(
-        "SELECT message_id, code FROM gmail_skipped ORDER BY message_id")).fetchall()]
+    rows = [
+        dict(r)
+        for r in await (await db.execute("SELECT message_id, code FROM gmail_skipped ORDER BY message_id")).fetchall()
+    ]
     assert rows == [{"message_id": m, "code": "excluded"} for m in ("fwd", "html", "quoted")]
     assert "PRIVATE" not in caplog.text and "sen@" not in caplog.text
     # Not fetched again.
@@ -1155,17 +1313,26 @@ def test_quoted_history_is_stripped():
 
 def test_quoted_history_is_left_out_of_html():
     to_text = google_gmail.html_to_text
-    assert to_text('<div>Yes.</div><div class="gmail_quote"><div>On Mon wrote:</div>'
-                   '<blockquote class="gmail_quote"><div>PRIVATE</div></blockquote></div><p>Sign-off</p>') == \
-        "Yes.\n\nSign-off"
+    assert (
+        to_text(
+            '<div>Yes.</div><div class="gmail_quote"><div>On Mon wrote:</div>'
+            '<blockquote class="gmail_quote"><div>PRIVATE</div></blockquote></div><p>Sign-off</p>'
+        )
+        == "Yes.\n\nSign-off"
+    )
     assert to_text("<p>Yes.</p><blockquote>PRIVATE<blockquote>MORE</blockquote>STILL</blockquote>") == "Yes."
-    assert to_text('<p>Yes.</p><div id="appendonsend"></div><hr><div id="divRplyFwdMsg">From: Mum</div>'
-                   "<div>PRIVATE</div>") == "Yes."
+    assert (
+        to_text('<p>Yes.</p><div id="appendonsend"></div><hr><div id="divRplyFwdMsg">From: Mum</div><div>PRIVATE</div>')
+        == "Yes."
+    )
 
 
 async def test_replies_reach_claude_without_the_quoted_message(db, gmail, claude, mailbox):
-    mailbox.add("reply", text="The trip is on Friday.\n\nOn Mon, 28 Sep 2026 at 10:00, Parent <p@example.com> wrote:\n"
-                              "> PRIVATE-PARENT-MESSAGE")
+    mailbox.add(
+        "reply",
+        text="The trip is on Friday.\n\nOn Mon, 28 Sep 2026 at 10:00, Parent <p@example.com> wrote:\n"
+        "> PRIVATE-PARENT-MESSAGE",
+    )
     await school_email.check_now(db, NOW)
     assert "The trip is on Friday." in claude.text_sent() and "PRIVATE" not in claude.text_sent()
     assert "PRIVATE" not in ((await _source(db, "reply"))["excerpt"] or "")
@@ -1173,11 +1340,29 @@ async def test_replies_reach_claude_without_the_quoted_message(db, gmail, claude
 
 # Hostile Admin entries and normalisation
 
-@pytest.mark.parametrize("entry", [
-    "-foo@evil.com", ".foo@evil.com", "foo@-evil.com", "foo@evil-.com", "(foo@evil.com", "foo@evil.com)",
-    '"foo"@evil.com', "a:b@evil.com", "{a@evil.com}", "*a@evil.com", "a*@evil.com", "*@*.evil.com",
-    "foo.@evil.com", "a..b@evil.com", "OR", "from:x@evil.com", "x@evil.com)OR(y@z.com",
-])
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        "-foo@evil.com",
+        ".foo@evil.com",
+        "foo@-evil.com",
+        "foo@evil-.com",
+        "(foo@evil.com",
+        "foo@evil.com)",
+        '"foo"@evil.com',
+        "a:b@evil.com",
+        "{a@evil.com}",
+        "*a@evil.com",
+        "a*@evil.com",
+        "*@*.evil.com",
+        "foo.@evil.com",
+        "a..b@evil.com",
+        "OR",
+        "from:x@evil.com",
+        "x@evil.com)OR(y@z.com",
+    ],
+)
 def test_hostile_entries_are_rejected(entry):
     with pytest.raises(school_email.InvalidEntry):
         school_email.parse_entries(entry)
@@ -1185,7 +1370,10 @@ def test_hostile_entries_are_rejected(entry):
 
 def test_ordinary_entries_are_accepted():
     assert school_email.parse_entries("year-4@st-marys.sch.uk o.brien+news@x.co.uk *@gresham.croydon.sch.uk") == [
-        "year-4@st-marys.sch.uk", "o.brien+news@x.co.uk", "*@gresham.croydon.sch.uk"]
+        "year-4@st-marys.sch.uk",
+        "o.brien+news@x.co.uk",
+        "*@gresham.croydon.sch.uk",
+    ]
 
 
 def test_plus_tags_and_case_are_normalised():
@@ -1199,6 +1387,7 @@ def test_plus_tags_and_case_are_normalised():
 
 
 # Sender authentication
+
 
 def test_sender_verdict():
     parse = google_gmail.auth_results
@@ -1231,11 +1420,14 @@ async def test_unverified_senders_are_dropped_or_marked(db, gmail, claude, mailb
 
 # Event approval: the calendar is fixed at the first claim
 
+
 async def test_a_retry_after_a_crash_uses_the_first_calendar(db, school_calendar, google):
     candidate_id = await _event_candidate(db)
     # Crashed mid-approve with the Family calendar...
-    await db.execute("UPDATE import_candidates SET status = 'approving', claim_calendar_id = ? WHERE id = ?",
-                     ("family@group.calendar.google.com", candidate_id))
+    await db.execute(
+        "UPDATE import_candidates SET status = 'approving', claim_calendar_id = ? WHERE id = ?",
+        ("family@group.calendar.google.com", candidate_id),
+    )
     await db.commit()
     await imports.fail_interrupted(db)
     # ...then the School events calendar was changed before approving again.

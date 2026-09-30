@@ -56,8 +56,15 @@ def test_widget_header_macro_renders_exactly_one_drag_handle():
 async def test_every_widget_route_renders_exactly_one_drag_handle(db, client):
     # Each widget re-renders itself from its own route (HTMX swaps), not just
     # inside the dashboard, so check those too.
-    routes = ["/widgets/tasks", "/widgets/shopping", "/widgets/meals", "/widgets/calendar",
-              "/widgets/weather", "/widgets/homework", "/widgets/practice-words"]
+    routes = [
+        "/widgets/tasks",
+        "/widgets/shopping",
+        "/widgets/meals",
+        "/widgets/calendar",
+        "/widgets/weather",
+        "/widgets/homework",
+        "/widgets/practice-words",
+    ]
     for path in routes:
         html = (await client.get(path)).text
         assert len(DRAG_HANDLE.findall(html)) == 1, path
@@ -69,9 +76,7 @@ def test_dashboard_configures_the_drag_handle():
 
 
 async def test_dashboard_renders_one_drag_handle_per_visible_widget(db, client):
-    visible = (await (await db.execute(
-        "SELECT COUNT(*) FROM layout_state WHERE is_visible = 1"
-    )).fetchone())[0]
+    visible = (await (await db.execute("SELECT COUNT(*) FROM layout_state WHERE is_visible = 1")).fetchone())[0]
     assert visible
     html = (await client.get("/")).text
     assert html.count('class="grid-stack-item"') == visible

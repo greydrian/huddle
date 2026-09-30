@@ -48,7 +48,14 @@ async def quick_add_task(
         try:
             await task_service.quick_add(db, profile_id, title, time_of_day)
         except task_service.QuickAddError as exc:
-            return await _render(request, db, add_error=exc.message, add_form={
-                "profile_id": profile_id, "title": title[:task_service.MAX_TITLE], "time_of_day": time_of_day,
-            })
+            return await _render(
+                request,
+                db,
+                add_error=exc.message,
+                add_form={
+                    "profile_id": profile_id,
+                    "title": title[: task_service.MAX_TITLE],
+                    "time_of_day": time_of_day,
+                },
+            )
         return await _render(request, db)

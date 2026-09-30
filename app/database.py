@@ -128,7 +128,7 @@ async def family_timezone(db) -> ZoneInfo:
     name = await get_setting(db, CALENDAR_TIMEZONE_SETTING)
     try:
         return ZoneInfo(name or "UTC")
-    except (ZoneInfoNotFoundError, ValueError, OSError):
+    except ZoneInfoNotFoundError, ValueError, OSError:
         # OSError: a tzdata directory name such as "Europe" raises
         # IsADirectoryError/PermissionError rather than NotFound.
         return ZoneInfo("UTC")

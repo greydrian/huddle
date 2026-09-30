@@ -43,18 +43,18 @@ TRIGGERS = {
     "school": "Today's school events",
     "chores": "Chores left late in the day",
 }
-DEFAULT_LEAD = 30          # minutes, for an event with no popup reminder
+DEFAULT_LEAD = 30  # minutes, for an event with no popup reminder
 MIN_LEAD, MAX_LEAD = 5, 120  # the Admin setting's range; MAX_LEAD also caps an event's own reminder
 DEFAULT_QUIET = ("21:00", "07:00")
-SHOWN = 2                  # banners on show before "+N more"
+SHOWN = 2  # banners on show before "+N more"
 
 HOMEWORK_TOMORROW_FROM = time(16, 0)
-DAY_STARTS = time(7, 0)    # "due today" and school events show from here
+DAY_STARTS = time(7, 0)  # "due today" and school events show from here
 SCHOOL_UNTIL = time(18, 0)
 SCHOOL_PERIOD_KINDS = ("inset", "closure")  # term-date periods that make a banner
 
 DISMISS_KEEP = timedelta(days=2)
-MAX_DISMISSED = 300        # the kiosk route is PIN-free: never let the list grow unbounded
+MAX_DISMISSED = 300  # the kiosk route is PIN-free: never let the list grow unbounded
 MAX_KEY = 200
 KEY_PATTERN = re.compile(r"(event|homework|school|term|chores):[^\s]{1,190}")
 
@@ -71,6 +71,7 @@ class SettingsError(ValueError):
 
 
 # --- Settings -----------------------------------------------------------------------------
+
 
 def default_settings() -> dict:
     return {
@@ -95,8 +96,9 @@ def clean_settings(form: dict) -> dict:
     if start is None or end is None or start == end:
         raise SettingsError("banner-quiet")
     return {
-        "triggers": {kind: {"on": bool(form.get(f"on_{kind}")), "sound": bool(form.get(f"sound_{kind}"))}
-                     for kind in TRIGGERS},
+        "triggers": {
+            kind: {"on": bool(form.get(f"on_{kind}")), "sound": bool(form.get(f"sound_{kind}"))} for kind in TRIGGERS
+        },
         "lead_minutes": lead,
         "quiet_start": start.strftime("%H:%M"),
         "quiet_end": end.strftime("%H:%M"),
@@ -143,13 +145,15 @@ def in_quiet_hours(clock: time, start: str, end: str) -> bool:
 
 # --- Dismissals ---------------------------------------------------------------------------
 
+
 def _read_dismissed(raw: str | None) -> dict[str, str]:
     try:
         value = json.loads(raw or "{}")
     except ValueError:
         return {}
-    return {k: v for k, v in value.items() if isinstance(k, str) and isinstance(v, str)} \
-        if isinstance(value, dict) else {}
+    return (
+        {k: v for k, v in value.items() if isinstance(k, str) and isinstance(v, str)} if isinstance(value, dict) else {}
+    )
 
 
 def _prune(dismissed: dict[str, str], now: datetime) -> dict[str, str]:
@@ -197,10 +201,14 @@ async def dismiss(db, key: str, now: datetime | None = None) -> bool:
 
 # --- Triggers -----------------------------------------------------------------------------
 
+
 async def _profiles(db) -> list[dict]:
-    return [dict(r) for r in await (await db.execute(
-        f"SELECT id, name, colour_hex, {avatars.COLUMNS} FROM profiles ORDER BY sort_order"
-    )).fetchall()]
+    return [
+        dict(r)
+        for r in await (
+            await db.execute(f"SELECT id, name, colour_hex, {avatars.COLUMNS} FROM profiles ORDER BY sort_order")
+        ).fetchall()
+    ]
 
 
 def _person(profile: dict | None) -> dict | None:
@@ -226,17 +234,22 @@ async def _event_banners(db, now: datetime, lead_default: int, profiles: list[di
     if not events:  # e.g. the cached range ends today
         events = await google_calendar.cached_events(db, today, today + timedelta(days=1))
     # An approved school event is also in Google: the school trigger owns it.
-    school_ids = {row["external_id"] for row in await (await db.execute(
-        """SELECT external_id FROM import_candidates
+    school_ids = {
+        row["external_id"]
+        for row in await (
+            await db.execute(
+                """SELECT external_id FROM import_candidates
            WHERE kind = 'event' AND status = 'approved' AND external_id IS NOT NULL"""
-    )).fetchall()}
+            )
+        ).fetchall()
+    }
     banners = {}
     for event in events:
         if event.get("all_day") or event.get("school") or event.get("id") in school_ids:
             continue
         try:
             start = datetime.fromisoformat(event["sort_key"])
-        except (KeyError, TypeError, ValueError):
+        except KeyError, TypeError, ValueError:
             continue
         if start.tzinfo is None:
             continue
@@ -278,10 +291,12 @@ async def _homework_banners(db, now: datetime, profiles: list[dict]) -> list[dic
     if not wanted:
         return []
     by_id = {p["id"]: p for p in profiles}
-    rows = await (await db.execute(
-        "SELECT * FROM homework WHERE archived = 0 AND done = 0 AND due_date IN (?, ?)",
-        (today.isoformat(), tomorrow.isoformat()),
-    )).fetchall()
+    rows = await (
+        await db.execute(
+            "SELECT * FROM homework WHERE archived = 0 AND done = 0 AND due_date IN (?, ?)",
+            (today.isoformat(), tomorrow.isoformat()),
+        )
+    ).fetchall()
     banners = []
     for row in rows:
         item = dict(row)
@@ -292,11 +307,15 @@ async def _homework_banners(db, now: datetime, profiles: list[dict]) -> list[dic
                 continue
             subject = f" ({item['subject']})" if item["subject"] else ""
             key = f"homework:{item['id']}:{item['due_date']}:{when}"
-            banners.append(_banner(
-                "homework", key, f"Homework due {when}: {item['title']}{subject}",
-                _person(by_id.get(item["profile_id"])),
-                datetime.combine(due, time.min, tzinfo=now.tzinfo),
-            ))
+            banners.append(
+                _banner(
+                    "homework",
+                    key,
+                    f"Homework due {when}: {item['title']}{subject}",
+                    _person(by_id.get(item["profile_id"])),
+                    datetime.combine(due, time.min, tzinfo=now.tzinfo),
+                )
+            )
     return banners
 
 
@@ -307,25 +326,37 @@ async def _school_banners(db, now: datetime, profiles: list[dict]) -> list[dict]
     by_id = {p["id"]: p for p in profiles}
     day_start = datetime.combine(today, time.min, tzinfo=now.tzinfo)
     banners = []
-    rows = await (await db.execute(
-        """SELECT id, profile_id, payload_json FROM import_candidates
+    rows = await (
+        await db.execute(
+            """SELECT id, profile_id, payload_json FROM import_candidates
            WHERE kind = 'event' AND status = 'approved' AND json_valid(payload_json)
              AND json_extract(payload_json, '$.date') = ?""",
-        (today.isoformat(),),
-    )).fetchall()
+            (today.isoformat(),),
+        )
+    ).fetchall()
     for row in rows:
         payload = json.loads(row["payload_json"])
         title = str(payload.get("title") or "School event")
         start = task_service.parse_hhmm(payload.get("start_time")) if not payload.get("all_day") else None
         text = f"Today: {title}" + (f" at {start:%H:%M}" if start else "")
         sort_time = datetime.combine(today, start, tzinfo=now.tzinfo) if start else day_start
-        banners.append(_banner("school", f"school:{row['id']}:{today.isoformat()}", text,
-                               _person(by_id.get(row["profile_id"])), sort_time))
+        banners.append(
+            _banner(
+                "school",
+                f"school:{row['id']}:{today.isoformat()}",
+                text,
+                _person(by_id.get(row["profile_id"])),
+                sort_time,
+            )
+        )
     for period in await term_dates.periods_between(db, today, today):
         if period["kind"] in SCHOOL_PERIOD_KINDS and period["id"] is not None:
             label = period["label"] or term_dates.KINDS[period["kind"]]
-            banners.append(_banner("school", f"term:{period['id']}:{today.isoformat()}",
-                                   f"Today: {label} (no school)", None, day_start))
+            banners.append(
+                _banner(
+                    "school", f"term:{period['id']}:{today.isoformat()}", f"Today: {label} (no school)", None, day_start
+                )
+            )
     return banners
 
 
@@ -338,11 +369,15 @@ async def _chore_banners(db, now: datetime) -> list[dict]:
     for profile in await task_service.get_profiles_with_tasks(db, today):
         left = sum(1 for t in profile["tasks"] if not t["is_completed"])
         if left:
-            banners.append(_banner(
-                "chores", f"chores:{profile['id']}:{today.isoformat()}",
-                f"{left} chore{'' if left == 1 else 's'} still to do", _person(profile),
-                datetime.combine(today, evening, tzinfo=now.tzinfo),
-            ))
+            banners.append(
+                _banner(
+                    "chores",
+                    f"chores:{profile['id']}:{today.isoformat()}",
+                    f"{left} chore{'' if left == 1 else 's'} still to do",
+                    _person(profile),
+                    datetime.combine(today, evening, tzinfo=now.tzinfo),
+                )
+            )
     return banners
 
 

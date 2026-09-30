@@ -56,8 +56,13 @@ from app.services.extraction import (
 logger = logging.getLogger(__name__)
 
 __all__ = [
-    "Attachment", "SourceDocument", "IngestResult", "ingest", "start_ingest",
-    "prepare_attachment", "content_ref",
+    "Attachment",
+    "SourceDocument",
+    "IngestResult",
+    "ingest",
+    "start_ingest",
+    "prepare_attachment",
+    "content_ref",
 ]
 
 KINDS = ("upload", "paste", "gmail")
@@ -79,7 +84,7 @@ MAX_ATTEMPTS = 3
 # Log-safe error codes stored on import_sources.error_code -> Admin text.
 ERROR_MESSAGES = {
     "not_configured": "The school inbox isn't set up yet, so this wasn't read. Add an Anthropic API key "
-                      "(see below), then add it again.",
+    "(see below), then add it again.",
     "offline": "Couldn't reach Claude just now. Try adding it again in a minute.",
     "rate_limited": "Claude is busy right now. Try adding it again in a few minutes.",
     "server_error": "Claude had a problem reading this. Try adding it again in a few minutes.",
@@ -90,9 +95,9 @@ ERROR_MESSAGES = {
     "no_result": "Claude didn't return anything for this. Try adding it again.",
     "interrupted": "Reading was interrupted (the display restarted). Add it again.",
     "daily_cap": f"The school inbox has read its limit of {DAILY_CLAUDE_CAP} documents today. "
-                 "School emails are read again tomorrow; add uploads again tomorrow.",
+    "School emails are read again tomorrow; add uploads again tomorrow.",
     "gave_up": f"Claude couldn't read this email after {MAX_ATTEMPTS} tries, so it stopped. "
-               "Retry reads it again at the next check.",
+    "Retry reads it again at the next check.",
     "retry": "Waiting to be read again at the next school email check.",
     "error": "Something went wrong reading this. Try adding it again.",
 }
@@ -119,7 +124,7 @@ class CandidateError(ValueError):
 @dataclass
 class IngestResult:
     source_id: int
-    status: str            # pending / extracted / failed / not_configured
+    status: str  # pending / extracted / failed / not_configured
     already: bool = False  # this (kind, source_ref) was already in the inbox
     candidate_count: int = 0
 
@@ -189,7 +194,7 @@ def _normalise_image(data: bytes, mime_type: str) -> tuple[bytes, str]:
         raise
     except Image.DecompressionBombError:  # Pillow's own check, at twice the limit
         raise UploadRejected("import-too-big") from None
-    except (OSError, ValueError, SyntaxError):
+    except OSError, ValueError, SyntaxError:
         raise UploadRejected("import-bad-type") from None
 
 
@@ -239,12 +244,14 @@ def content_ref(text: str, blobs: list[bytes]) -> str:
 
 # --- Ingest ---
 
+
 async def get_children(db) -> list[Child]:
     """Who the extractor may assign items to: family members with a year
     group, or everyone if no year groups are set yet."""
-    rows = [dict(r) for r in await (await db.execute(
-        "SELECT id, name, school_year FROM profiles ORDER BY sort_order"
-    )).fetchall()]
+    rows = [
+        dict(r)
+        for r in await (await db.execute("SELECT id, name, school_year FROM profiles ORDER BY sort_order")).fetchall()
+    ]
     with_year = [r for r in rows if (r["school_year"] or "").strip()]
     return [Child(r["id"], r["name"], (r["school_year"] or "").strip() or None) for r in (with_year or rows)]
 
@@ -264,15 +271,24 @@ async def claim_source(db, doc: SourceDocument) -> tuple[int, bool, str]:
         """INSERT OR IGNORE INTO import_sources
                (kind, source_ref, received_at, subject, excerpt, attachment_count, status, sender_unverified)
            VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)""",
-        (doc.kind, doc.source_ref, received, (doc.subject or "")[:MAX_SUBJECT_CHARS] or None,
-         _excerpt(doc.text), len(doc.attachments), int(doc.sender_verified is False)),
+        (
+            doc.kind,
+            doc.source_ref,
+            received,
+            (doc.subject or "")[:MAX_SUBJECT_CHARS] or None,
+            _excerpt(doc.text),
+            len(doc.attachments),
+            int(doc.sender_verified is False),
+        ),
     )
     if cursor.rowcount:
         await db.commit()
         return cursor.lastrowid, True, "pending"
-    row = await (await db.execute(
-        "SELECT id, status FROM import_sources WHERE kind = ? AND source_ref = ?", (doc.kind, doc.source_ref)
-    )).fetchone()
+    row = await (
+        await db.execute(
+            "SELECT id, status FROM import_sources WHERE kind = ? AND source_ref = ?", (doc.kind, doc.source_ref)
+        )
+    ).fetchone()
     # Conditional update, so two retries racing can't both claim it.
     retried = await db.execute(
         f"""UPDATE import_sources SET status = 'pending', error_code = NULL, updated_at = datetime('now')
@@ -420,13 +436,12 @@ async def fail_interrupted(db):
     # An event mid-approval when the app stopped goes back to pending; its
     # Calendar event id is deterministic, so approving it again can't make
     # a second event (see services/school_events.py).
-    await db.execute(
-        "UPDATE import_candidates SET status = 'pending' WHERE status = 'approving'"
-    )
+    await db.execute("UPDATE import_candidates SET status = 'pending' WHERE status = 'approving'")
     await db.commit()
 
 
 # --- Dedupe ---
+
 
 def _word_key(words) -> frozenset:
     return frozenset(w.casefold() for w in words if w)
@@ -447,24 +462,28 @@ async def _is_duplicate(db, source_id: int, candidate: Candidate) -> bool:
     payload = candidate.payload
     if candidate.kind == "word_list":
         key = _word_key(payload["words"])
-        rows = await (await db.execute(
-            "SELECT words, starts_on FROM practice_word_lists WHERE profile_id = ? AND archived = 0",
-            (candidate.profile_id,),
-        )).fetchall()
+        rows = await (
+            await db.execute(
+                "SELECT words, starts_on FROM practice_word_lists WHERE profile_id = ? AND archived = 0",
+                (candidate.profile_id,),
+            )
+        ).fetchall()
         for row in rows:
             same_week = not payload["starts_on"] or not row["starts_on"] or payload["starts_on"] == row["starts_on"]
             if same_week and _word_key(row["words"].split("\n")) == key:
                 return True
         pending = await _pending_payloads(db, source_id, "word_list", candidate.profile_id)
         return any(
-            _word_key(p["words"]) == key and (not payload["starts_on"] or not p.get("starts_on")
-                                              or p.get("starts_on") == payload["starts_on"])
+            _word_key(p["words"]) == key
+            and (not payload["starts_on"] or not p.get("starts_on") or p.get("starts_on") == payload["starts_on"])
             for p in pending
         )
     title, due = payload["title"].casefold(), payload["due_date"]
-    rows = await (await db.execute(
-        "SELECT title, due_date, done, archived FROM homework WHERE profile_id = ?", (candidate.profile_id,)
-    )).fetchall()
+    rows = await (
+        await db.execute(
+            "SELECT title, due_date, done, archived FROM homework WHERE profile_id = ?", (candidate.profile_id,)
+        )
+    ).fetchall()
     for row in rows:
         if row["title"].casefold() != title:
             continue
@@ -477,11 +496,13 @@ async def _is_duplicate(db, source_id: int, candidate: Candidate) -> bool:
 
 
 async def _pending_payloads(db, source_id: int, kind: str, profile_id: int) -> list[dict]:
-    rows = await (await db.execute(
-        """SELECT payload_json FROM import_candidates
+    rows = await (
+        await db.execute(
+            """SELECT payload_json FROM import_candidates
            WHERE kind = ? AND profile_id = ? AND status = 'pending' AND source_id != ?""",
-        (kind, profile_id, source_id),
-    )).fetchall()
+            (kind, profile_id, source_id),
+        )
+    ).fetchall()
     return [json.loads(r["payload_json"]) for r in rows]
 
 
@@ -490,23 +511,33 @@ async def _store_candidate(db, source_id: int, candidate: Candidate):
     await db.execute(
         """INSERT INTO import_candidates (source_id, kind, profile_id, payload_json, evidence, duplicate)
            VALUES (?, ?, ?, ?, ?, ?)""",
-        (source_id, candidate.kind, candidate.profile_id, json.dumps(candidate.payload),
-         candidate.evidence, int(duplicate)),
+        (
+            source_id,
+            candidate.kind,
+            candidate.profile_id,
+            json.dumps(candidate.payload),
+            candidate.evidence,
+            int(duplicate),
+        ),
     )
 
 
 # --- The Admin inbox ---
 
+
 async def get_inbox(db) -> dict:
     """Admin's School inbox: `active` sources (reading, failed, or with
     candidates still to decide) and recently `processed` ones, newest first."""
-    sources = [dict(r) for r in await (await db.execute(
-        "SELECT * FROM import_sources ORDER BY created_at DESC, id DESC"
-    )).fetchall()]
-    rows = await (await db.execute(
-        """SELECT c.*, p.name AS profile_name FROM import_candidates c
+    sources = [
+        dict(r)
+        for r in await (await db.execute("SELECT * FROM import_sources ORDER BY created_at DESC, id DESC")).fetchall()
+    ]
+    rows = await (
+        await db.execute(
+            """SELECT c.*, p.name AS profile_name FROM import_candidates c
            LEFT JOIN profiles p ON p.id = c.profile_id ORDER BY c.id"""
-    )).fetchall()
+        )
+    ).fetchall()
     by_source: dict[int, list[dict]] = {}
     for row in rows:
         item = dict(row)
@@ -526,11 +557,13 @@ async def get_source(db, source_id: int) -> dict | None:
     if row is None:
         return None
     source = dict(row)
-    rows = await (await db.execute(
-        """SELECT c.*, p.name AS profile_name FROM import_candidates c
+    rows = await (
+        await db.execute(
+            """SELECT c.*, p.name AS profile_name FROM import_candidates c
            LEFT JOIN profiles p ON p.id = c.profile_id WHERE c.source_id = ? ORDER BY c.id""",
-        (source_id,),
-    )).fetchall()
+            (source_id,),
+        )
+    ).fetchall()
     candidates = []
     for row in rows:
         item = dict(row)
@@ -564,8 +597,11 @@ def _decorate(source: dict, candidates: list[dict]):
     if source["status"] == "failed_permanently":
         source["error_message"] = ERROR_MESSAGES["gave_up"]
     # A school email can be fetched again; an upload's bytes are gone.
-    source["retryable"] = source["kind"] == "gmail" and source["status"] in ("failed", "failed_permanently") \
+    source["retryable"] = (
+        source["kind"] == "gmail"
+        and source["status"] in ("failed", "failed_permanently")
         and source["error_code"] != "retry"
+    )
     source["processed"] = source["status"] == "extracted" and not source["candidates"]
     source["removable"] = source["status"] != "pending" or _is_stuck(source)
     source["approvable"] = sum(
@@ -584,17 +620,19 @@ def _is_stuck(source: dict) -> bool:
         return True
     try:
         updated = datetime.fromisoformat(source["updated_at"]).replace(tzinfo=UTC)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return True
     return datetime.now(UTC) - updated > STUCK_AFTER
 
 
 async def _pending_candidate(db, candidate_id: int) -> dict:
-    row = await (await db.execute(
-        """SELECT c.*, s.kind AS source_kind FROM import_candidates c
+    row = await (
+        await db.execute(
+            """SELECT c.*, s.kind AS source_kind FROM import_candidates c
            JOIN import_sources s ON s.id = c.source_id WHERE c.id = ?""",
-        (candidate_id,),
-    )).fetchone()
+            (candidate_id,),
+        )
+    ).fetchone()
     if row is None or row["status"] != "pending":
         raise CandidateError("import-missing")
     return dict(row)
@@ -610,8 +648,12 @@ async def approve_candidate(db, candidate_id: int, form: dict) -> tuple[str, int
     # Validate first (reads only), then claim + insert in one transaction.
     if candidate["kind"] == "word_list":
         fields = await homework.word_list_fields(
-            db, form.get("profile_id"), form.get("title"), form.get("words"),
-            form.get("starts_on"), form.get("ends_on"),
+            db,
+            form.get("profile_id"),
+            form.get("title"),
+            form.get("words"),
+            form.get("starts_on"),
+            form.get("ends_on"),
         )
         table = "practice_word_lists"
         insert = """INSERT INTO practice_word_lists (profile_id, title, words, starts_on, ends_on, source)
@@ -619,15 +661,25 @@ async def approve_candidate(db, candidate_id: int, form: dict) -> tuple[str, int
         payload = {"title": fields[1], "words": fields[2].split("\n"), "starts_on": fields[3], "ends_on": fields[4]}
     elif candidate["kind"] == "homework":
         fields = await homework.homework_fields(
-            db, form.get("profile_id"), form.get("subject"), form.get("title"),
-            form.get("details"), form.get("due_date"), form.get("subject_key"),
+            db,
+            form.get("profile_id"),
+            form.get("subject"),
+            form.get("title"),
+            form.get("details"),
+            form.get("due_date"),
+            form.get("subject_key"),
         )
         table = "homework"
         # subject_key: the pick in the approve form, else the extracted subject mapped (spec 10.10).
         insert = """INSERT INTO homework (profile_id, subject, title, details, due_date, subject_key, source)
                     VALUES (?, ?, ?, ?, ?, ?, ?)"""
-        payload = {"subject": fields[1], "title": fields[2], "details": fields[3] or "", "due_date": fields[4],
-                   "subject_key": fields[5]}
+        payload = {
+            "subject": fields[1],
+            "title": fields[2],
+            "details": fields[3] or "",
+            "due_date": fields[4],
+            "subject_key": fields[5],
+        }
     else:
         raise CandidateError("import-event")
     try:
@@ -664,8 +716,9 @@ async def approve_term_dates(db, candidate_id: int, rows: list[dict]) -> int:
         raise CandidateError("import-missing")
     if not rows:
         raise CandidateError("import-term-none")
-    cleaned = [term_dates.clean_period(r.get("kind"), r.get("start_date"), r.get("end_date"), r.get("label"))
-               for r in rows]
+    cleaned = [
+        term_dates.clean_period(r.get("kind"), r.get("start_date"), r.get("end_date"), r.get("label")) for r in rows
+    ]
     try:
         # Claim first: the UPDATE takes SQLite's write lock, so the dedupe and
         # clash checks below see every committed period, and a second approve
@@ -683,7 +736,7 @@ async def approve_term_dates(db, candidate_id: int, rows: list[dict]) -> int:
             if not any(term_dates.same_period(period, other) for other in (*existing, *new)):
                 new.append(period)
         for i, period in enumerate(new):
-            other = term_dates.clash(period, [*existing, *new[:i], *new[i + 1:]])
+            other = term_dates.clash(period, [*existing, *new[:i], *new[i + 1 :]])
             if other:
                 raise term_dates.PeriodError("term-overlap", other)
         last_id = None
@@ -704,7 +757,10 @@ def form_from_payload(candidate: dict) -> dict:
     """The approve form's values for a stored candidate, as the Admin form
     would submit them."""
     payload = candidate["payload"]
-    form = {key: payload.get(key) or "" for key in ("title", "subject", "subject_key", "details", "due_date", "starts_on", "ends_on")}
+    form = {
+        key: payload.get(key) or ""
+        for key in ("title", "subject", "subject_key", "details", "due_date", "starts_on", "ends_on")
+    }
     form["words"] = "\n".join(payload.get("words") or [])
     form["profile_id"] = candidate["profile_id"] or ""
     return form
@@ -724,7 +780,7 @@ async def approve_all(db, source_id: int) -> int:
         try:
             await approve_candidate(db, candidate["id"], form_from_payload(candidate))
             approved += 1
-        except (homework.ValidationError, CandidateError):
+        except homework.ValidationError, CandidateError:
             continue
     return approved
 

@@ -86,85 +86,144 @@ EMAIL_PATTERN = re.compile(rf"[^{_NOT_IN_EMAIL}]+@[^{_NOT_IN_EMAIL}.]+(?:\.[^{_N
 ADMIN_ERRORS = {
     "task-missing": ("tasks", "That task no longer exists. It may have been deleted in Google Tasks."),
     "task-unknown-person": ("tasks", "That family member no longer exists."),
-    "task-no-list": ("tasks", "That family member has no Google list linked yet, so the task can't move to "
-                              "them. Link one under Google & Sync → Task Sync first."),
+    "task-no-list": (
+        "tasks",
+        "That family member has no Google list linked yet, so the task can't move to "
+        "them. Link one under Google & Sync → Task Sync first.",
+    ),
     "task-group": ("tasks", "Pick Any time, Morning, After school or Evening."),
-    "task-group-times": ("tasks", "Use times like 12:00, with After school starting after midnight and "
-                                  "before Evening. Nothing was changed."),
+    "task-group-times": (
+        "tasks",
+        "Use times like 12:00, with After school starting after midnight and before Evening. Nothing was changed.",
+    ),
     "homework-missing": ("homework", "That homework no longer exists. It may have just been deleted."),
     "words-missing": ("practice-words", "That word list no longer exists. It may have just been deleted."),
     "handwriting-style": ("practice-words", "Pick one of the handwriting styles."),
     "appearance": ("display", "Pick one of the appearance options."),
     "idle-mode": ("idle", "Pick what the wall does when idle, by day and at night."),
-    "idle-numbers": ("idle", "Use whole numbers: an idle delay of 1 to 120 minutes, dimming to 1 to 50% and "
-                             "5 to 300 seconds a photo. Nothing was changed."),
-    "idle-night": ("idle", "Give night both a start and an end, like 21:00 and 07:00 (different times), or "
-                           "leave both blank to follow Appearance. Nothing was changed."),
+    "idle-numbers": (
+        "idle",
+        "Use whole numbers: an idle delay of 1 to 120 minutes, dimming to 1 to 50% and "
+        "5 to 300 seconds a photo. Nothing was changed.",
+    ),
+    "idle-night": (
+        "idle",
+        "Give night both a start and an end, like 21:00 and 07:00 (different times), or "
+        "leave both blank to follow Appearance. Nothing was changed.",
+    ),
     "photos-signin": ("photos", "Signing in to the Photos account didn't finish. Try Choose photos again."),
     "photos-offline": ("photos", "Couldn't reach Google Photos just now. Try again in a minute."),
-    "photos-busy": ("photos", "Photos are being picked or copied right now. Wait for that to finish, or "
-                              "Cancel it first."),
+    "photos-busy": (
+        "photos",
+        "Photos are being picked or copied right now. Wait for that to finish, or Cancel it first.",
+    ),
     "widget-missing": ("widgets", "That widget no longer exists. Nothing was changed."),
-    "banner-lead": ("banners", f"The lead time must be a whole number of minutes from {banners.MIN_LEAD} to "
-                               f"{banners.MAX_LEAD}. Nothing was changed."),
-    "banner-quiet": ("banners", "Quiet hours need a start and an end like 21:00 and 07:00, and they can't be "
-                                "the same. Nothing was changed."),
+    "banner-lead": (
+        "banners",
+        f"The lead time must be a whole number of minutes from {banners.MIN_LEAD} to "
+        f"{banners.MAX_LEAD}. Nothing was changed.",
+    ),
+    "banner-quiet": (
+        "banners",
+        "Quiet hours need a start and an end like 21:00 and 07:00, and they can't be the same. Nothing was changed.",
+    ),
     "pin-invalid": ("pin", "A PIN must be 4 to 8 digits, numbers only. Your PIN hasn't changed."),
     "backup-failed": ("backups", "The backup didn't complete. Check the logs (docker compose logs)."),
-    "pin-weak": ("pin", "That PIN is too easy to guess: avoid one digit repeated (like 0000) or a "
-                        "straight run (like 1234 or 9876). Your PIN hasn't changed."),
+    "pin-weak": (
+        "pin",
+        "That PIN is too easy to guess: avoid one digit repeated (like 0000) or a "
+        "straight run (like 1234 or 9876). Your PIN hasn't changed.",
+    ),
     "pin-mismatch": ("pin", "The two PINs didn't match. Your PIN hasn't changed."),
     "profile-missing": ("family", "That family member no longer exists."),
     "profile-year": ("family", f"A year group can be at most {MAX_SCHOOL_YEAR} characters."),
-    "profile-email": ("family", "That email address doesn't look right. Use one address, like "
-                                "name@example.com, or leave it blank. Nothing was changed."),
+    "profile-email": (
+        "family",
+        "That email address doesn't look right. Use one address, like "
+        "name@example.com, or leave it blank. Nothing was changed.",
+    ),
     "avatar-kind": ("family", "Pick Initial, Emoji or Photo."),
-    "avatar-emoji": ("family", "Pick one emoji from the grid, or type exactly one emoji (no letters or "
-                               "spaces). Nothing was changed."),
+    "avatar-emoji": (
+        "family",
+        "Pick one emoji from the grid, or type exactly one emoji (no letters or spaces). Nothing was changed.",
+    ),
     "avatar-no-photo": ("family", "Upload a photo first, then pick Photo."),
     "avatar-empty": ("family", "Choose a photo to upload first."),
     "avatar-too-big": ("family", "That photo is too big: at most 8 MB and 60 megapixels. Try a smaller one."),
-    "avatar-bad-type": ("family", "That file isn't a photo Huddle can read. Use a JPEG, PNG, WebP, GIF or "
-                                  "HEIC (iPhone) photo."),
+    "avatar-bad-type": (
+        "family",
+        "That file isn't a photo Huddle can read. Use a JPEG, PNG, WebP, GIF or HEIC (iPhone) photo.",
+    ),
     "import-empty": ("classroom", "Add a screenshot, a PDF or some pasted text first."),
-    "import-too-big": ("classroom", "That's too big to read: at most 15 MB a file and 22 MB in all. "
-                                    "Try a smaller screenshot or fewer pages."),
+    "import-too-big": (
+        "classroom",
+        "That's too big to read: at most 15 MB a file and 22 MB in all. Try a smaller screenshot or fewer pages.",
+    ),
     "import-too-many": ("classroom", f"Add at most {extraction.MAX_ATTACHMENTS} files at a time."),
-    "import-bad-type": ("classroom", "That file isn't one the inbox can read. Use a screenshot or photo "
-                                     "(PNG, JPEG, WebP or HEIC) or a PDF."),
+    "import-bad-type": (
+        "classroom",
+        "That file isn't one the inbox can read. Use a screenshot or photo (PNG, JPEG, WebP or HEIC) or a PDF.",
+    ),
     "import-already": ("inbox", "That's already in the School inbox below."),
-    "import-missing": ("inbox", "That item is no longer waiting in the inbox. It may have just been "
-                                "approved or discarded."),
+    "import-missing": (
+        "inbox",
+        "That item is no longer waiting in the inbox. It may have just been approved or discarded.",
+    ),
     "import-event": ("inbox", "Pick the calendar school events go to (School email panel), then approve it."),
-    "import-calendar-scope": ("inbox", "Reconnect to allow adding to your calendar: Disconnect, then Connect "
-                                       "Google Account. The event is still waiting here."),
-    "import-calendar-offline": ("inbox", "Couldn't reach Google Calendar, so the event wasn't added. It's "
-                                         "still waiting here; try again in a minute."),
-    "import-calendar-missing": ("inbox", "The calendar for school events can't be found any more. Pick another "
-                                         "in the School email panel. The event is still waiting here."),
-    "import-calendar-failed": ("inbox", "Google Calendar didn't accept the event, so it wasn't added. It's "
-                                        "still waiting here."),
-    "school-senders": ("school-email", f"Each sender must be an email address or *@domain, one per line "
-                                       f"(at most {school_email.MAX_ENTRIES}). Nothing was changed."),
+    "import-calendar-scope": (
+        "inbox",
+        "Reconnect to allow adding to your calendar: Disconnect, then Connect "
+        "Google Account. The event is still waiting here.",
+    ),
+    "import-calendar-offline": (
+        "inbox",
+        "Couldn't reach Google Calendar, so the event wasn't added. It's still waiting here; try again in a minute.",
+    ),
+    "import-calendar-missing": (
+        "inbox",
+        "The calendar for school events can't be found any more. Pick another "
+        "in the School email panel. The event is still waiting here.",
+    ),
+    "import-calendar-failed": (
+        "inbox",
+        "Google Calendar didn't accept the event, so it wasn't added. It's still waiting here.",
+    ),
+    "school-senders": (
+        "school-email",
+        f"Each sender must be an email address or *@domain, one per line "
+        f"(at most {school_email.MAX_ENTRIES}). Nothing was changed.",
+    ),
     "school-schedule": ("school-email", "Pick one of the schedule options and a time like 18:00."),
     "school-calendar": ("school-email", "Pick a calendar this Google account can add events to."),
-    "calendar-family": ("calendar-options", "Pick a calendar that's shown on the wall and that this Google "
-                                            "account can add events to. Nothing was changed."),
+    "calendar-family": (
+        "calendar-options",
+        "Pick a calendar that's shown on the wall and that this Google account can add events to. Nothing was changed.",
+    ),
     "calendar-view": ("calendar-options", "Pick Month, Week or Agenda."),
     "import-busy": ("inbox", "That's still being read. Try again in a moment."),
-    "import-pdf-pages": ("classroom", f"That PDF has more than {extraction.MAX_PDF_PAGES} pages. "
-                                      "Try just the pages you need."),
+    "import-pdf-pages": (
+        "classroom",
+        f"That PDF has more than {extraction.MAX_PDF_PAGES} pages. Try just the pages you need.",
+    ),
     "import-term-none": ("inbox", "Tick at least one period to add, or Discard the term dates."),
     "term-kind": ("term-dates", "Pick what kind of period it is: term, half term, holiday, INSET day or closure."),
-    "term-dates": ("term-dates", "Enter a start and an end date, with the end on or after the start. "
-                                 "Nothing was saved."),
-    "term-length": ("term-dates", "That's too long for its kind (at most: term "
-                                  f"{term_dates.MAX_DAYS['term']} days, half term {term_dates.MAX_DAYS['half_term']}, "
-                                  f"holiday {term_dates.MAX_DAYS['holiday']}, INSET {term_dates.MAX_DAYS['inset']}, "
-                                  f"closure {term_dates.MAX_DAYS['closure']}). Check the dates; nothing was saved."),
+    "term-dates": (
+        "term-dates",
+        "Enter a start and an end date, with the end on or after the start. Nothing was saved.",
+    ),
+    "term-length": (
+        "term-dates",
+        "That's too long for its kind (at most: term "
+        f"{term_dates.MAX_DAYS['term']} days, half term {term_dates.MAX_DAYS['half_term']}, "
+        f"holiday {term_dates.MAX_DAYS['holiday']}, INSET {term_dates.MAX_DAYS['inset']}, "
+        f"closure {term_dates.MAX_DAYS['closure']}). Check the dates; nothing was saved.",
+    ),
     "term-label": ("term-dates", f"A name can be at most {term_dates.MAX_LABEL} characters. Nothing was saved."),
-    "term-overlap": ("term-dates", "That overlaps a period it can't: only half terms, INSET days and closures "
-                                   "may fall inside a term, and INSET days inside a holiday. Nothing was saved."),
+    "term-overlap": (
+        "term-dates",
+        "That overlaps a period it can't: only half terms, INSET days and closures "
+        "may fall inside a term, and INSET days inside a holiday. Nothing was saved.",
+    ),
     "term-missing": ("term-dates", "That period no longer exists. It may have just been deleted."),
 }
 
@@ -216,8 +275,9 @@ def _format_wait(seconds: int) -> str:
 
 def _lockout_message(failed_attempts: int, wait_seconds: int) -> str:
     if failed_attempts >= LONG_LOCKOUT_AFTER:
-        return (f"Admin is locked after {failed_attempts} wrong PINs in a row. "
-                f"Try again in {_format_wait(wait_seconds)}.")
+        return (
+            f"Admin is locked after {failed_attempts} wrong PINs in a row. Try again in {_format_wait(wait_seconds)}."
+        )
     return f"Too many attempts. Try again in {_format_wait(wait_seconds)}."
 
 
@@ -251,9 +311,14 @@ async def _login_page(
         mode = await appearance.current_mode(db)
     back_to = admin_tabs.login_return(next_url)
     return templates.TemplateResponse(
-        request, "admin/login.html",
-        {"error": error, "appearance": mode, "next_url": "" if back_to == "/admin" else back_to,
-         "section": section if section in admin_tabs.SECTIONS else ""},
+        request,
+        "admin/login.html",
+        {
+            "error": error,
+            "appearance": mode,
+            "next_url": "" if back_to == "/admin" else back_to,
+            "section": section if section in admin_tabs.SECTIONS else "",
+        },
         status_code=status_code,
     )
 
@@ -297,11 +362,13 @@ async def login_submit(request: Request, pin: str = Form(...), next: str = Form(
         await set_setting(
             db,
             "pin_lockout",
-            json.dumps({
-                "failed_attempts": failed_attempts,
-                "locked_until": (now + timedelta(seconds=wait)).isoformat(),
-                "last_failed_at": now.isoformat(),
-            }),
+            json.dumps(
+                {
+                    "failed_attempts": failed_attempts,
+                    "locked_until": (now + timedelta(seconds=wait)).isoformat(),
+                    "last_failed_at": now.isoformat(),
+                }
+            ),
         )
         await db.commit()
 
@@ -336,8 +403,12 @@ async def _google_lists(db, google_account: str | None, tasklists: bool = True) 
     """The Google account's calendars and task lists, for the Google & Sync
     tab (the School tab's calendar picker skips the task lists). Never raises on a Google
     error: google_offline / tasklists_error say what went wrong."""
-    found: dict = {"available_calendars": [], "available_tasklists": [], "tasklists_error": False,
-                   "google_offline": False}
+    found: dict = {
+        "available_calendars": [],
+        "available_tasklists": [],
+        "tasklists_error": False,
+        "google_offline": False,
+    }
     if not google_account:
         return found
     try:
@@ -413,9 +484,12 @@ async def _render_admin(
     }
     async with get_db() as db:
         context["appearance"] = await appearance.current_mode(db)
-        context["profiles"] = [avatars.attach(dict(r)) for r in await (await db.execute(
-            f"SELECT {avatars.PROFILE_COLUMNS} FROM profiles ORDER BY sort_order"
-        )).fetchall()]
+        context["profiles"] = [
+            avatars.attach(dict(r))
+            for r in await (
+                await db.execute(f"SELECT {avatars.PROFILE_COLUMNS} FROM profiles ORDER BY sort_order")
+            ).fetchall()
+        ]
         context["curated_emoji"] = avatars.CURATED_EMOJI
         context["avatar_kinds"] = avatars.KIND_LABELS
         google_account = await google_oauth.get_connected_account(db)
@@ -426,52 +500,58 @@ async def _render_admin(
         if tab == "family":
             today = await family_today(db)
             homework_items, finished_homework = await homework.get_admin_homework(db, today)
-            context.update({
-                "tasks": await task_service.get_admin_tasks(db),
-                "weekdays": recurrence.WEEKDAYS,
-                "task_groups": [(g, task_service.GROUP_LABELS[g]) for g in task_service.GROUPS],
-                "task_group_bounds": await task_service.get_group_boundaries(db),
-                "term_dates_missing": await term_dates.missing_years(db, today),
-                "homework_items": homework_items,
-                "finished_homework": finished_homework,
-                "homework_events": await homework.get_recent_homework_events(db),
-                "reading_history": await homework.get_reading_history(db, today),
-                "homework_form": homework_form,
-                "homework_error": homework_error,
-                "word_lists": await homework.get_admin_word_lists(db),
-                "words_form": words_form,
-                "words_error": words_error,
-                "handwriting_style": await homework.get_handwriting_style(db),
-                "handwriting_styles": homework.HANDWRITING_STYLES,
-            })
+            context.update(
+                {
+                    "tasks": await task_service.get_admin_tasks(db),
+                    "weekdays": recurrence.WEEKDAYS,
+                    "task_groups": [(g, task_service.GROUP_LABELS[g]) for g in task_service.GROUPS],
+                    "task_group_bounds": await task_service.get_group_boundaries(db),
+                    "term_dates_missing": await term_dates.missing_years(db, today),
+                    "homework_items": homework_items,
+                    "finished_homework": finished_homework,
+                    "homework_events": await homework.get_recent_homework_events(db),
+                    "reading_history": await homework.get_reading_history(db, today),
+                    "homework_form": homework_form,
+                    "homework_error": homework_error,
+                    "word_lists": await homework.get_admin_word_lists(db),
+                    "words_form": words_form,
+                    "words_error": words_error,
+                    "handwriting_style": await homework.get_handwriting_style(db),
+                    "handwriting_styles": homework.HANDWRITING_STYLES,
+                }
+            )
         elif tab == "school":
             lists = await _google_lists(db, google_account, tasklists=False)  # calendars only
-            context.update({
-                "inbox": await imports.get_inbox(db),
-                "inbox_form": inbox_form,
-                "inbox_error": inbox_error,
-                "school": await school_email.summary(db),
-                "event_setup": await _event_setup(db),
-                "writable_calendars": [c for c in lists["available_calendars"] if c.get("writable")],
-                **await _term_dates_context(db),
-                "term_form": term_form,
-            })
+            context.update(
+                {
+                    "inbox": await imports.get_inbox(db),
+                    "inbox_form": inbox_form,
+                    "inbox_error": inbox_error,
+                    "school": await school_email.summary(db),
+                    "event_setup": await _event_setup(db),
+                    "writable_calendars": [c for c in lists["available_calendars"] if c.get("writable")],
+                    **await _term_dates_context(db),
+                    "term_form": term_form,
+                }
+            )
         elif tab == "display":
-            context.update({
-                "weather_location": await weather.get_location(db),
-                "weather_error": weather_error,
-                "appearance_setting": await appearance.get_appearance(db),
-                "appearances": appearance.APPEARANCES,
-                "widget_settings": await layout.admin_widgets(db),
-                "school_day_today": await term_dates.is_school_day(db, await family_today(db)),
-                "banner_settings": await banners.get_settings(db),
-                "banner_triggers": banners.TRIGGERS,
-                "banner_lead_range": (banners.MIN_LEAD, banners.MAX_LEAD),
-                "idle_settings": await idle.get_settings(db),
-                "idle_modes": idle.MODES,
-                "idle_ranges": idle.RANGES,
-                **await photos_admin.panel_context(db),
-            })
+            context.update(
+                {
+                    "weather_location": await weather.get_location(db),
+                    "weather_error": weather_error,
+                    "appearance_setting": await appearance.get_appearance(db),
+                    "appearances": appearance.APPEARANCES,
+                    "widget_settings": await layout.admin_widgets(db),
+                    "school_day_today": await term_dates.is_school_day(db, await family_today(db)),
+                    "banner_settings": await banners.get_settings(db),
+                    "banner_triggers": banners.TRIGGERS,
+                    "banner_lead_range": (banners.MIN_LEAD, banners.MAX_LEAD),
+                    "idle_settings": await idle.get_settings(db),
+                    "idle_modes": idle.MODES,
+                    "idle_ranges": idle.RANGES,
+                    **await photos_admin.panel_context(db),
+                }
+            )
         elif tab == "google":
             context.update(await _google_lists(db, google_account))
             context["sync"] = await sync_status.summary(db)
@@ -482,17 +562,20 @@ async def _render_admin(
                 # Calendar options (spec 10.5): the Family calendar is picked from
                 # the shown calendars this account can write to.
                 selected_ids = set(context["selected_calendar_ids"])
-                context.update({
-                    "selected_calendars": selected,
-                    "family_choices": [c for c in context["available_calendars"]
-                                       if c.get("writable") and c["id"] in selected_ids],
-                    "family_calendar": await calendar_prefs.get_family_setting(db),
-                    "family_calendar_active": await calendar_prefs.get_family_calendar(db),
-                    "calendar_events_scope": await google_oauth.has_scope(db, google_oauth.CALENDAR_EVENTS_SCOPE),
-                    "calendar_default_view": await calendar_prefs.get_default_view(db),
-                    "calendar_views": calendar_prefs.VIEWS,
-                    "calendar_people": await calendar_prefs.get_people_links(db),
-                })
+                context.update(
+                    {
+                        "selected_calendars": selected,
+                        "family_choices": [
+                            c for c in context["available_calendars"] if c.get("writable") and c["id"] in selected_ids
+                        ],
+                        "family_calendar": await calendar_prefs.get_family_setting(db),
+                        "family_calendar_active": await calendar_prefs.get_family_calendar(db),
+                        "calendar_events_scope": await google_oauth.has_scope(db, google_oauth.CALENDAR_EVENTS_SCOPE),
+                        "calendar_default_view": await calendar_prefs.get_default_view(db),
+                        "calendar_views": calendar_prefs.VIEWS,
+                        "calendar_people": await calendar_prefs.get_people_links(db),
+                    }
+                )
         elif tab == "assistant":
             context["assistant_model"] = extraction.model_name()
         elif tab == "system":
@@ -502,6 +585,7 @@ async def _render_admin(
 
 
 # --- Family member management ---
+
 
 @router.post("/profiles", dependencies=[Depends(require_admin)])
 async def add_profile(name: str = Form(...), colour_hex: str = Form(...)):
@@ -546,10 +630,9 @@ async def save_profile_details(
 # Like every Admin write, these are also guarded by app/upload_guard.py
 # (session and size checked before the body is read; the photo gets 8 MB).
 
+
 @router.post("/profiles/{profile_id}/avatar", dependencies=[Depends(require_admin)])
-async def save_avatar(
-    profile_id: int, kind: str = Form(...), emoji: str = Form(""), custom_emoji: str = Form("")
-):
+async def save_avatar(profile_id: int, kind: str = Form(...), emoji: str = Form(""), custom_emoji: str = Form("")):
     """Initial, Emoji or Photo. A typed emoji wins over the grid's; Photo
     needs a photo uploaded first. The stored emoji and photo are kept when
     another kind is picked, so switching back is one tap."""
@@ -563,9 +646,9 @@ async def save_avatar(
         except avatars.AvatarError as exc:
             return _admin_error(exc.code)
     async with get_db() as db:
-        row = await (await db.execute(
-            "SELECT avatar_emoji, avatar_hash FROM profiles WHERE id = ?", (profile_id,)
-        )).fetchone()
+        row = await (
+            await db.execute("SELECT avatar_emoji, avatar_hash FROM profiles WHERE id = ?", (profile_id,))
+        ).fetchone()
         if row is None:
             return _admin_error("profile-missing")
         if kind == "photo" and not row["avatar_hash"]:
@@ -638,6 +721,7 @@ async def delete_profile(profile_id: int):
 # Tasks are added, renamed and deleted in Google Tasks; its API has no
 # recurrence, so which days a task repeats (and whose it is) is set here.
 
+
 @router.post("/tasks/{task_id}/edit", dependencies=[Depends(require_admin)])
 async def edit_task(
     task_id: int,
@@ -662,10 +746,12 @@ async def edit_task(
     except ValueError:
         return _admin_error("task-group")
     async with get_db() as db:
-        task = await (await db.execute(
-            "SELECT profile_id, is_recurring, time_of_day, due_on FROM tasks WHERE id = ? AND archived = 0",
-            (task_id,),
-        )).fetchone()
+        task = await (
+            await db.execute(
+                "SELECT profile_id, is_recurring, time_of_day, due_on FROM tasks WHERE id = ? AND archived = 0",
+                (task_id,),
+            )
+        ).fetchone()
         if task is None:
             return _admin_error("task-missing")
         if time_of_day is None:
@@ -685,9 +771,9 @@ async def edit_task(
                 (int(recurring), rule, group, due_on, task_id),
             )
         else:
-            target = await (await db.execute(
-                "SELECT google_tasklist_id FROM profiles WHERE id = ?", (profile_id,)
-            )).fetchone()
+            target = await (
+                await db.execute("SELECT google_tasklist_id FROM profiles WHERE id = ?", (profile_id,))
+            ).fetchone()
             if target is None:
                 return _admin_error("task-unknown-person")
             if not target["google_tasklist_id"]:
@@ -718,6 +804,7 @@ async def save_task_groups(after_school_start: str = Form(""), evening_start: st
 
 # --- Homework + practice words (not synced to Google) ---
 
+
 @router.post("/homework", dependencies=[Depends(require_admin)])
 async def add_homework(
     request: Request,
@@ -733,10 +820,21 @@ async def add_homework(
         try:
             fields = await homework.homework_fields(db, profile_id, subject, title, details, due_date, subject_key)
         except homework.ValidationError as exc:
-            return await _render_admin(request, tab="family", homework_error=str(exc), status_code=400, homework_form={
-                "id": homework_id, "profile_id": profile_id, "subject": subject, "subject_pick": subject_key,
-                "title": title, "details": details, "due_date": due_date,
-            })
+            return await _render_admin(
+                request,
+                tab="family",
+                homework_error=str(exc),
+                status_code=400,
+                homework_form={
+                    "id": homework_id,
+                    "profile_id": profile_id,
+                    "subject": subject,
+                    "subject_pick": subject_key,
+                    "title": title,
+                    "details": details,
+                    "due_date": due_date,
+                },
+            )
         await db.execute(
             "INSERT INTO homework (profile_id, subject, title, details, due_date, subject_key) VALUES (?, ?, ?, ?, ?, ?)",
             fields,
@@ -762,10 +860,21 @@ async def edit_homework(
         try:
             fields = await homework.homework_fields(db, profile_id, subject, title, details, due_date, subject_key)
         except homework.ValidationError as exc:
-            return await _render_admin(request, tab="family", homework_error=str(exc), status_code=400, homework_form={
-                "id": homework_id, "profile_id": profile_id, "subject": subject, "subject_pick": subject_key,
-                "title": title, "details": details, "due_date": due_date,
-            })
+            return await _render_admin(
+                request,
+                tab="family",
+                homework_error=str(exc),
+                status_code=400,
+                homework_form={
+                    "id": homework_id,
+                    "profile_id": profile_id,
+                    "subject": subject,
+                    "subject_pick": subject_key,
+                    "title": title,
+                    "details": details,
+                    "due_date": due_date,
+                },
+            )
         await db.execute(
             """UPDATE homework SET profile_id = ?, subject = ?, title = ?, details = ?, due_date = ?,
                    subject_key = ?, updated_at = datetime('now') WHERE id = ?""",
@@ -794,7 +903,6 @@ async def delete_homework(homework_id: int):
     return RedirectResponse(url=admin_url("homework"), status_code=303)
 
 
-
 @router.post("/practice-words", dependencies=[Depends(require_admin)])
 async def add_word_list(
     request: Request,
@@ -809,10 +917,20 @@ async def add_word_list(
         try:
             fields = await homework.word_list_fields(db, profile_id, title, words, starts_on, ends_on)
         except homework.ValidationError as exc:
-            return await _render_admin(request, tab="family", words_error=str(exc), status_code=400, words_form={
-                "id": list_id, "profile_id": profile_id, "title": title, "words": words,
-                "starts_on": starts_on, "ends_on": ends_on,
-            })
+            return await _render_admin(
+                request,
+                tab="family",
+                words_error=str(exc),
+                status_code=400,
+                words_form={
+                    "id": list_id,
+                    "profile_id": profile_id,
+                    "title": title,
+                    "words": words,
+                    "starts_on": starts_on,
+                    "ends_on": ends_on,
+                },
+            )
         await db.execute(
             "INSERT INTO practice_word_lists (profile_id, title, words, starts_on, ends_on) VALUES (?, ?, ?, ?, ?)",
             fields,
@@ -837,10 +955,20 @@ async def edit_word_list(
         try:
             fields = await homework.word_list_fields(db, profile_id, title, words, starts_on, ends_on)
         except homework.ValidationError as exc:
-            return await _render_admin(request, tab="family", words_error=str(exc), status_code=400, words_form={
-                "id": list_id, "profile_id": profile_id, "title": title, "words": words,
-                "starts_on": starts_on, "ends_on": ends_on,
-            })
+            return await _render_admin(
+                request,
+                tab="family",
+                words_error=str(exc),
+                status_code=400,
+                words_form={
+                    "id": list_id,
+                    "profile_id": profile_id,
+                    "title": title,
+                    "words": words,
+                    "starts_on": starts_on,
+                    "ends_on": ends_on,
+                },
+            )
         await db.execute(
             """UPDATE practice_word_lists SET profile_id = ?, title = ?, words = ?, starts_on = ?, ends_on = ?,
                    updated_at = datetime('now') WHERE id = ?""",
@@ -894,8 +1022,9 @@ async def inbox_add(request: Request):
     # Parsed here rather than via File()/Form() params, to cap the part count.
     try:
         async with request.form(max_files=extraction.MAX_ATTACHMENTS, max_fields=MAX_FORM_FIELDS) as form:
-            uploads = [f for f in form.getlist("files")
-                       if isinstance(f, StarletteUploadFile) and (f.filename or f.size)]
+            uploads = [
+                f for f in form.getlist("files") if isinstance(f, StarletteUploadFile) and (f.filename or f.size)
+            ]
             text = str(form.get("text") or "").strip()
             child_id = str(form.get("child_id") or "")
             blobs = []
@@ -924,7 +1053,7 @@ async def inbox_add(request: Request):
     doc = imports.SourceDocument(
         kind="upload" if attachments else "paste",
         source_ref=imports.content_ref(text, [data for _, data in blobs]),
-        text=text[:extraction.MAX_TEXT_CHARS],
+        text=text[: extraction.MAX_TEXT_CHARS],
         attachments=tuple(attachments),
         subject=", ".join(name for name, _ in blobs if name) or None,
         child_hint=child_hint,
@@ -955,16 +1084,19 @@ async def _source_fragment(request: Request, source_id: int, **extra) -> HTMLRes
     inbox_form / inbox_error / source_error after a failed action."""
     async with get_db() as db:
         source = await imports.get_source(db, source_id)
-        profiles = [dict(r) for r in await (await db.execute(
-            "SELECT id, name, colour_hex FROM profiles ORDER BY sort_order"
-        )).fetchall()]
+        profiles = [
+            dict(r)
+            for r in await (
+                await db.execute("SELECT id, name, colour_hex FROM profiles ORDER BY sort_order")
+            ).fetchall()
+        ]
         event_setup = await _event_setup(db)
     if source is None:
         return HTMLResponse("")
     return templates.TemplateResponse(
-        request, "admin/_inbox_source.html",
-        {"source": source, "profiles": profiles, "event_setup": event_setup, "term_kinds": term_dates.KINDS,
-         **extra},
+        request,
+        "admin/_inbox_source.html",
+        {"source": source, "profiles": profiles, "event_setup": event_setup, "term_kinds": term_dates.KINDS, **extra},
     )
 
 
@@ -983,9 +1115,9 @@ async def _candidate_source(candidate_id: int) -> int | None:
 async def _candidate_row(candidate_id: int) -> tuple[int | None, str | None]:
     """(source id, kind) of a candidate, or (None, None)."""
     async with get_db() as db:
-        row = await (await db.execute(
-            "SELECT source_id, kind FROM import_candidates WHERE id = ?", (candidate_id,)
-        )).fetchone()
+        row = await (
+            await db.execute("SELECT source_id, kind FROM import_candidates WHERE id = ?", (candidate_id,))
+        ).fetchone()
     return (row["source_id"], row["kind"]) if row else (None, None)
 
 
@@ -1014,9 +1146,19 @@ async def inbox_approve(
     notes: str = Form(""),
 ):
     form = {
-        "profile_id": profile_id, "title": title, "subject": subject, "subject_key": subject_key,
-        "details": details, "due_date": due_date, "words": words, "starts_on": starts_on, "ends_on": ends_on,
-        "date": event_date, "start_time": start_time, "end_time": end_time, "notes": notes,
+        "profile_id": profile_id,
+        "title": title,
+        "subject": subject,
+        "subject_key": subject_key,
+        "details": details,
+        "due_date": due_date,
+        "words": words,
+        "starts_on": starts_on,
+        "ends_on": ends_on,
+        "date": event_date,
+        "start_time": start_time,
+        "end_time": end_time,
+        "notes": notes,
     }
     source_id, kind = await _candidate_row(candidate_id)
     if kind == "term_dates":
@@ -1034,7 +1176,9 @@ async def inbox_approve(
             inbox_form = {"id": candidate_id, **form}
             if _is_htmx(request) and source_id is not None:
                 return await _source_fragment(request, source_id, inbox_form=inbox_form, inbox_error=str(exc))
-            return await _render_admin(request, tab="school", inbox_error=str(exc), inbox_form=inbox_form, status_code=400)
+            return await _render_admin(
+                request, tab="school", inbox_error=str(exc), inbox_form=inbox_form, status_code=400
+            )
     return await _inbox_done(request, source_id)
 
 
@@ -1113,6 +1257,7 @@ async def inbox_delete_source(request: Request, source_id: int):
 
 # --- Term dates (app/services/term_dates.py, spec 10.6) ---
 
+
 async def _term_dates_context(db) -> dict:
     """The School tab's Term dates panel: periods by school year, the years
     with none (the warning), and when the bank holidays were last updated."""
@@ -1144,22 +1289,35 @@ def _term_form(period_id: int | None, kind: str, start_date: str, end_date: str,
 
 @router.post("/term-dates", dependencies=[Depends(require_admin)])
 async def add_term_period(
-    request: Request, kind: str = Form(""), start_date: str = Form(""), end_date: str = Form(""),
+    request: Request,
+    kind: str = Form(""),
+    start_date: str = Form(""),
+    end_date: str = Form(""),
     label: str = Form(""),
 ):
     async with get_db() as db:
         try:
             await term_dates.add_period(db, kind, start_date, end_date, label)
         except term_dates.PeriodError as exc:
-            return await _render_admin(request, tab="school", error=exc.code, status_code=400,
-                                       error_message=_period_error(exc), term_form=_term_form(None, kind, start_date, end_date, label))
+            return await _render_admin(
+                request,
+                tab="school",
+                error=exc.code,
+                status_code=400,
+                error_message=_period_error(exc),
+                term_form=_term_form(None, kind, start_date, end_date, label),
+            )
     return RedirectResponse(url=admin_url("term-dates"), status_code=303)
 
 
 @router.post("/term-dates/{period_id}/edit", dependencies=[Depends(require_admin)])
 async def edit_term_period(
-    request: Request, period_id: int, kind: str = Form(""), start_date: str = Form(""),
-    end_date: str = Form(""), label: str = Form(""),
+    request: Request,
+    period_id: int,
+    kind: str = Form(""),
+    start_date: str = Form(""),
+    end_date: str = Form(""),
+    label: str = Form(""),
 ):
     async with get_db() as db:
         try:
@@ -1167,8 +1325,14 @@ async def edit_term_period(
         except term_dates.PeriodError as exc:
             if exc.code == "term-missing":
                 return _admin_error(exc.code)
-            return await _render_admin(request, tab="school", error=exc.code, status_code=400,
-                                       error_message=_period_error(exc), term_form=_term_form(period_id, kind, start_date, end_date, label))
+            return await _render_admin(
+                request,
+                tab="school",
+                error=exc.code,
+                status_code=400,
+                error_message=_period_error(exc),
+                term_form=_term_form(period_id, kind, start_date, end_date, label),
+            )
     return RedirectResponse(url=admin_url("term-dates"), status_code=303)
 
 
@@ -1180,6 +1344,7 @@ async def delete_term_period(period_id: int):
 
 
 # --- School email (app/school_email.py) ---
+
 
 @router.post("/school-email/schedule", dependencies=[Depends(require_admin)])
 async def save_school_email_schedule(mode: str = Form(""), time: str = Form("")):
@@ -1224,6 +1389,7 @@ async def save_school_events_calendar(calendar_id: str = Form("")):
 
 
 # --- Calendar options (spec 10.5): the Family calendar, default view, whose calendar ---
+
 
 @router.post("/google/family-calendar", dependencies=[Depends(require_admin)])
 async def save_family_calendar(calendar_id: str = Form("")):
@@ -1298,6 +1464,7 @@ async def school_email_status(request: Request):
 
 # --- Google Tasks sync ---
 
+
 @router.post("/google/shopping-list", dependencies=[Depends(require_admin)])
 async def save_shopping_tasklist(tasklist_id: str = Form(...)):
     async with get_db() as db:
@@ -1324,9 +1491,7 @@ async def save_profile_tasklists(request: Request):
             tasklist_id = form.get(f"tasklist_{profile['id']}") or None
             if tasklist_id == profile["google_tasklist_id"]:
                 continue
-            await db.execute(
-                "UPDATE profiles SET google_tasklist_id = ? WHERE id = ?", (tasklist_id, profile["id"])
-            )
+            await db.execute("UPDATE profiles SET google_tasklist_id = ? WHERE id = ?", (tasklist_id, profile["id"]))
             await task_sync.relink_profile(db, profile["id"])
         await db.commit()
     return RedirectResponse(url=admin_url("task-lists"), status_code=303)
@@ -1334,12 +1499,13 @@ async def save_profile_tasklists(request: Request):
 
 # --- Weather ---
 
+
 @router.post("/weather-location", dependencies=[Depends(require_admin)])
 async def save_weather_location(place: str = Form(...)):
     try:
         location = await weather.geocode(place)
     # A malformed geocoder response is treated like an outage, never a 500.
-    except (httpx.HTTPError, KeyError, IndexError, ValueError, TypeError, AttributeError):
+    except httpx.HTTPError, KeyError, IndexError, ValueError, TypeError, AttributeError:
         return RedirectResponse(url=admin_url("weather", weather_error="offline"), status_code=303)
     if not location:
         return RedirectResponse(url=admin_url("weather", weather_error="notfound"), status_code=303)
@@ -1349,6 +1515,7 @@ async def save_weather_location(place: str = Form(...)):
 
 
 # --- Display ---
+
 
 @router.post("/onscreen-keyboard", dependencies=[Depends(require_admin)])
 async def save_onscreen_keyboard(enabled: bool = Form(False)):
@@ -1404,6 +1571,7 @@ async def save_banners(request: Request):
 
 # --- PIN management ---
 
+
 async def _save_new_pin(new_pin: str, confirm_pin: str | None) -> tuple[str | None, int]:
     """Validates and stores a new PIN, clears the default-PIN flag and ends
     every session. Returns (error code or None, new session generation)."""
@@ -1451,8 +1619,7 @@ async def _new_pin_page(request: Request, error: str | None = None, status_code:
 
 # The forced "Choose a new PIN" screen: while the PIN is still the default,
 # require_admin sends every Admin page here. It needs only a session.
-@router.get(NEW_PIN_PATH.removeprefix("/admin"), response_class=HTMLResponse,
-            dependencies=[Depends(require_session)])
+@router.get(NEW_PIN_PATH.removeprefix("/admin"), response_class=HTMLResponse, dependencies=[Depends(require_session)])
 async def new_pin_page(request: Request):
     if not await _pin_is_default():
         return RedirectResponse(url="/admin", status_code=303)
@@ -1470,6 +1637,7 @@ async def new_pin_submit(request: Request, new_pin: str = Form(...), confirm_pin
 
 
 # --- Backups ---
+
 
 @router.post("/backups/run", dependencies=[Depends(require_admin)])
 async def run_backup_now():

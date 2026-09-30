@@ -40,7 +40,7 @@ DEFAULTS = {
     "mode": "slideshow",
     "night_mode": "dim",
     "delay_minutes": 5,
-    "night_start": "",   # blank: night follows Appearance (night mode)
+    "night_start": "",  # blank: night follows Appearance (night mode)
     "night_end": "",
     "dim_percent": 8,
     "interval_seconds": 20,
@@ -61,7 +61,7 @@ class SettingsError(ValueError):
 def _int_in_range(value, key: str) -> int | None:
     try:
         number = int(str(value).strip())
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
     low, high = RANGES[key]
     return number if low <= number <= high else None
@@ -80,8 +80,13 @@ def clean_settings(form: dict) -> dict:
         if start is None or end is None or start == end:
             raise SettingsError("idle-night")
         start_raw, end_raw = start.strftime("%H:%M"), end.strftime("%H:%M")
-    return {"mode": form["mode"], "night_mode": form["night_mode"], **numbers,
-            "night_start": start_raw, "night_end": end_raw}
+    return {
+        "mode": form["mode"],
+        "night_mode": form["night_mode"],
+        **numbers,
+        "night_start": start_raw,
+        "night_end": end_raw,
+    }
 
 
 async def get_settings(db) -> dict:
@@ -121,7 +126,7 @@ async def next_event(db, now: datetime) -> dict | None:
             continue
         try:
             start = datetime.fromisoformat(event["sort_key"])
-        except (KeyError, TypeError, ValueError):
+        except KeyError, TypeError, ValueError:
             continue
         if start.tzinfo is not None and start >= now:
             upcoming.append((start, event))

@@ -27,12 +27,13 @@ from app.services import calendar_add, calendar_prefs, people
 
 IDLE_SECONDS = 180
 VIEWS = ("month", "week", "agenda", "day")
-ADD_DAYS = 60                  # how far ahead the add form's day list reaches
-ADD_TIMES = (6, 23)            # the add form's time list: 06:00 .. 22:45
-ADD_STEP = 15                  # minutes
+ADD_DAYS = 60  # how far ahead the add form's day list reaches
+ADD_TIMES = (6, 23)  # the add form's time list: 06:00 .. 22:45
+ADD_STEP = 15  # minutes
 
 
 # --- Ownership (the person filter) --------------------------------------------------------
+
 
 def event_owners(event: dict, links: dict, profiles: list[dict]) -> set[int] | None:
     """The profile ids an event belongs to, or None for everyone."""
@@ -52,10 +53,12 @@ def person_filter(person_id: int | None, links: dict, profiles: list[dict]):
     def keep(event: dict) -> bool:
         owners = event_owners(event, links, profiles)
         return owners is None or person_id in owners
+
     return keep
 
 
 # --- State and URLs -----------------------------------------------------------------------
+
 
 def url(state: dict) -> str:
     """The route that renders `state`: {"view", and per view "year"/"month",
@@ -88,7 +91,7 @@ def parse_date(value) -> date | None:
 def parse_person(value, profiles: list[dict]) -> int | None:
     try:
         pid = int(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
     return pid if any(p["id"] == pid for p in profiles) else None
 
@@ -107,16 +110,20 @@ def _time_choices() -> list[str]:
 
 
 async def _profiles(db) -> list[dict]:
-    return [avatars.attach(dict(r)) for r in await (await db.execute(
-        f"SELECT id, name, colour_hex, {avatars.COLUMNS} FROM profiles ORDER BY sort_order"
-    )).fetchall()]
+    return [
+        avatars.attach(dict(r))
+        for r in await (
+            await db.execute(f"SELECT id, name, colour_hex, {avatars.COLUMNS} FROM profiles ORDER BY sort_order")
+        ).fetchall()
+    ]
 
 
 async def can_add(db) -> bool:
     """Whether the wall shows its "+": connected, a Family calendar chosen
     (and still shown), and the calendar.events scope granted."""
-    return (await calendar_prefs.get_family_calendar(db) is not None
-            and await google_oauth.has_scope(db, google_oauth.CALENDAR_EVENTS_SCOPE))
+    return await calendar_prefs.get_family_calendar(db) is not None and await google_oauth.has_scope(
+        db, google_oauth.CALENDAR_EVENTS_SCOPE
+    )
 
 
 async def widget_context(
@@ -143,8 +150,13 @@ async def widget_context(
     person = person if any(p["id"] == person for p in profiles) else None
     keep = person_filter(person, await calendar_prefs.get_people_links(db), profiles)
 
-    context: dict = {"view": view, "calendar_month": None, "calendar_week": None, "calendar_agenda": None,
-                     "day_events": None}
+    context: dict = {
+        "view": view,
+        "calendar_month": None,
+        "calendar_week": None,
+        "calendar_agenda": None,
+        "day_events": None,
+    }
     state: dict = {"view": view, "person": person}
     if view == "week":
         if start is not None:
@@ -164,15 +176,17 @@ async def widget_context(
         loaded = await google_calendar.get_day_events(db, target, keep)
         back = back if back in ("month", "week", "agenda") else "month"
         state.update(date=target.isoformat(), back=back)
-        context.update({
-            "day_date": target.isoformat(),
-            "day_year": target.year,
-            "day_month": target.month,
-            "day_label": target.strftime("%A, %d %B").replace(" 0", " "),  # no leading zero, cross-platform
-            "day_events": loaded["events"] if loaded else None,
-            "day_offline": bool(loaded and loaded["offline"]),
-            "day_updated": loaded["updated_label"] if loaded else None,
-        })
+        context.update(
+            {
+                "day_date": target.isoformat(),
+                "day_year": target.year,
+                "day_month": target.month,
+                "day_label": target.strftime("%A, %d %B").replace(" 0", " "),  # no leading zero, cross-platform
+                "day_events": loaded["events"] if loaded else None,
+                "day_offline": bool(loaded and loaded["offline"]),
+                "day_updated": loaded["updated_label"] if loaded else None,
+            }
+        )
         # Back to the view the day was opened from, around that day.
         back_state = {"view": back, "person": person}
         if back == "month":
@@ -208,8 +222,9 @@ async def widget_context(
         "person": person,
         "person_urls": person_urls,
         # A day's link is "/widgets/calendar/day/<date>" + this.
-        "day_suffix": url({"view": "day", "date": "", "back": view if view != "day" else back,
-                           "person": person}).removeprefix("/widgets/calendar/day/"),
+        "day_suffix": url(
+            {"view": "day", "date": "", "back": view if view != "day" else back, "person": person}
+        ).removeprefix("/widgets/calendar/day/"),
         "idle_seconds": IDLE_SECONDS,
         "can_add": adding,
         "family": family,

@@ -95,9 +95,7 @@ async def test_locked_out_even_with_the_correct_pin(client, db):
 async def test_legacy_naive_lockout_timestamp_is_still_honoured(client, db):
     # Lockouts stored before timestamps became tz-aware are naive UTC.
     until = (datetime.now(timezone.utc) + timedelta(seconds=60)).replace(tzinfo=None)
-    await database.set_setting(
-        db, "pin_lockout", json.dumps({"failed_attempts": 3, "locked_until": until.isoformat()})
-    )
+    await database.set_setting(db, "pin_lockout", json.dumps({"failed_attempts": 3, "locked_until": until.isoformat()}))
     await db.commit()
 
     assert (await _login(client, DEFAULT_PIN)).status_code == 429
@@ -219,6 +217,7 @@ async def test_token_signed_with_another_key_is_rejected(tmp_path, monkeypatch):
 
 # --- Forced change away from the default PIN ---
 
+
 async def _pin_is_default(db) -> str | None:
     return await database.get_setting(db, "pin_is_default")
 
@@ -270,8 +269,10 @@ async def test_default_pin_login_is_sent_to_choose_a_new_pin(client, db, path):
 
 async def test_new_pin_screen_needs_a_session(client, db):
     await _set_default_flag(db, "1")
-    for resp in (await client.get("/admin/new-pin"),
-                 await client.post("/admin/new-pin", data={"new_pin": "2580", "confirm_pin": "2580"})):
+    for resp in (
+        await client.get("/admin/new-pin"),
+        await client.post("/admin/new-pin", data={"new_pin": "2580", "confirm_pin": "2580"}),
+    ):
         assert resp.headers["location"] == "/admin/login"
     assert await _pin_is_default(db) == "1"
 
@@ -324,6 +325,7 @@ async def test_choosing_a_new_pin_clears_the_flag_and_opens_admin(client, db):
 
 # --- Logout and PIN change end sessions ---
 
+
 async def test_logout_kills_copies_of_the_cookie(client):
     await _login(client, DEFAULT_PIN)
     copied = client.cookies[admin.SESSION_COOKIE]
@@ -359,6 +361,7 @@ async def test_pin_change_ends_every_other_session(client):
 
 # --- Login race and long lockout ---
 
+
 async def test_parallel_wrong_guesses_hit_the_lockout(client, db):
     resps = await asyncio.gather(*(_login(client, f"{n:04d}") for n in range(2000, 2040)))
 
@@ -392,6 +395,7 @@ async def test_login_page_is_quiet_without_a_lockout(client):
 
 # --- Cookie flags ---
 
+
 async def test_session_cookie_flags_over_plain_http(client):
     set_cookie = (await _login(client, DEFAULT_PIN)).headers["set-cookie"].lower()
 
@@ -410,11 +414,20 @@ async def test_session_cookie_is_secure_behind_an_https_proxy(client):
 
 # --- Failures decay after a quiet day ---
 
+
 async def _set_failures(db, count: int, last_failed_ago: timedelta, key: str = "last_failed_at"):
     at = datetime.now(timezone.utc) - last_failed_ago
-    await database.set_setting(db, "pin_lockout", json.dumps({
-        "failed_attempts": count, "locked_until": at.isoformat(), key: at.isoformat(),
-    }))
+    await database.set_setting(
+        db,
+        "pin_lockout",
+        json.dumps(
+            {
+                "failed_attempts": count,
+                "locked_until": at.isoformat(),
+                key: at.isoformat(),
+            }
+        ),
+    )
     await db.commit()
 
 
@@ -451,6 +464,7 @@ async def test_parallel_guesses_after_decay_are_still_serialised(client, db):
 
 # --- Corrupt hash and forgotten-PIN recovery ---
 
+
 async def test_corrupt_pin_hash_does_not_crash_startup_or_login(client, db):
     assert not security.verify_pin(DEFAULT_PIN, "not-hex$abcd")
     await database.set_setting(db, "pin_hash", "zz$nothex")
@@ -483,10 +497,16 @@ async def test_reset_pin_command(client, db, capsys):
     await _login(client, "2580")
     old_cookie = client.cookies[admin.SESSION_COOKIE]
     await _set_failures(db, 12, timedelta(minutes=1))
-    await database.set_setting(db, "pin_lockout", json.dumps({
-        "failed_attempts": 12,
-        "locked_until": (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat(),
-    }))
+    await database.set_setting(
+        db,
+        "pin_lockout",
+        json.dumps(
+            {
+                "failed_attempts": 12,
+                "locked_until": (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat(),
+            }
+        ),
+    )
     await db.commit()
 
     # main() runs its own event loop, so call it from a worker thread.

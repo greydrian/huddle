@@ -34,7 +34,9 @@ async def _centre(locator):
 
 
 def _layout(server):
-    return {row[0]: row[1:] for row in server.query("SELECT widget_id, grid_x, grid_y, grid_w, grid_h FROM layout_state")}
+    return {
+        row[0]: row[1:] for row in server.query("SELECT widget_id, grid_x, grid_y, grid_w, grid_h FROM layout_state")
+    }
 
 
 async def _wait_for(predicate, timeout=5.0):
@@ -126,8 +128,10 @@ async def test_quick_add_a_task_by_touch(start_server, page, keyboard):
     # Riley has no Google list: marked as on this display only.
     local = page.locator("#widget-tasks section[data-group=evening] .task-row", has_text="Bath").locator(".task-local")
     assert await local.get_attribute("aria-label") == "On this display only"
-    assert server.query("SELECT p.name, t.time_of_day, t.is_recurring FROM tasks t "
-                        "JOIN profiles p ON p.id = t.profile_id WHERE t.title = 'Bath'") == [("Riley", "evening", 0)]
+    assert server.query(
+        "SELECT p.name, t.time_of_day, t.is_recurring FROM tasks t "
+        "JOIN profiles p ON p.id = t.profile_id WHERE t.title = 'Bath'"
+    ) == [("Riley", "evening", 0)]
     assert _layout(server) == before  # the taps moved no widget
 
 

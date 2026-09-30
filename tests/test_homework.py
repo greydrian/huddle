@@ -65,6 +65,7 @@ async def _layout(db):
 
 # --- Migrations / layout ---
 
+
 async def test_init_db_is_idempotent(db):
     await database.init_db()
     await database.init_db()
@@ -83,7 +84,9 @@ async def test_fresh_install_gets_default_layout(db):
 async def test_existing_layout_is_kept_and_new_widget_added_below(db):
     # An existing install: customised positions, no practice_words row yet.
     await db.execute("DELETE FROM layout_state WHERE widget_id = 'practice_words'")
-    await db.execute("UPDATE layout_state SET grid_x = 0, grid_y = 14, grid_w = 3, grid_h = 5 WHERE widget_id = 'homework'")
+    await db.execute(
+        "UPDATE layout_state SET grid_x = 0, grid_y = 14, grid_w = 3, grid_h = 5 WHERE widget_id = 'homework'"
+    )
     await db.execute("UPDATE layout_state SET grid_y = 2 WHERE widget_id = 'calendar'")
     await db.execute("UPDATE layout_state SET is_visible = 0 WHERE widget_id = 'photos'")
     await db.commit()
@@ -101,6 +104,7 @@ async def test_existing_layout_is_kept_and_new_widget_added_below(db):
 
 
 # --- Homework widget logic ---
+
 
 def test_due_labels():
     assert homework.due_label(None, TODAY) is None
@@ -130,7 +134,7 @@ async def test_widget_groups_sorts_and_flags(db, client, today):
     html = (await client.get("/widgets/homework")).text
     assert 'id="widget-homework"' in html
     assert "hw-item overdue" in html and "Due tomorrow" in html
-    assert 'class="hw-subject subj-other"' in html and 'Maths</span>' in html  # raw insert: no subject_key
+    assert 'class="hw-subject subj-other"' in html and "Maths</span>" in html  # raw insert: no subject_key
 
 
 async def test_done_items_drop_off_after_their_day(db, today):
@@ -147,7 +151,11 @@ async def test_done_items_drop_off_after_their_day(db, today):
     titles = {h["title"] for h in groups[0]["homework"]}
 
     assert titles == {
-        "Due today, done", "Due later, done early", "Overdue, done today", "Undated, done today", "Still overdue",
+        "Due today, done",
+        "Due later, done early",
+        "Overdue, done today",
+        "Undated, done today",
+        "Still overdue",
     }
     done_overdue = next(h for h in groups[0]["homework"] if h["title"] == "Overdue, done today")
     assert not done_overdue["overdue"] and done_overdue["label"] is None
@@ -185,6 +193,7 @@ async def test_empty_states(db, client):
 
 
 # --- Practice words ---
+
 
 def test_normalise_words():
     assert homework.normalise_words(" cat, Hat\n\nhat ,CAT\n  big   dog \n,,") == ["cat", "Hat", "big dog"]
@@ -250,22 +259,42 @@ async def test_handwriting_style_setting(db, admin_client):
 
 # --- Admin ---
 
+
 async def test_admin_homework_crud(db, admin_client):
     riley, jamie = (await _profiles(db))[2:4]
-    resp = await admin_client.post("/admin/homework", data={
-        "profile_id": riley, "subject": " Maths ", "title": " Times tables ", "details": "", "due_date": "2026-03-12",
-    })
+    resp = await admin_client.post(
+        "/admin/homework",
+        data={
+            "profile_id": riley,
+            "subject": " Maths ",
+            "title": " Times tables ",
+            "details": "",
+            "due_date": "2026-03-12",
+        },
+    )
     assert resp.status_code == 303
     row = await (await db.execute("SELECT * FROM homework")).fetchone()
     assert (row["profile_id"], row["subject"], row["title"], row["details"], row["due_date"], row["source"]) == (
-        riley, "Maths", "Times tables", None, "2026-03-12", "manual",
+        riley,
+        "Maths",
+        "Times tables",
+        None,
+        "2026-03-12",
+        "manual",
     )
 
     assert f'action="/admin/homework/{row["id"]}/edit"' in (await admin_client.get("/admin")).text
 
-    resp = await admin_client.post(f"/admin/homework/{row['id']}/edit", data={
-        "profile_id": jamie, "subject": "", "title": "Reading", "details": "Chapter 2", "due_date": "",
-    })
+    resp = await admin_client.post(
+        f"/admin/homework/{row['id']}/edit",
+        data={
+            "profile_id": jamie,
+            "subject": "",
+            "title": "Reading",
+            "details": "Chapter 2",
+            "due_date": "",
+        },
+    )
     assert resp.status_code == 303
     row = await (await db.execute("SELECT * FROM homework")).fetchone()
     assert (row["profile_id"], row["title"], row["details"], row["due_date"]) == (jamie, "Reading", "Chapter 2", None)
@@ -276,10 +305,16 @@ async def test_admin_homework_crud(db, admin_client):
 
 async def test_admin_word_list_crud(db, admin_client, today):
     riley = (await _profiles(db))[2]
-    resp = await admin_client.post("/admin/practice-words", data={
-        "profile_id": riley, "title": "Week 3 handwriting", "words": "light, night\nLIGHT\n right ",
-        "starts_on": "", "ends_on": "2026-03-15",
-    })
+    resp = await admin_client.post(
+        "/admin/practice-words",
+        data={
+            "profile_id": riley,
+            "title": "Week 3 handwriting",
+            "words": "light, night\nLIGHT\n right ",
+            "starts_on": "",
+            "ends_on": "2026-03-15",
+        },
+    )
     assert resp.status_code == 303
     row = await (await db.execute("SELECT * FROM practice_word_lists")).fetchone()
     assert row["words"] == "light\nnight\nright" and row["ends_on"] == "2026-03-15" and row["source"] == "manual"
@@ -288,9 +323,16 @@ async def test_admin_word_list_crud(db, admin_client, today):
     admin_html = (await admin_client.get("/admin")).text
     assert "3 words" in admin_html
 
-    await admin_client.post(f"/admin/practice-words/{row['id']}/edit", data={
-        "profile_id": riley, "title": "Week 4", "words": "sight", "starts_on": "2026-03-09", "ends_on": "",
-    })
+    await admin_client.post(
+        f"/admin/practice-words/{row['id']}/edit",
+        data={
+            "profile_id": riley,
+            "title": "Week 4",
+            "words": "sight",
+            "starts_on": "2026-03-09",
+            "ends_on": "",
+        },
+    )
     row = await (await db.execute("SELECT * FROM practice_word_lists")).fetchone()
     assert (row["title"], row["words"], row["starts_on"], row["ends_on"]) == ("Week 4", "sight", "2026-03-09", None)
 
@@ -306,13 +348,16 @@ async def test_admin_word_list_crud(db, admin_client, today):
     assert await _count(db, "practice_log") == 0
 
 
-@pytest.mark.parametrize("data, message", [
-    ({"title": "   "}, "Title can&#39;t be blank"),
-    ({"profile_id": "9999"}, "no longer exists"),
-    ({"profile_id": "abc"}, "Choose a family member"),
-    ({"due_date": "31/02/2026"}, "Due date isn&#39;t a valid date"),
-    ({"title": "x" * 500}, "Title is too long"),
-])
+@pytest.mark.parametrize(
+    "data, message",
+    [
+        ({"title": "   "}, "Title can&#39;t be blank"),
+        ({"profile_id": "9999"}, "no longer exists"),
+        ({"profile_id": "abc"}, "Choose a family member"),
+        ({"due_date": "31/02/2026"}, "Due date isn&#39;t a valid date"),
+        ({"title": "x" * 500}, "Title is too long"),
+    ],
+)
 async def test_admin_homework_validation(db, admin_client, data, message):
     riley = (await _profiles(db))[2]
     form = {"profile_id": riley, "title": "Read", **data}
@@ -322,13 +367,16 @@ async def test_admin_homework_validation(db, admin_client, data, message):
     assert await _count(db, "homework") == 0
 
 
-@pytest.mark.parametrize("data, message", [
-    ({"title": ""}, "Title can&#39;t be blank"),
-    ({"words": " , \n "}, "Add at least one word"),
-    ({"profile_id": "9999"}, "no longer exists"),
-    ({"starts_on": "next week"}, "Start date isn&#39;t a valid date"),
-    ({"starts_on": "2026-03-10", "ends_on": "2026-03-01"}, "end date is before the start date"),
-])
+@pytest.mark.parametrize(
+    "data, message",
+    [
+        ({"title": ""}, "Title can&#39;t be blank"),
+        ({"words": " , \n "}, "Add at least one word"),
+        ({"profile_id": "9999"}, "no longer exists"),
+        ({"starts_on": "next week"}, "Start date isn&#39;t a valid date"),
+        ({"starts_on": "2026-03-10", "ends_on": "2026-03-01"}, "end date is before the start date"),
+    ],
+)
 async def test_admin_word_list_validation(db, admin_client, data, message):
     riley = (await _profiles(db))[2]
     form = {"profile_id": riley, "title": "Week 3", "words": "cat", **data}
@@ -343,33 +391,50 @@ async def test_admin_edit_validation_and_missing_rows(db, admin_client):
     hw_id = await _add_homework(db, riley, "Keep me")
     list_id = await _add_list(db, riley, "Keep me too")
 
-    assert (await admin_client.post(f"/admin/homework/{hw_id}/edit", data={"profile_id": riley, "title": ""})).status_code == 400
-    assert (await admin_client.post(f"/admin/practice-words/{list_id}/edit", data={
-        "profile_id": riley, "title": "X", "words": "",
-    })).status_code == 400
+    assert (
+        await admin_client.post(f"/admin/homework/{hw_id}/edit", data={"profile_id": riley, "title": ""})
+    ).status_code == 400
+    assert (
+        await admin_client.post(
+            f"/admin/practice-words/{list_id}/edit",
+            data={
+                "profile_id": riley,
+                "title": "X",
+                "words": "",
+            },
+        )
+    ).status_code == 400
     # A row deleted meanwhile (e.g. in another tab) sends the parent back with a message.
     gone = await admin_client.post("/admin/homework/9999/edit", data={"profile_id": riley, "title": "X"})
     assert (gone.status_code, gone.headers["location"]) == (303, "/admin?tab=family&error=homework-missing#homework")
     assert "That homework no longer exists." in (await admin_client.get(gone.headers["location"])).text
-    gone = await admin_client.post("/admin/practice-words/9999/edit", data={
-        "profile_id": riley, "title": "X", "words": "a",
-    })
+    gone = await admin_client.post(
+        "/admin/practice-words/9999/edit",
+        data={
+            "profile_id": riley,
+            "title": "X",
+            "words": "a",
+        },
+    )
     assert gone.headers["location"] == "/admin?tab=family&error=words-missing#practice-words"
     assert (await (await db.execute("SELECT title FROM homework")).fetchone())[0] == "Keep me"
     assert (await (await db.execute("SELECT title FROM practice_word_lists")).fetchone())[0] == "Keep me too"
 
 
-@pytest.mark.parametrize("path", [
-    "/admin/homework",
-    "/admin/homework/1/edit",
-    "/admin/homework/1/archive",
-    "/admin/homework/1/delete",
-    "/admin/practice-words",
-    "/admin/practice-words/1/edit",
-    "/admin/practice-words/1/archive",
-    "/admin/practice-words/1/delete",
-    "/admin/handwriting-style",
-])
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/admin/homework",
+        "/admin/homework/1/edit",
+        "/admin/homework/1/archive",
+        "/admin/homework/1/delete",
+        "/admin/practice-words",
+        "/admin/practice-words/1/edit",
+        "/admin/practice-words/1/archive",
+        "/admin/practice-words/1/delete",
+        "/admin/handwriting-style",
+    ],
+)
 async def test_admin_mutations_require_auth(db, client, path):
     riley = (await _profiles(db))[2]
     await _add_homework(db, riley, "Keep me")
@@ -395,6 +460,7 @@ async def test_user_text_is_escaped(db, admin_client, today):
 
 # --- Dashboard ---
 
+
 async def test_dashboard_renders_both_widgets(db, client, today):
     riley = (await _profiles(db))[2]
     await _add_homework(db, riley, "Spellings", "2026-03-11")
@@ -418,7 +484,9 @@ async def test_admin_keyboard_markers(db, admin_client):
     html = (await admin_client.get("/admin")).text
     assert "/static/js/keyboard.js" in html
     assert 'autocapitalize="off" spellcheck="false" data-osk="text"' in html  # the words textarea
-    assert "placeholder=\"What's the homework?\" required aria-label=\"Homework\" autocomplete=\"off\" data-osk=\"text\"" in html
+    assert (
+        'placeholder="What\'s the homework?" required aria-label="Homework" autocomplete="off" data-osk="text"' in html
+    )
 
 
 def test_fonts_are_vendored():
@@ -431,6 +499,7 @@ def test_fonts_are_vendored():
 
 
 # --- Review follow-ups ---
+
 
 async def test_hidden_widget_is_not_re_added(db, client):
     await db.execute("UPDATE layout_state SET is_visible = 0 WHERE widget_id IN ('practice_words', 'homework')")
@@ -509,27 +578,49 @@ async def test_admin_archives_and_tucks_away_finished_homework(db, admin_client,
 async def test_validation_error_keeps_what_was_typed(db, admin_client):
     riley, jamie = (await _profiles(db))[2:4]
     words = "\n".join(f"word{i}" for i in range(40))
-    resp = await admin_client.post("/admin/practice-words", data={
-        "profile_id": jamie, "title": "Week 5", "words": words, "starts_on": "2026-03-10", "ends_on": "2026-03-01",
-    })
+    resp = await admin_client.post(
+        "/admin/practice-words",
+        data={
+            "profile_id": jamie,
+            "title": "Week 5",
+            "words": words,
+            "starts_on": "2026-03-10",
+            "ends_on": "2026-03-01",
+        },
+    )
     assert resp.status_code == 400
-    assert f'required placeholder="Words — one per line, or separated by commas" aria-label="Words" autocapitalize="off" spellcheck="false">{words}</textarea>' in resp.text
+    assert (
+        f'required placeholder="Words — one per line, or separated by commas" aria-label="Words" autocapitalize="off" spellcheck="false">{words}</textarea>'
+        in resp.text
+    )
     assert 'value="Week 5"' in resp.text and 'value="2026-03-10"' in resp.text and 'value="2026-03-01"' in resp.text
     add_form = resp.text.split('action="/admin/practice-words">')[1].split("</form>")[0]
     assert f'<option value="{jamie}" selected>' in add_form
 
-    resp = await admin_client.post("/admin/homework", data={
-        "profile_id": riley, "subject": "Maths", "title": "", "details": "p12 <b>", "due_date": "2026-03-12",
-    })
+    resp = await admin_client.post(
+        "/admin/homework",
+        data={
+            "profile_id": riley,
+            "subject": "Maths",
+            "title": "",
+            "details": "p12 <b>",
+            "due_date": "2026-03-12",
+        },
+    )
     assert resp.status_code == 400
     add_form = resp.text.split('action="/admin/homework">')[1].split("</form>")[0]
     assert 'value="Maths"' in add_form and 'value="p12 &lt;b&gt;"' in add_form and 'value="2026-03-12"' in add_form
 
     # A failed edit reopens that row's form with the submitted values.
     hw_id = await _add_homework(db, riley, "Original")
-    resp = await admin_client.post(f"/admin/homework/{hw_id}/edit", data={
-        "profile_id": riley, "title": "Renamed", "due_date": "not a date",
-    })
+    resp = await admin_client.post(
+        f"/admin/homework/{hw_id}/edit",
+        data={
+            "profile_id": riley,
+            "title": "Renamed",
+            "due_date": "not a date",
+        },
+    )
     assert resp.status_code == 400
     edit = resp.text.split(f'action="/admin/homework/{hw_id}/edit"')[0].rsplit("<details", 1)[1]
     assert edit.startswith(' class="task-edit" open>')

@@ -43,9 +43,9 @@ async def test_new_day_resets_recurring_archives_done_one_offs_and_queues_sync(d
     assert await tasks.run_daily_reset_if_due(db) is True
 
     state = await _state(db)
-    assert state["Brush teeth"] == (0, 0)           # recurring: unticked, still visible
-    assert state["Return library book"] == (1, 1)   # finished one-off: archived
-    assert state["Tidy room"] == (0, 0)             # unfinished one-off: untouched
+    assert state["Brush teeth"] == (0, 0)  # recurring: unticked, still visible
+    assert state["Return library book"] == (1, 1)  # finished one-off: archived
+    assert state["Tidy room"] == (0, 0)  # unfinished one-off: untouched
     queued = await (await db.execute("SELECT COUNT(*) FROM sync_queue WHERE service = 'tasks'")).fetchone()
     assert queued[0] == 2
 

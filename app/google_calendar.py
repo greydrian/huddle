@@ -69,9 +69,7 @@ async def cache_calendar_timezone(db, access_token: str):
     just leaves the previous (or UTC default) setting in place."""
     try:
         async with http_client.client() as client:
-            resp = await client.get(
-                CALENDAR_METADATA_ENDPOINT, headers={"Authorization": f"Bearer {access_token}"}
-            )
+            resp = await client.get(CALENDAR_METADATA_ENDPOINT, headers={"Authorization": f"Bearer {access_token}"})
             resp.raise_for_status()
             tz_name = resp.json().get("timeZone")
         if tz_name:
@@ -96,8 +94,11 @@ def _parse_google_datetime(raw: str) -> datetime:
 def _popup_minutes(reminders) -> int | None:
     """The smallest popup reminder's minutes, or None if there's none."""
     minutes = [
-        r["minutes"] for r in reminders or []
-        if isinstance(r, dict) and r.get("method") == "popup" and isinstance(r.get("minutes"), int)
+        r["minutes"]
+        for r in reminders or []
+        if isinstance(r, dict)
+        and r.get("method") == "popup"
+        and isinstance(r.get("minutes"), int)
         and r["minutes"] >= 0
     ]
     return min(minutes) if minutes else None
@@ -122,10 +123,7 @@ def _format_event(raw: dict, default_reminders: list | None = None) -> dict:
         start_dt = datetime.fromisoformat(start["date"])
         # Google's all-day end.date is EXCLUSIVE (the day *after* the last
         # day the event covers) — subtract one to get the actual last day.
-        end_dt = (
-            datetime.fromisoformat(end["date"]) - timedelta(days=1)
-            if end.get("date") else start_dt
-        )
+        end_dt = datetime.fromisoformat(end["date"]) - timedelta(days=1) if end.get("date") else start_dt
         time_label = "All day"
     else:
         # Keep the offset Google already gives us (the calendar owner's
@@ -166,29 +164,36 @@ async def _school_periods(db, first: date, last: date) -> tuple[list[dict], dict
             markers[period["start_date"]] = "Term starts"
             markers.setdefault(period["end_date"], "Term ends")
         elif period["kind"] in SCHOOL_BAR_KINDS:
-            events.append({
-                "title": period["label"],
-                "time_label": "All day",
-                "all_day": True,
-                "date": period["start_date"],
-                "end_date": period["end_date"],
-                "is_multi_day": period["end_date"] != period["start_date"],
-                "sort_key": f"{period['start_date']}T00:00:00",
-                "school": period["kind"],
-            })
+            events.append(
+                {
+                    "title": period["label"],
+                    "time_label": "All day",
+                    "all_day": True,
+                    "date": period["start_date"],
+                    "end_date": period["end_date"],
+                    "is_multi_day": period["end_date"] != period["start_date"],
+                    "sort_key": f"{period['start_date']}T00:00:00",
+                    "school": period["kind"],
+                }
+            )
     return events, markers
 
 
 async def fetch_events(access_token: str, calendar_id: str, time_min: datetime, time_max: datetime) -> list[dict]:
     url = CALENDAR_EVENTS_ENDPOINT_TEMPLATE.format(calendar_id=quote(calendar_id, safe=""))
     meta: dict = {}
-    items = await get_all_pages(url, access_token, {
-        "timeMin": time_min.isoformat(),
-        "timeMax": time_max.isoformat(),
-        "singleEvents": "true",
-        "orderBy": "startTime",
-        "maxResults": 250,
-    }, meta=meta)
+    items = await get_all_pages(
+        url,
+        access_token,
+        {
+            "timeMin": time_min.isoformat(),
+            "timeMax": time_max.isoformat(),
+            "singleEvents": "true",
+            "orderBy": "startTime",
+            "maxResults": 250,
+        },
+        meta=meta,
+    )
     events = [_format_event(item, meta.get("defaultReminders")) for item in items]
     events.sort(key=lambda e: e["sort_key"])
     return events
@@ -211,7 +216,9 @@ async def _fetch_selected_events(
     for cal, result in zip(calendars, results, strict=True):
         if isinstance(result, httpx.HTTPError):
             http_client.report_failure(
-                logger, OUTAGE_KEY, "Couldn't fetch calendar events; showing offline: %s",
+                logger,
+                OUTAGE_KEY,
+                "Couldn't fetch calendar events; showing offline: %s",
                 http_client.describe(result),
             )
             by_calendar[cal["id"]] = None
@@ -272,7 +279,7 @@ async def _store_cache(db, loaded: dict) -> bool:
 
 
 def _updated_label(fetched_at: datetime, now: datetime) -> str:
-    """"14:05" for a copy from today (family time), else "Fri 25 Sep, 14:05"
+    """ "14:05" for a copy from today (family time), else "Fri 25 Sep, 14:05"
     so an old copy doesn't pass for a current one. Only the note's clock is
     converted; event times keep Google's offsets."""
     local = fetched_at.astimezone(now.tzinfo)
@@ -304,8 +311,13 @@ async def _load_events(db, span: Callable[[datetime], tuple[date, date]], cache:
         tz = await family_timezone(db)
         now = datetime.now(tz)
         calendars, selection = await _selection(db)
-        loaded = {"now": now, "tz": tz, "range": span(now), "selection": selection,
-                  "by_calendar": {cal["id"]: None for cal in calendars}}
+        loaded = {
+            "now": now,
+            "tz": tz,
+            "range": span(now),
+            "selection": selection,
+            "by_calendar": {cal["id"]: None for cal in calendars},
+        }
     if loaded is None:
         return None
 
@@ -375,7 +387,9 @@ async def get_event(access_token: str, calendar_id: str, event_id: str) -> dict:
     "cancelled"). Raises httpx.HTTPError, or ValueError for a non-JSON body."""
     url = CALENDAR_EVENTS_ENDPOINT_TEMPLATE.format(calendar_id=quote(calendar_id, safe=""))
     async with http_client.client() as client:
-        resp = await client.get(f"{url}/{quote(event_id, safe='')}", headers={"Authorization": f"Bearer {access_token}"})
+        resp = await client.get(
+            f"{url}/{quote(event_id, safe='')}", headers={"Authorization": f"Bearer {access_token}"}
+        )
         resp.raise_for_status()
         return resp.json()
 
@@ -424,17 +438,18 @@ def _pack_week(events: list[dict], first: date, days: list[dict], slots: int = M
     more"). Returns (bars, rows used)."""
     last = first + timedelta(days=6)
     week_events = [
-        e for e in events
-        if date.fromisoformat(e["date"]) <= last and date.fromisoformat(e["end_date"]) >= first
+        e for e in events if date.fromisoformat(e["date"]) <= last and date.fromisoformat(e["end_date"]) >= first
     ]
     # Google's events before the school's (SCHOOL_BAR_KINDS); then
     # earlier-starting first; among ties, longer events first so they
     # claim a slot before a cluster of short same-day events do.
-    week_events.sort(key=lambda e: (
-        "school" in e,
-        e["sort_key"],
-        -(date.fromisoformat(e["end_date"]) - date.fromisoformat(e["date"])).days,
-    ))
+    week_events.sort(
+        key=lambda e: (
+            "school" in e,
+            e["sort_key"],
+            -(date.fromisoformat(e["end_date"]) - date.fromisoformat(e["date"])).days,
+        )
+    )
 
     # The columns each slot already uses. Google's events come in start
     # order, so for them "the first slot free across my columns" is the
@@ -489,6 +504,7 @@ async def get_month_grid(db, year: int | None = None, month: int | None = None, 
     ("updated_label" set), or failing that with "offline": True and
     whatever events could be fetched — a network blip must never take down
     the whole dashboard."""
+
     def grid_span(now: datetime) -> tuple[date, date]:
         return _grid_span(now, year, month)
 
@@ -602,6 +618,7 @@ async def get_week(db, start: date | None = None, keep: Keep = None) -> dict | N
     runs WEEK_HOURS, stretched to fit the week's earliest and latest
     events. Offline behaviour as get_month_grid (a week inside a cached
     month is served from that month's copy)."""
+
     def span(now: datetime) -> tuple[date, date]:
         first = start or week_start(now.date())
         return first, first + timedelta(days=7)
@@ -657,7 +674,7 @@ async def get_week(db, start: date | None = None, keep: Keep = None) -> dict | N
 
 
 def _range_label(first: date, last: date) -> str:
-    """"28 Sep – 4 Oct 2026" (no leading zeros, cross-platform)."""
+    """ "28 Sep – 4 Oct 2026" (no leading zeros, cross-platform)."""
     if first.year != last.year:
         return f"{first.day} {first:%b %Y} – {last.day} {last:%b %Y}"
     return f"{first.day} {first:%b} – {last.day} {last:%b %Y}"
@@ -702,6 +719,7 @@ async def get_agenda(db, keep: Keep = None) -> dict | None:
     dates first, then all-day events, then by time; a multi-day event shows
     on each of its days, its time only on the first. Offline behaviour as
     get_month_grid (refresh_cache keeps these days cached)."""
+
     def span(now: datetime) -> tuple[date, date]:
         return now.date(), now.date() + timedelta(days=AGENDA_DAYS)
 
@@ -717,7 +735,8 @@ async def get_agenda(db, keep: Keep = None) -> dict | None:
         iso = day.isoformat()
         on_day = [
             e if e["date"] == iso else {**e, "time_label": "Continues"}
-            for e in events if e["date"] <= iso <= _last_day(e)
+            for e in events
+            if e["date"] <= iso <= _last_day(e)
         ]
         shown = [*_day_school(day, school_events, term_markers), *on_day]
         if shown or offset < 2:

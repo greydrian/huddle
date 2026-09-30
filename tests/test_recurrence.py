@@ -10,18 +10,21 @@ from app.services import tasks
 MON, TUE, WED, THU, FRI, SAT, SUN = range(7)
 
 
-@pytest.mark.parametrize(("rule", "expected"), [
-    (None, None),
-    ("", None),
-    ("Mon,Wed,Fri", {MON, WED, FRI}),
-    ("mon wed", {MON, WED}),                 # older free-text input
-    ("Monday, Friday", {MON, FRI}),
-    ("weekdays", {MON, TUE, WED, THU, FRI}),
-    ("weekends", {SAT, SUN}),
-    ("daily", None),
-    ("Mon,Tue,Wed,Thu,Fri,Sat,Sun", None),   # all seven == every day
-    ("gibberish", None),                     # never hide a task over a typo
-])
+@pytest.mark.parametrize(
+    ("rule", "expected"),
+    [
+        (None, None),
+        ("", None),
+        ("Mon,Wed,Fri", {MON, WED, FRI}),
+        ("mon wed", {MON, WED}),  # older free-text input
+        ("Monday, Friday", {MON, FRI}),
+        ("weekdays", {MON, TUE, WED, THU, FRI}),
+        ("weekends", {SAT, SUN}),
+        ("daily", None),
+        ("Mon,Tue,Wed,Thu,Fri,Sat,Sun", None),  # all seven == every day
+        ("gibberish", None),  # never hide a task over a typo
+    ],
+)
 def test_parse_rule(rule, expected):
     assert recurrence.parse_rule(rule) == expected
 
@@ -46,6 +49,7 @@ async def test_dashboard_only_shows_recurring_tasks_on_their_days(db, monkeypatc
 
     async def fake_today(_db):
         return date(2026, 9, 28)  # a Monday
+
     monkeypatch.setattr(tasks, "family_today", fake_today)
 
     profiles = await tasks.get_profiles_with_tasks(db)

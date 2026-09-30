@@ -34,10 +34,16 @@ def fresh_rate_limit():
 
 @pytest.fixture
 async def with_scope(db):
-    await google_oauth.store_tokens(db, {
-        "access_token": "tok", "refresh_token": "r", "expires_at": time.time() + 3600,
-        "scope": f"{google_oauth.CALENDAR_READ_SCOPE} {google_oauth.CALENDAR_EVENTS_SCOPE}",
-    }, "family@example.com")
+    await google_oauth.store_tokens(
+        db,
+        {
+            "access_token": "tok",
+            "refresh_token": "r",
+            "expires_at": time.time() + 3600,
+            "scope": f"{google_oauth.CALENDAR_READ_SCOPE} {google_oauth.CALENDAR_EVENTS_SCOPE}",
+        },
+        "family@example.com",
+    )
 
 
 @pytest.fixture
@@ -102,14 +108,20 @@ async def test_adds_to_the_family_calendar_only(db, family, gcal, google):
     assert body["end"] == {"date": (today + timedelta(days=1)).isoformat()}  # exclusive
     assert body["id"] == calendar_add.event_id(KEY, CALENDARS[0]["id"])
     assert re.fullmatch(r"[0-9a-v]{5,1024}", body["id"])
-    assert added == {"id": body["id"], "summary": "Bins out", "date": today.isoformat(), "calendar": "Family",
-                     "duplicate": False}
+    assert added == {
+        "id": body["id"],
+        "summary": "Bins out",
+        "date": today.isoformat(),
+        "calendar": "Family",
+        "duplicate": False,
+    }
 
 
 async def test_one_person_is_saved_as_name_colon_title(db, family, gcal):
     today = await _today(db)
-    await calendar_add.add_family_event(db, title="Dentist", day=today.isoformat(), start_time="16:30",
-                                        person_id=await _riley(db), request_key=KEY)
+    await calendar_add.add_family_event(
+        db, title="Dentist", day=today.isoformat(), start_time="16:30", person_id=await _riley(db), request_key=KEY
+    )
 
     body = json.loads(gcal.calls.last.request.content)
     assert body["summary"] == "Riley: Dentist"
@@ -123,8 +135,9 @@ async def test_one_person_is_saved_as_name_colon_title(db, family, gcal):
 
 async def test_explicit_end_time(db, family, gcal):
     today = await _today(db)
-    await calendar_add.add_family_event(db, title="Party", day=today.isoformat(), start_time="14:00",
-                                        end_time="16:00", request_key=KEY)
+    await calendar_add.add_family_event(
+        db, title="Party", day=today.isoformat(), start_time="14:00", end_time="16:00", request_key=KEY
+    )
     body = json.loads(gcal.calls.last.request.content)
     assert body["end"]["dateTime"].startswith(f"{today.isoformat()}T16:00:00")
 
@@ -145,6 +158,7 @@ async def test_two_taps_at_once_create_one_event(db, family, gcal):
     async def slow(request):
         await release.wait()
         return httpx.Response(200, json=json.loads(request.content))
+
     gcal.mock(side_effect=slow)
 
     async with database.get_db() as other:
@@ -246,12 +260,16 @@ async def test_a_done_claim_never_goes_stale(db, family, gcal):
 
 
 @pytest.mark.parametrize("step", ["get_family_calendar", "has_scope", "family_today", "connect", "family_timezone"])
-async def test_a_database_error_before_the_claim_is_a_message_not_a_500(db, family, gcal, client, monkeypatch,
-                                                                         step):
+async def test_a_database_error_before_the_claim_is_a_message_not_a_500(db, family, gcal, client, monkeypatch, step):
     """A briefly locked database during the add (only the add's own call
     fails; the widget's re-render afterwards reads fine)."""
-    target = {"get_family_calendar": calendar_prefs, "has_scope": google_oauth, "connect": google_oauth,
-              "family_today": calendar_add, "family_timezone": calendar_add}[step]
+    target = {
+        "get_family_calendar": calendar_prefs,
+        "has_scope": google_oauth,
+        "connect": google_oauth,
+        "family_today": calendar_add,
+        "family_timezone": calendar_add,
+    }[step]
     real = getattr(target, step)
     failed = []
 
@@ -260,6 +278,7 @@ async def test_a_database_error_before_the_claim_is_a_message_not_a_500(db, fami
             failed.append(1)
             raise sqlite3.OperationalError("database is locked")
         return await real(*args, **kwargs)
+
     today = await _today(db)
     monkeypatch.setattr(target, step, locked_once)
 
@@ -274,31 +293,39 @@ async def test_a_database_error_before_the_claim_is_a_message_not_a_500(db, fami
 async def test_a_database_error_finding_the_person_is_a_message(db, family, gcal, monkeypatch):
     async def locked(*args, **kwargs):
         raise sqlite3.OperationalError("database is locked")
+
     monkeypatch.setattr(calendar_add, "_person", locked)
     with pytest.raises(calendar_add.AddEventError) as exc:
-        await calendar_add.add_family_event(db, title="X", day=(await _today(db)).isoformat(), person_id="1",
-                                            request_key=KEY)
+        await calendar_add.add_family_event(
+            db, title="X", day=(await _today(db)).isoformat(), person_id="1", request_key=KEY
+        )
     assert exc.value.code == "storage"
 
 
 async def test_an_event_deleted_in_google_is_not_mistaken_for_this_one(db, family, gcal):
     today = (await _today(db)).isoformat()
     gcal.fake.events[calendar_add.event_id(KEY, CALENDARS[0]["id"])] = {
-        "summary": "X", "start": {"date": today}, "status": "cancelled"}
+        "summary": "X",
+        "start": {"date": today},
+        "status": "cancelled",
+    }
     added = await calendar_add.add_family_event(db, title="X", day=today, request_key=KEY)
     assert gcal.fake.events[added["id"]].get("status") != "cancelled"
 
 
-@pytest.mark.parametrize(("status", "body", "code"), [
-    (401, {}, "scope"),
-    (403, {"error": {"errors": [{"reason": "forbidden"}]}}, "scope"),
-    (403, {"error": {"errors": [{"reason": "rateLimitExceeded"}]}}, "google-busy"),
-    (403, {"error": {"errors": [{"reason": "userRateLimitExceeded"}]}}, "google-busy"),
-    (429, {}, "google-busy"),
-    (404, {}, "missing"),
-    (400, {}, "failed"),
-    (503, {}, "offline"),
-])
+@pytest.mark.parametrize(
+    ("status", "body", "code"),
+    [
+        (401, {}, "scope"),
+        (403, {"error": {"errors": [{"reason": "forbidden"}]}}, "scope"),
+        (403, {"error": {"errors": [{"reason": "rateLimitExceeded"}]}}, "google-busy"),
+        (403, {"error": {"errors": [{"reason": "userRateLimitExceeded"}]}}, "google-busy"),
+        (429, {}, "google-busy"),
+        (404, {}, "missing"),
+        (400, {}, "failed"),
+        (503, {}, "offline"),
+    ],
+)
 async def test_google_refusals_release_the_claim(db, family, gcal, status, body, code):
     today = (await _today(db)).isoformat()
     gcal.mock(side_effect=None, return_value=httpx.Response(status, json=body))
@@ -326,6 +353,7 @@ async def test_unreadable_google_answer_is_a_failure_not_a_500(db, family, gcal,
 async def test_a_database_error_claiming_is_a_message_not_a_500(db, family, gcal, client, monkeypatch):
     async def locked(*args, **kwargs):
         raise sqlite3.OperationalError("database is locked")
+
     monkeypatch.setattr(calendar_add, "_update_claims", locked)
     today = await _today(db)
 
@@ -344,6 +372,7 @@ async def test_a_database_error_recording_the_add_still_reports_it(db, family, g
         if len(calls) > 1:
             raise sqlite3.OperationalError("database is locked")
         return await real(db_, change)
+
     monkeypatch.setattr(calendar_add, "_update_claims", fail_second)
 
     added = await calendar_add.add_family_event(db, title="X", day=(await _today(db)).isoformat(), request_key=KEY)
@@ -373,18 +402,21 @@ async def test_a_duplicate_tap_does_not_use_up_the_rate_limit(db, family, gcal, 
     assert (await calendar_add.add_family_event(db, title="E", day=today, request_key=KEY))["duplicate"]
 
 
-@pytest.mark.parametrize(("fields", "code"), [
-    ({"title": "  "}, "title"),
-    ({"title": "x" * 101}, "title"),
-    ({"day": "yesterday"}, "day"),
-    ({"day": "PAST"}, "day"),
-    ({"day": "FAR"}, "day"),
-    ({"start_time": "25:00"}, "time"),
-    ({"start_time": "10:00", "end_time": "09:30"}, "end"),
-    ({"person_id": "999"}, "person"),
-    ({"person_id": "abc"}, "person"),
-    ({"request_key": "short"}, "request"),
-])
+@pytest.mark.parametrize(
+    ("fields", "code"),
+    [
+        ({"title": "  "}, "title"),
+        ({"title": "x" * 101}, "title"),
+        ({"day": "yesterday"}, "day"),
+        ({"day": "PAST"}, "day"),
+        ({"day": "FAR"}, "day"),
+        ({"start_time": "25:00"}, "time"),
+        ({"start_time": "10:00", "end_time": "09:30"}, "end"),
+        ({"person_id": "999"}, "person"),
+        ({"person_id": "abc"}, "person"),
+        ({"request_key": "short"}, "request"),
+    ],
+)
 async def test_validation(db, family, gcal, fields, code):
     today = await _today(db)
     args = {"title": "Dentist", "day": today.isoformat(), "request_key": KEY, **fields}
@@ -415,14 +447,19 @@ async def test_no_family_calendar_is_refused(db, gcal, with_scope):
 
 
 async def _cache_rows(db):
-    return [tuple(r) for r in await (await db.execute(
-        "SELECT range_start, range_end, calendar_id FROM calendar_cache ORDER BY 1, 3")).fetchall()]
+    return [
+        tuple(r)
+        for r in await (
+            await db.execute("SELECT range_start, range_end, calendar_id FROM calendar_cache ORDER BY 1, 3")
+        ).fetchall()
+    ]
 
 
 async def test_adding_refreshes_the_cache_in_the_background(db, family, gcal, monkeypatch):
     """An upsert, never a clear (another month's copy stays for offline use),
     and the add doesn't wait for it."""
     from app import calendar_cache, google_calendar
+
     _, selection = await google_calendar._selection(db)
     other_month = (date(2020, 1, 1), date(2020, 2, 1))
     await calendar_cache.store(db, selection, *other_month, {CALENDARS[0]["id"]: []})
@@ -432,11 +469,11 @@ async def test_adding_refreshes_the_cache_in_the_background(db, family, gcal, mo
     async def slow_refresh(db_):
         await release.wait()
         return await real(db_)
+
     monkeypatch.setattr(google_calendar, "refresh_cache", slow_refresh)
 
     today = await _today(db)
-    await asyncio.wait_for(
-        calendar_add.add_family_event(db, title="X", day=today.isoformat(), request_key=KEY), 2)
+    await asyncio.wait_for(calendar_add.add_family_event(db, title="X", day=today.isoformat(), request_key=KEY), 2)
     assert len(calendar_add._refreshes) == 1  # still running: the add didn't wait
     release.set()
     await calendar_add.wait_for_refreshes()
@@ -451,8 +488,9 @@ async def test_the_widget_shows_the_new_event_straight_away(client, db, family, 
     before the background refresh has run."""
     today = await _today(db)
     # events.list now answers with whatever was inserted.
-    google.routes["list"].mock(side_effect=lambda request: httpx.Response(
-        200, json={"items": list(gcal.fake.events.values())}))
+    google.routes["list"].mock(
+        side_effect=lambda request: httpx.Response(200, json={"items": list(gcal.fake.events.values())})
+    )
     resp = await client.post("/widgets/calendar/events", data=_form(today, view="agenda"))
     assert "Added “Dentist” to Family." in resp.text
     assert resp.text.count("Dentist") >= 2  # the note and the agenda row
@@ -460,9 +498,18 @@ async def test_the_widget_shows_the_new_event_straight_away(client, db, family, 
 
 # --- The widget ---------------------------------------------------------------------------
 
+
 def _form(today, **extra):
-    return {"title": "Dentist", "day": today.isoformat(), "start_time": "", "end_time": "", "person_id": "",
-            "request_key": KEY, "view": "week", **extra}
+    return {
+        "title": "Dentist",
+        "day": today.isoformat(),
+        "start_time": "",
+        "end_time": "",
+        "person_id": "",
+        "request_key": KEY,
+        "view": "week",
+        **extra,
+    }
 
 
 async def test_plus_shows_only_when_adding_is_set_up(client, db, gcal, with_scope):
@@ -508,8 +555,7 @@ async def test_widget_add_error_keeps_what_was_typed(client, db, family, gcal):
 
 async def test_widget_add_is_refused_from_another_origin(client, db, family, gcal):
     today = await _today(db)
-    resp = await client.post("/widgets/calendar/events", data=_form(today),
-                             headers={"Origin": "https://evil.example"})
+    resp = await client.post("/widgets/calendar/events", data=_form(today), headers={"Origin": "https://evil.example"})
     assert resp.status_code == 403
     assert gcal.call_count == 0
 

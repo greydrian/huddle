@@ -111,7 +111,9 @@ def _populate(path):
         conn.execute("INSERT INTO shopping_items (title, is_checked, google_task_id) VALUES ('Milk ×2', 1, 's1')")
         conn.execute("INSERT INTO meal_plans VALUES ('2026-09-28', 'Lasagne')")
         conn.execute("UPDATE layout_state SET grid_x = 3, grid_y = 20, is_visible = 0 WHERE widget_id = 'photos'")
-        conn.execute("INSERT INTO sync_queue (service, payload_json, retry_count) VALUES ('shopping', '{\"item_id\": 1}', 2)")
+        conn.execute(
+            "INSERT INTO sync_queue (service, payload_json, retry_count) VALUES ('shopping', '{\"item_id\": 1}', 2)"
+        )
         conn.execute(
             "INSERT INTO auth_tokens (service_name, account_email, encrypted_token_json) "
             "VALUES ('google', 'family@example.com', 'gAAAA-encrypted')"
@@ -127,13 +129,19 @@ def _populate(path):
                 ("pin_lockout", "{}"),
             ],
         )
-        conn.execute("INSERT INTO homework (profile_id, subject, title, due_date) VALUES (3, 'Maths', 'Fractions', '2026-10-01')")
-        conn.execute("INSERT INTO practice_word_lists (profile_id, title, words) VALUES (3, 'Week 4', 'because\nwhich')")
+        conn.execute(
+            "INSERT INTO homework (profile_id, subject, title, due_date) VALUES (3, 'Maths', 'Fractions', '2026-10-01')"
+        )
+        conn.execute(
+            "INSERT INTO practice_word_lists (profile_id, title, words) VALUES (3, 'Week 4', 'because\nwhich')"
+        )
         conn.execute("INSERT INTO practice_log VALUES (1, '2026-09-27')")
         conn.execute(
             "INSERT INTO calendar_cache VALUES ('sel', '2026-08-31', '2026-10-12', 'primary', '[]', '2026-09-28T07:00:00+00:00')"
         )
-        conn.execute("UPDATE sync_status SET connected = 1, last_success_at = '2026-09-28T07:00:00+00:00', queue_depth = 1")
+        conn.execute(
+            "UPDATE sync_status SET connected = 1, last_success_at = '2026-09-28T07:00:00+00:00', queue_depth = 1"
+        )
         conn.execute(
             "INSERT INTO import_sources (kind, source_ref, subject, excerpt, status, attempts, sender_unverified)"
             " VALUES ('gmail', 'msg-1', 'Trip letter', 'Dear parents', 'extracted', 1, 0)"
@@ -143,7 +151,9 @@ def _populate(path):
             " external_id, claim_calendar_id) VALUES (1, 'event', 3, '{}', 'Trip on Friday', 'approved',"
             " 'google_calendar', 'ev-1', 'cal-1')"
         )
-        conn.execute("INSERT INTO gmail_skipped (message_id, code, internal_date) VALUES ('msg-2', 'sender', 1759000000000)")
+        conn.execute(
+            "INSERT INTO gmail_skipped (message_id, code, internal_date) VALUES ('msg-2', 'sender', 1759000000000)"
+        )
 
 
 def test_versions_are_unique_and_consecutive():
@@ -184,7 +194,11 @@ async def _add_board(db):
 async def test_baseline_is_frozen_against_later_changes(tmp_path, monkeypatch, use_db, legacy_db):
     """A later migration, a new widget, new default profiles or a LAYOUT_VERSION
     bump must not change what migration 1 builds."""
-    monkeypatch.setattr(migrations, "MIGRATIONS", [*migrations.MIGRATIONS, Migration(len(migrations.MIGRATIONS) + 1, "board", _add_board)])
+    monkeypatch.setattr(
+        migrations,
+        "MIGRATIONS",
+        [*migrations.MIGRATIONS, Migration(len(migrations.MIGRATIONS) + 1, "board", _add_board)],
+    )
     monkeypatch.setattr(database, "DEFAULT_LAYOUT", [*database.DEFAULT_LAYOUT, ("clock", 0, 0, 2, 2)])
     monkeypatch.setattr(database, "DEFAULT_PROFILES", [("Someone", "#000000", 0)])
     monkeypatch.setattr(database, "LAYOUT_VERSION", "99")
@@ -240,7 +254,9 @@ async def test_a_failing_migration_rolls_back_and_stops_startup(monkeypatch, use
     use_db(legacy_db)
     await database.init_db()
     before = _data(legacy_db), _schema(legacy_db)
-    monkeypatch.setattr(migrations, "MIGRATIONS", [*migrations.MIGRATIONS, Migration(len(migrations.MIGRATIONS) + 1, "boom", _boom)])
+    monkeypatch.setattr(
+        migrations, "MIGRATIONS", [*migrations.MIGRATIONS, Migration(len(migrations.MIGRATIONS) + 1, "boom", _boom)]
+    )
 
     with pytest.raises(MigrationError, match="boom"):
         await database.init_db()
@@ -293,7 +309,9 @@ async def test_a_migration_that_commits_is_refused(tmp_path, monkeypatch, use_db
 
     latest = len(migrations.MIGRATIONS)
     for bad in (commits, rolls_back, scripts):
-        monkeypatch.setattr(migrations, "MIGRATIONS", [*migrations.MIGRATIONS[:latest], Migration(latest + 1, "bad", bad)])
+        monkeypatch.setattr(
+            migrations, "MIGRATIONS", [*migrations.MIGRATIONS[:latest], Migration(latest + 1, "bad", bad)]
+        )
         with pytest.raises(MigrationError, match="must not"):
             await database.init_db()
         # Refused before anything reached the disk: nothing is left behind.

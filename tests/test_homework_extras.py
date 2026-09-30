@@ -35,6 +35,7 @@ def admin_client(client):
 
 def _frozen_now(monkeypatch, module, instant: datetime):
     """datetime.now(tz) in `module` returns `instant` (a UTC moment) in tz."""
+
     class Frozen(datetime):
         @classmethod
         def now(cls, tz=None):
@@ -60,28 +61,64 @@ async def _rows(db, sql, *args):
 
 # --- Subjects ---
 
-@pytest.mark.parametrize("text, key", [
-    ("Maths", "maths"), ("maths", "maths"), ("Math", "maths"), ("Numeracy", "maths"),
-    ("Times tables", "maths"), ("TT Rockstars", "maths"), ("Mathematics homework", "maths"),
-    ("English", "english"), ("Spelling", "english"), ("Spellings", "english"), ("Phonics", "english"),
-    ("SPaG", "english"), ("Grammar & punctuation", "english"), ("Literacy", "english"),
-    ("Reading", "reading"), ("Reading book", "reading"), ("Reading comprehension", "reading"),
-    ("Bug Club", "reading"), ("Library book", "reading"),
-    ("Science", "science"), ("science investigation", "science"),
-    ("Topic", "topic"), ("History", "topic"), ("Geography project", "topic"),
-    ("French", "other"), ("PE", "other"), ("", "other"), (None, "other"), ("Mathsy", "other"),
-    # The earliest match in the text wins.
-    ("Reading and spelling", "reading"), ("Spelling then reading", "english"),
-    # Phonics schemes and times-tables apps.
-    ("Read Write Inc", "english"), ("RWI", "english"), ("RWI book bag", "english"),
-    ("TTRS", "maths"), ("TTRockstars", "maths"), ("Times Tables Rock Stars", "maths"),
-    # Languages are Other, even with a word that would otherwise match.
-    ("French", "other"), ("Spanish reading", "other"), ("German vocabulary", "other"), ("MFL", "other"),
-    ("Languages", "other"), ("Modern Foreign Languages", "other"),
-    # "book" alone means nothing; "read" counts only when nothing else matched.
-    ("Homework book", "other"), ("Books", "other"), ("Read chapter 3", "reading"), ("Read", "reading"),
-    ("Read the maths sheet", "maths"),
-])
+
+@pytest.mark.parametrize(
+    "text, key",
+    [
+        ("Maths", "maths"),
+        ("maths", "maths"),
+        ("Math", "maths"),
+        ("Numeracy", "maths"),
+        ("Times tables", "maths"),
+        ("TT Rockstars", "maths"),
+        ("Mathematics homework", "maths"),
+        ("English", "english"),
+        ("Spelling", "english"),
+        ("Spellings", "english"),
+        ("Phonics", "english"),
+        ("SPaG", "english"),
+        ("Grammar & punctuation", "english"),
+        ("Literacy", "english"),
+        ("Reading", "reading"),
+        ("Reading book", "reading"),
+        ("Reading comprehension", "reading"),
+        ("Bug Club", "reading"),
+        ("Library book", "reading"),
+        ("Science", "science"),
+        ("science investigation", "science"),
+        ("Topic", "topic"),
+        ("History", "topic"),
+        ("Geography project", "topic"),
+        ("French", "other"),
+        ("PE", "other"),
+        ("", "other"),
+        (None, "other"),
+        ("Mathsy", "other"),
+        # The earliest match in the text wins.
+        ("Reading and spelling", "reading"),
+        ("Spelling then reading", "english"),
+        # Phonics schemes and times-tables apps.
+        ("Read Write Inc", "english"),
+        ("RWI", "english"),
+        ("RWI book bag", "english"),
+        ("TTRS", "maths"),
+        ("TTRockstars", "maths"),
+        ("Times Tables Rock Stars", "maths"),
+        # Languages are Other, even with a word that would otherwise match.
+        ("French", "other"),
+        ("Spanish reading", "other"),
+        ("German vocabulary", "other"),
+        ("MFL", "other"),
+        ("Languages", "other"),
+        ("Modern Foreign Languages", "other"),
+        # "book" alone means nothing; "read" counts only when nothing else matched.
+        ("Homework book", "other"),
+        ("Books", "other"),
+        ("Read chapter 3", "reading"),
+        ("Read", "reading"),
+        ("Read the maths sheet", "maths"),
+    ],
+)
 def test_subject_synonyms(text, key):
     assert homework.subject_key_for(text) == key
     assert migrations._m7_subject_key(text) == key  # the migration's frozen copy agrees today
@@ -114,14 +151,14 @@ def test_every_subject_icon_is_in_the_sprite():
 
 
 def _luminance(hex_colour):
-    channels = [int(hex_colour[i:i + 2], 16) / 255 for i in (1, 3, 5)]
+    channels = [int(hex_colour[i : i + 2], 16) / 255 for i in (1, 3, 5)]
     linear = [c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4 for c in channels]
     return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
 
 
 def _mix(colour, base, share):
     return "#" + "".join(
-        f"{round(int(colour[i:i + 2], 16) * share + int(base[i:i + 2], 16) * (1 - share)):02x}" for i in (1, 3, 5)
+        f"{round(int(colour[i : i + 2], 16) * share + int(base[i : i + 2], 16) * (1 - share)):02x}" for i in (1, 3, 5)
     )
 
 
@@ -151,6 +188,7 @@ def test_subject_colours_meet_contrast(mode):
 
 # --- Migration 7 ---
 
+
 async def test_migration_7_upgrade_keeps_data_and_backfills(tmp_path, monkeypatch):
     path = tmp_path / "upgrade.db"
     monkeypatch.setattr(database, "DB_PATH", path)
@@ -162,41 +200,54 @@ async def test_migration_7_upgrade_keeps_data_and_backfills(tmp_path, monkeypatc
         riley = conn.execute("SELECT id FROM profiles WHERE name = 'Riley'").fetchone()[0]
         conn.executemany(
             "INSERT INTO homework (profile_id, subject, title, done, done_at) VALUES (?, ?, ?, ?, ?)",
-            [(riley, "Spelling", "Week 3 list", 0, None),
-             (riley, "Numeracy", "Number bonds", 1, "2026-03-10T16:40:00+00:00"),
-             (riley, "", "Poster", 0, None),
-             (riley, "Reading comprehension", "Chapter 2", 1, None)],
+            [
+                (riley, "Spelling", "Week 3 list", 0, None),
+                (riley, "Numeracy", "Number bonds", 1, "2026-03-10T16:40:00+00:00"),
+                (riley, "", "Poster", 0, None),
+                (riley, "Reading comprehension", "Chapter 2", 1, None),
+            ],
         )
         conn.commit()
-        before = {t: conn.execute(f"SELECT * FROM {t} ORDER BY rowid").fetchall()
-                  for (t,) in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
-                  if t not in ("schema_migrations", "sqlite_sequence")}
+        before = {
+            t: conn.execute(f"SELECT * FROM {t} ORDER BY rowid").fetchall()
+            for (t,) in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+            if t not in ("schema_migrations", "sqlite_sequence")
+        }
 
     await database.init_db()  # the full list: runs 7 only
 
     with sqlite3.connect(path) as conn:
         assert {v for (v,) in conn.execute("SELECT version FROM schema_migrations")} == {
-            m.version for m in migrations.MIGRATIONS}
+            m.version for m in migrations.MIGRATIONS
+        }
         for table, rows in before.items():
             after = conn.execute(f"SELECT * FROM {table} ORDER BY rowid").fetchall()
             if table == "homework":
                 after = [row[:-1] for row in after]  # all but the new subject_key column
             elif rows:  # later migrations may add columns (profiles: avatars, 8)
-                after = [row[:len(rows[0])] for row in after]
+                after = [row[: len(rows[0])] for row in after]
             assert after == rows, table
         assert conn.execute("SELECT title, subject_key FROM homework ORDER BY id").fetchall() == [
-            ("Week 3 list", "english"), ("Number bonds", "maths"), ("Poster", "other"), ("Chapter 2", "reading")]
+            ("Week 3 list", "english"),
+            ("Number bonds", "maths"),
+            ("Poster", "other"),
+            ("Chapter 2", "reading"),
+        ]
         # The one done row with a time starts the done history.
         assert conn.execute("SELECT homework_id, done, at FROM homework_events").fetchall() == [
-            (2, 1, "2026-03-10T16:40:00+00:00")]
+            (2, 1, "2026-03-10T16:40:00+00:00")
+        ]
         assert conn.execute("SELECT COUNT(*) FROM reading_log").fetchone() == (0,)
 
 
 async def test_migration_7_is_idempotent(db):
     """Run again (a restored pre-7 backup): nothing doubles."""
     riley = (await _ids(db))["Riley"]
-    await db.execute("INSERT INTO homework (profile_id, subject, title, done, done_at) "
-                     "VALUES (?, 'Maths', 'Sheet', 1, '2026-03-10T16:40:00+00:00')", (riley,))
+    await db.execute(
+        "INSERT INTO homework (profile_id, subject, title, done, done_at) "
+        "VALUES (?, 'Maths', 'Sheet', 1, '2026-03-10T16:40:00+00:00')",
+        (riley,),
+    )
     await db.commit()
     for _ in range(2):
         await migrations.m0007_homework_extras(db)
@@ -207,25 +258,33 @@ async def test_migration_7_is_idempotent(db):
 
 async def test_migration_7_rerun_keeps_admin_picks(db):
     riley = (await _ids(db))["Riley"]
-    await db.execute("INSERT INTO homework (profile_id, subject, subject_key, title) "
-                     "VALUES (?, 'Maths', 'topic', 'Picked')", (riley,))
+    await db.execute(
+        "INSERT INTO homework (profile_id, subject, subject_key, title) VALUES (?, 'Maths', 'topic', 'Picked')",
+        (riley,),
+    )
     await db.execute("INSERT INTO homework (profile_id, subject, title) VALUES (?, 'Phonics', 'Default')", (riley,))
     await db.commit()
     await migrations.m0007_homework_extras(db)
     await db.commit()
     assert await _rows(db, "SELECT title, subject_key FROM homework ORDER BY id") == [
-        ("Picked", "topic"), ("Default", "english")]
+        ("Picked", "topic"),
+        ("Default", "english"),
+    ]
 
 
 # --- Widget: subject chips ---
 
+
 async def test_widget_shows_subject_chip(db, client, admin_client, today):
     riley = (await _ids(db))["Riley"]
     await admin_client.post("/admin/homework", data={"profile_id": riley, "subject": "Phonics", "title": "Sounds"})
-    await admin_client.post("/admin/homework", data={
-        "profile_id": riley, "subject": "", "subject_key": "science", "title": "Grow cress"})
+    await admin_client.post(
+        "/admin/homework", data={"profile_id": riley, "subject": "", "subject_key": "science", "title": "Grow cress"}
+    )
     assert await _rows(db, "SELECT title, subject_key FROM homework ORDER BY id") == [
-        ("Sounds", "english"), ("Grow cress", "science")]
+        ("Sounds", "english"),
+        ("Grow cress", "science"),
+    ]
     html = (await client.get("/widgets/homework")).text
     assert 'class="hw-subject subj-english"' in html and "#spell-check" in html and "Phonics</span>" in html
     assert 'class="hw-subject subj-science"' in html and "#flask-conical" in html and "Science</span>" in html
@@ -238,17 +297,21 @@ async def test_admin_edit_subject_pick(db, admin_client, today):
     page = (await admin_client.get("/admin?tab=family")).text
     assert '<option value="" selected' not in page  # "match" is the default: nothing explicitly selected
     # Changing the text re-maps it; an explicit pick sticks.
-    await admin_client.post(f"/admin/homework/{hw_id}/edit", data={"profile_id": riley, "subject": "History",
-                                                                   "title": "Sheet"})
+    await admin_client.post(
+        f"/admin/homework/{hw_id}/edit", data={"profile_id": riley, "subject": "History", "title": "Sheet"}
+    )
     assert await _rows(db, "SELECT subject_key FROM homework") == [("topic",)]
-    await admin_client.post(f"/admin/homework/{hw_id}/edit", data={
-        "profile_id": riley, "subject": "History", "subject_key": "reading", "title": "Sheet"})
+    await admin_client.post(
+        f"/admin/homework/{hw_id}/edit",
+        data={"profile_id": riley, "subject": "History", "subject_key": "reading", "title": "Sheet"},
+    )
     assert await _rows(db, "SELECT subject_key FROM homework") == [("reading",)]
     page = (await admin_client.get("/admin?tab=family")).text
     assert '<option value="reading" selected>Icon: Reading</option>' in page
 
 
 # --- Reading log ---
+
 
 @pytest.fixture
 async def readers(db):
@@ -314,14 +377,13 @@ async def test_reading_day_rolls_over_in_the_family_timezone(db, client, monkeyp
     riley = (await _ids(db))["Riley"]
     _frozen_now(monkeypatch, database, datetime(2026, 6, 10, 22, 30, tzinfo=UTC))  # 23:30 BST
     await client.post(f"/api/reading/{riley}/toggle")
-    assert "aria-pressed=\"true\"" in (await client.get("/widgets/homework")).text
+    assert 'aria-pressed="true"' in (await client.get("/widgets/homework")).text
 
     _frozen_now(monkeypatch, database, datetime(2026, 6, 10, 23, 30, tzinfo=UTC))  # 00:30 BST, the 11th
     html = (await client.get("/widgets/homework")).text
     assert 'aria-label="Riley read tonight" aria-pressed="false"' in html
     await client.post(f"/api/reading/{riley}/toggle")
-    assert await _rows(db, "SELECT read_on FROM reading_log ORDER BY read_on") == [
-        ("2026-06-10",), ("2026-06-11",)]
+    assert await _rows(db, "SELECT read_on FROM reading_log ORDER BY read_on") == [("2026-06-10",), ("2026-06-11",)]
 
 
 async def test_rev_changes_when_reading_is_ticked(db, client, readers):
@@ -363,6 +425,7 @@ async def test_reading_history_grid(db, admin_client, today, readers):
 
 # --- Done history ---
 
+
 async def test_done_history_records_each_tick_with_family_time(db, client, admin_client, monkeypatch, today):
     riley = (await _ids(db))["Riley"]
     await admin_client.post("/admin/homework", data={"profile_id": riley, "subject": "Maths", "title": "Sheet"})
@@ -376,7 +439,10 @@ async def test_done_history_records_each_tick_with_family_time(db, client, admin
     await client.post(f"/api/homework/{hw_id}/toggle")
 
     assert await _rows(db, "SELECT done, at FROM homework_events ORDER BY id") == [
-        (1, "2026-03-11T16:40:00+00:00"), (0, "2026-03-11T16:45:30+00:00"), (1, "2026-03-11T19:05:00+00:00")]
+        (1, "2026-03-11T16:40:00+00:00"),
+        (0, "2026-03-11T16:45:30+00:00"),
+        (1, "2026-03-11T19:05:00+00:00"),
+    ]
     assert await _rows(db, "SELECT done, done_at FROM homework") == [(1, "2026-03-11T19:05:00+00:00")]
 
     page = (await admin_client.get("/admin?tab=family")).text
@@ -384,7 +450,10 @@ async def test_done_history_records_each_tick_with_family_time(db, client, admin
     assert "Recently ticked" in page
     events = await homework.get_recent_homework_events(db)
     assert [(e["when"], e["done"]) for e in events] == [
-        ("Wed 11 Mar, 19:05", 1), ("Wed 11 Mar, 16:45", 0), ("Wed 11 Mar, 16:40", 1)]
+        ("Wed 11 Mar, 19:05", 1),
+        ("Wed 11 Mar, 16:45", 0),
+        ("Wed 11 Mar, 16:40", 1),
+    ]
     assert "Riley unticked" in page and "Riley ticked" in page
 
 
@@ -421,8 +490,10 @@ async def test_recent_events_are_newest_first_across_a_clock_change(db, today):
     01:10+00:00 (GMT) on the night the clocks go back, though it sorts after."""
     riley = (await _ids(db))["Riley"]
     await db.execute("INSERT INTO homework (profile_id, title) VALUES (?, 'Sheet')", (riley,))
-    await db.executemany("INSERT INTO homework_events (homework_id, done, at) VALUES (1, ?, ?)",
-                         [(1, "2026-10-25T01:30:00+01:00"), (0, "2026-10-25T01:10:00+00:00")])
+    await db.executemany(
+        "INSERT INTO homework_events (homework_id, done, at) VALUES (1, ?, ?)",
+        [(1, "2026-10-25T01:30:00+01:00"), (0, "2026-10-25T01:10:00+00:00")],
+    )
     await db.commit()
     assert [e["done"] for e in await homework.get_recent_homework_events(db)] == [0, 1]
 
@@ -437,18 +508,23 @@ async def test_deleting_homework_deletes_its_history(db, client, admin_client, t
 
 # --- Auth ---
 
-@pytest.mark.parametrize("method, path", [
-    ("get", "/admin?tab=family"),
-    ("post", "/admin/homework"),
-    ("post", "/admin/homework/1/edit"),
-    ("post", "/admin/homework/1/archive"),
-    ("post", "/admin/homework/1/delete"),
-])
+
+@pytest.mark.parametrize(
+    "method, path",
+    [
+        ("get", "/admin?tab=family"),
+        ("post", "/admin/homework"),
+        ("post", "/admin/homework/1/edit"),
+        ("post", "/admin/homework/1/archive"),
+        ("post", "/admin/homework/1/delete"),
+    ],
+)
 async def test_admin_homework_routes_require_admin(db, client, method, path):
     await db.execute("INSERT INTO homework (profile_id, title) VALUES (3, 'Sheet')")
     await db.commit()
-    resp = await getattr(client, method)(path, **({"data": {"profile_id": 3, "title": "X",
-                                                           "subject_key": "maths"}} if method == "post" else {}))
+    resp = await getattr(client, method)(
+        path, **({"data": {"profile_id": 3, "title": "X", "subject_key": "maths"}} if method == "post" else {})
+    )
     assert resp.status_code == 303 and resp.headers["location"].startswith("/admin/login")
     assert await _rows(db, "SELECT title, subject_key, archived FROM homework") == [("Sheet", "other", 0)]
 
@@ -463,7 +539,7 @@ async def test_kiosk_taps_need_no_pin(db, client, today, readers):
 
 async def test_family_tab_walk(db, admin_client, today):
     """Every section of the Family tab renders, and the reading log is one."""
-    page = (await admin_client.get("/admin?tab=family"))
+    page = await admin_client.get("/admin?tab=family")
     assert page.status_code == 200
     for section in ("family", "tasks", "homework", "reading", "practice-words"):
         assert f'id="{section}"' in page.text

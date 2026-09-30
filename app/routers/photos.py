@@ -85,8 +85,9 @@ async def photos_connect(request: Request):
 
 
 @router.get("/photos/callback", name="photos_callback", dependencies=[Depends(require_admin)])
-async def photos_callback(request: Request, code: str | None = None, state: str | None = None,
-                          error: str | None = None):
+async def photos_callback(
+    request: Request, code: str | None = None, state: str | None = None, error: str | None = None
+):
     """Store the Photos token (encrypted, apart from the main connection),
     then carry straight on to picking: that's what signing in was for."""
     expected = request.cookies.get(STATE_COOKIE)

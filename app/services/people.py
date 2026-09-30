@@ -21,7 +21,7 @@ import re
 
 
 def first_name(name: str | None) -> str:
-    """"Alanna Smith" -> "Alanna"; "" for a blank name."""
+    """ "Alanna Smith" -> "Alanna"; "" for a blank name."""
     parts = (name or "").split()
     return parts[0] if parts else ""
 
@@ -31,7 +31,7 @@ def _same(a: str, b: str) -> bool:
 
 
 def split_person(title: str, profiles: list[dict]) -> tuple[dict | None, str]:
-    """"Alanna: Dentist" -> (Alanna's profile, "Dentist") when the part
+    """ "Alanna: Dentist" -> (Alanna's profile, "Dentist") when the part
     before the first colon is a family member's name (their full name or
     first name); otherwise (None, title), i.e. Everyone."""
     name, sep, rest = (title or "").partition(":")

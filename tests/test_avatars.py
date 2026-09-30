@@ -49,6 +49,7 @@ async def _upload(client, profile_id, data, name="me.jpg", mime="image/jpeg"):
 
 # --- Migration 8 ---
 
+
 async def test_migration_8_adds_avatar_columns_without_touching_data(tmp_path, monkeypatch):
     path = tmp_path / "upgrade.db"
     monkeypatch.setattr(database, "DB_PATH", path)
@@ -80,18 +81,59 @@ async def test_migration_8_adds_avatar_columns_without_touching_data(tmp_path, m
 
 # --- Emoji ---
 
-@pytest.mark.parametrize("text", [
-    "🐶", "⚽", "🌟", "❤️", "☀️", "👍🏽", "👩‍🚀", "👨‍👩‍👧‍👦", "🏳️‍🌈", "🇬🇧", "🏴󠁧󠁢󠁳󠁣󠁴󠁿", "#️⃣", "1️⃣", " 🦄 ",
-    *avatars.CURATED_EMOJI,
-])
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "🐶",
+        "⚽",
+        "🌟",
+        "❤️",
+        "☀️",
+        "👍🏽",
+        "👩‍🚀",
+        "👨‍👩‍👧‍👦",
+        "🏳️‍🌈",
+        "🇬🇧",
+        "🏴󠁧󠁢󠁳󠁣󠁴󠁿",
+        "#️⃣",
+        "1️⃣",
+        " 🦄 ",
+        *avatars.CURATED_EMOJI,
+    ],
+)
 def test_one_emoji_is_accepted(text):
     assert avatars.clean_emoji(text) == text.strip()
 
 
-@pytest.mark.parametrize("text", [
-    "", " ", "A", "ab", "1", "#", "→", "ℕ", "🐶🐱", "🐶 🐱", "🐶a", "a🐶", "🇬", "🇬🇧🇫🇷", "‍🐶", "🐶‍", "🐶‍‍🐱", "️", "🏽",
-    "<script>", "🐶" * 20, "​", "\U000e0067",
-])
+@pytest.mark.parametrize(
+    "text",
+    [
+        "",
+        " ",
+        "A",
+        "ab",
+        "1",
+        "#",
+        "→",
+        "ℕ",
+        "🐶🐱",
+        "🐶 🐱",
+        "🐶a",
+        "a🐶",
+        "🇬",
+        "🇬🇧🇫🇷",
+        "‍🐶",
+        "🐶‍",
+        "🐶‍‍🐱",
+        "️",
+        "🏽",
+        "<script>",
+        "🐶" * 20,
+        "​",
+        "\U000e0067",
+    ],
+)
 def test_anything_but_one_emoji_is_refused(text):
     with pytest.raises(avatars.AvatarError) as exc:
         avatars.clean_emoji(text)
@@ -111,8 +153,9 @@ async def test_picking_an_emoji_from_the_grid(db, admin_client):
 
 
 async def test_a_typed_emoji_wins_and_a_bad_one_changes_nothing(db, admin_client):
-    r = await admin_client.post(f"/admin/profiles/{RILEY}/avatar",
-                                data={"kind": "emoji", "emoji": "🦊", "custom_emoji": "🧁"})
+    r = await admin_client.post(
+        f"/admin/profiles/{RILEY}/avatar", data={"kind": "emoji", "emoji": "🦊", "custom_emoji": "🧁"}
+    )
     assert r.headers["location"] == FAMILY
     assert (await _profile(db, RILEY))["avatar_emoji"] == "🧁"
     r = await admin_client.post(f"/admin/profiles/{RILEY}/avatar", data={"kind": "emoji", "custom_emoji": "Hi"})
@@ -132,11 +175,14 @@ async def test_switching_kinds_keeps_the_emoji_for_later(db, admin_client):
     assert (await _profile(db, RILEY))["avatar_kind"] == "emoji"
 
 
-@pytest.mark.parametrize(("data", "code"), [
-    ({"kind": "sticker"}, "avatar-kind"),
-    ({"kind": "photo"}, "avatar-no-photo"),
-    ({"kind": "emoji"}, "avatar-emoji"),  # no emoji chosen yet
-])
+@pytest.mark.parametrize(
+    ("data", "code"),
+    [
+        ({"kind": "sticker"}, "avatar-kind"),
+        ({"kind": "photo"}, "avatar-no-photo"),
+        ({"kind": "emoji"}, "avatar-emoji"),  # no emoji chosen yet
+    ],
+)
 async def test_avatar_choices_that_cant_be_saved(db, admin_client, data, code):
     r = await admin_client.post(f"/admin/profiles/{JAMIE}/avatar", data=data)
     assert r.headers["location"] == _error(code)
@@ -144,13 +190,17 @@ async def test_avatar_choices_that_cant_be_saved(db, admin_client, data, code):
 
 
 async def test_a_missing_person(admin_client):
-    for path, kwargs in [("/avatar", {"data": {"kind": "initial"}}), ("/avatar/photo/remove", {}),
-                         ("/avatar/photo", {"files": {"photo": ("a.jpg", _image(), "image/jpeg")}})]:
+    for path, kwargs in [
+        ("/avatar", {"data": {"kind": "initial"}}),
+        ("/avatar/photo/remove", {}),
+        ("/avatar/photo", {"files": {"photo": ("a.jpg", _image(), "image/jpeg")}}),
+    ]:
         r = await admin_client.post(f"/admin/profiles/999{path}", **kwargs)
         assert r.headers["location"] == _error("profile-missing"), path
 
 
 # --- Photo upload ---
+
 
 async def test_photo_is_cropped_resized_stored_and_used(db, admin_client):
     r = await _upload(admin_client, MUM, _image((800, 400)))
@@ -209,7 +259,7 @@ def test_heic_is_accepted():
     out = io.BytesIO()
     try:
         image.save(out, quality=50)
-    except (OSError, RuntimeError, ValueError):
+    except OSError, RuntimeError, ValueError:
         pytest.skip("no HEIC encoder in this build")
     photo = avatars.process_photo(out.getvalue())
     with Image.open(io.BytesIO(photo)) as result:
@@ -306,8 +356,9 @@ async def test_removing_a_photo_that_isnt_shown_keeps_the_emoji(db, admin_client
 
 # --- Upload guard: auth and size before the body is read ---
 
-MULTIPART_HEAD = (b'--abc\r\nContent-Disposition: form-data; name="photo"; filename="a.jpg"\r\n'
-                  b"Content-Type: image/jpeg\r\n\r\n")
+MULTIPART_HEAD = (
+    b'--abc\r\nContent-Disposition: form-data; name="photo"; filename="a.jpg"\r\nContent-Type: image/jpeg\r\n\r\n'
+)
 MULTIPART = {"content-type": "multipart/form-data; boundary=abc"}
 
 
@@ -318,6 +369,7 @@ def _streamed(chunks: int, sent: list):
         for _ in range(chunks):
             sent.append(MB)
             yield b"\x00" * MB
+
     return body()
 
 
@@ -340,8 +392,11 @@ async def test_upload_while_pin_is_default_is_refused_unread(db, admin_client):
 
 async def test_oversize_upload_gets_413(db, admin_client):
     sent = []
-    r = await admin_client.post(f"/admin/profiles/{MUM}/avatar/photo", content=_streamed(30, sent),
-                                headers={**MULTIPART, "content-length": str(30 * MB)})
+    r = await admin_client.post(
+        f"/admin/profiles/{MUM}/avatar/photo",
+        content=_streamed(30, sent),
+        headers={**MULTIPART, "content-length": str(30 * MB)},
+    )
     assert r.status_code == 413 and sum(sent) <= len(MULTIPART_HEAD)
 
     sent.clear()  # streamed with no length: cut off just past the 8 MB cap
@@ -350,14 +405,18 @@ async def test_oversize_upload_gets_413(db, admin_client):
     assert (await _profile(db, MUM))["avatar_photo"] is None
 
 
-@pytest.mark.parametrize(("method", "path", "kwargs"), [
-    ("post", f"/admin/profiles/{MUM}/avatar", {"data": {"kind": "emoji", "emoji": "🐶"}}),
-    ("post", f"/admin/profiles/{MUM}/avatar/photo", {"files": {"photo": ("a.jpg", b"x", "image/jpeg")}}),
-    ("post", f"/admin/profiles/{MUM}/avatar/photo/remove", {}),
-])
+@pytest.mark.parametrize(
+    ("method", "path", "kwargs"),
+    [
+        ("post", f"/admin/profiles/{MUM}/avatar", {"data": {"kind": "emoji", "emoji": "🐶"}}),
+        ("post", f"/admin/profiles/{MUM}/avatar/photo", {"files": {"photo": ("a.jpg", b"x", "image/jpeg")}}),
+        ("post", f"/admin/profiles/{MUM}/avatar/photo/remove", {}),
+    ],
+)
 async def test_every_avatar_admin_route_needs_the_pin(db, client, method, path, kwargs):
-    await db.execute("UPDATE profiles SET avatar_kind = 'photo', avatar_photo = x'00', avatar_hash = 'h' WHERE id = ?",
-                     (MUM,))
+    await db.execute(
+        "UPDATE profiles SET avatar_kind = 'photo', avatar_photo = x'00', avatar_hash = 'h' WHERE id = ?", (MUM,)
+    )
     await db.commit()
     r = await getattr(client, method)(path, **kwargs)
     assert r.status_code == 303 and r.headers["location"] == "/admin/login"
@@ -366,6 +425,7 @@ async def test_every_avatar_admin_route_needs_the_pin(db, client, method, path, 
 
 
 # --- Serving ---
+
 
 async def test_photo_is_served_pin_free_and_cached_for_good(db, admin_client, client):
     await _upload(admin_client, MUM, _image())
@@ -389,10 +449,27 @@ async def test_a_new_photo_gets_a_new_url_and_the_old_one_is_gone(db, admin_clie
     assert (await admin_client.get(f"/avatars/{MUM}-{new}")).status_code == 200
 
 
-@pytest.mark.parametrize("key", [
-    "{hash}", "{id}", "{id}-", "0-{hash}", "01-{hash}", "-1-{hash}", "{id}-{upper}", "{id}-{hash}0", "{id}-{short}",
-    "{id}.{hash}", "{id}-{hash}.webp", "2-{hash}", "999-{hash}", "abc-{hash}", "{id}-..%2F..%2Fx", "1e3-{hash}",
-])
+@pytest.mark.parametrize(
+    "key",
+    [
+        "{hash}",
+        "{id}",
+        "{id}-",
+        "0-{hash}",
+        "01-{hash}",
+        "-1-{hash}",
+        "{id}-{upper}",
+        "{id}-{hash}0",
+        "{id}-{short}",
+        "{id}.{hash}",
+        "{id}-{hash}.webp",
+        "2-{hash}",
+        "999-{hash}",
+        "abc-{hash}",
+        "{id}-..%2F..%2Fx",
+        "1e3-{hash}",
+    ],
+)
 async def test_bad_or_unknown_keys_are_404(db, admin_client, client, key):
     await _upload(admin_client, MUM, _image())
     photo_hash = (await _profile(db, MUM))["avatar_hash"]
@@ -413,6 +490,7 @@ async def test_no_photo_is_404_even_with_a_kind_of_photo(db, client):
 
 # --- Rendering: every pill and dot ---
 
+
 @pytest.fixture
 async def faces(db, admin_client):
     """Mum has a photo, Riley an emoji; Dad and Jamie keep their initials."""
@@ -425,9 +503,13 @@ async def faces(db, admin_client):
 def _pills(html: str) -> dict[str, str]:
     """Each person pill's name -> its avatar markup."""
     return {
-        name: face for face, name in re.findall(
+        name: face
+        for face, name in re.findall(
             r'<span class="person-pill[^"]*"[^>]*>\s*(<span class="person-avatar.*?</span>)\s*'
-            r'<span class="person-name">([^<]+)</span>', html, re.S)
+            r'<span class="person-name">([^<]+)</span>',
+            html,
+            re.S,
+        )
     }
 
 
@@ -443,8 +525,9 @@ def _assert_faces(pills: dict[str, str], photo: str, names=("Mum", "Riley")):
 
 
 async def test_tasks_widget(db, client, faces):
-    await db.executemany("INSERT INTO tasks (profile_id, title) VALUES (?, ?)",
-                         [(MUM, "Bins"), (DAD, "Car"), (RILEY, "Bag")])
+    await db.executemany(
+        "INSERT INTO tasks (profile_id, title) VALUES (?, ?)", [(MUM, "Bins"), (DAD, "Car"), (RILEY, "Bag")]
+    )
     await db.commit()
     pills = _pills((await client.get("/widgets/tasks")).text)
     assert set(pills) >= {"Mum", "Dad", "Riley"}
@@ -454,10 +537,12 @@ async def test_tasks_widget(db, client, faces):
 async def test_homework_and_practice_words_widgets(db, client, faces):
     await db.execute("INSERT INTO homework (profile_id, subject, title) VALUES (?, 'Maths', 'Fractions')", (RILEY,))
     await db.execute("INSERT INTO homework (profile_id, subject, title) VALUES (?, 'Maths', 'Sums')", (MUM,))
-    await db.execute("INSERT INTO practice_word_lists (profile_id, title, words) VALUES (?, 'Week 4', 'because')",
-                     (RILEY,))
-    await db.execute("INSERT INTO practice_word_lists (profile_id, title, words) VALUES (?, 'Week 4', 'which')",
-                     (JAMIE,))
+    await db.execute(
+        "INSERT INTO practice_word_lists (profile_id, title, words) VALUES (?, 'Week 4', 'because')", (RILEY,)
+    )
+    await db.execute(
+        "INSERT INTO practice_word_lists (profile_id, title, words) VALUES (?, 'Week 4', 'which')", (JAMIE,)
+    )
     await db.commit()
     homework_pills = _pills((await client.get("/widgets/homework")).text)
     assert set(homework_pills) == {"Mum", "Riley"}
@@ -493,8 +578,14 @@ async def test_read_tonight_chips(db, client, faces):
     await db.execute("UPDATE profiles SET school_year = 'Year 4' WHERE id IN (?, ?)", (RILEY, JAMIE))
     await db.commit()
     html = (await client.get("/widgets/homework")).text
-    chips = dict(re.findall(r'<span class="rd-dot" aria-hidden="true">(.*?)</span>.*?'
-                            r'<span class="rd-name">([^<]+)</span>', html, re.S))
+    chips = dict(
+        re.findall(
+            r'<span class="rd-dot" aria-hidden="true">(.*?)</span>.*?'
+            r'<span class="rd-name">([^<]+)</span>',
+            html,
+            re.S,
+        )
+    )
     chips = {name: face for face, name in chips.items()}
     assert set(chips) == {"Riley", "Jamie"}
     assert "rd-initial avatar-emoji" in chips["Riley"] and "🦖" in chips["Riley"]
@@ -506,8 +597,9 @@ async def test_banners(db, client, faces, monkeypatch):
     now = datetime.now(london).replace(hour=10, minute=0)
     monkeypatch.setattr(banners, "_clock", lambda tz: now.astimezone(tz))
     for pid in (MUM, RILEY):
-        await db.execute("INSERT INTO homework (profile_id, title, due_date) VALUES (?, 'Poem', ?)",
-                         (pid, now.date().isoformat()))
+        await db.execute(
+            "INSERT INTO homework (profile_id, title, due_date) VALUES (?, 'Poem', ?)", (pid, now.date().isoformat())
+        )
     await db.commit()
     pills = _pills((await client.get("/banners")).text)
     assert set(pills) == {"Mum", "Riley"}
@@ -545,6 +637,7 @@ async def test_contrast_ink_still_applies_to_every_kind(db, admin_client, client
 
 # --- Backups ---
 
+
 async def test_backups_include_the_photo_and_emoji(db, admin_client):
     await _upload(admin_client, MUM, _image())
     await admin_client.post(f"/admin/profiles/{RILEY}/avatar", data={"kind": "emoji", "emoji": "🦖"})
@@ -554,7 +647,9 @@ async def test_backups_include_the_photo_and_emoji(db, admin_client):
     path = await backup.create_backup()
 
     with sqlite3.connect(path) as conn:
-        rows = dict((r[0], r[1:]) for r in conn.execute(
-            "SELECT id, avatar_kind, avatar_emoji, avatar_photo, avatar_hash FROM profiles"))
+        rows = dict(
+            (r[0], r[1:])
+            for r in conn.execute("SELECT id, avatar_kind, avatar_emoji, avatar_photo, avatar_hash FROM profiles")
+        )
     assert rows[MUM] == ("photo", None, mum["avatar_photo"], mum["avatar_hash"])
     assert rows[RILEY] == ("emoji", "🦖", None, None)

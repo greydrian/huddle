@@ -11,8 +11,10 @@ from app.security import create_session_token
 MB = 1024 * 1024
 FORM = {"content-type": "application/x-www-form-urlencoded"}
 MULTIPART = {"content-type": "multipart/form-data; boundary=abc"}
-HEAD = (b'--abc\r\nContent-Disposition: form-data; name="kind"\r\n\r\ninitial\r\n'
-        b'--abc\r\nContent-Disposition: form-data; name="x"; filename="x.bin"\r\n\r\n')
+HEAD = (
+    b'--abc\r\nContent-Disposition: form-data; name="kind"\r\n\r\ninitial\r\n'
+    b'--abc\r\nContent-Disposition: form-data; name="x"; filename="x.bin"\r\n\r\n'
+)
 
 
 @pytest.fixture
@@ -28,18 +30,22 @@ def _streamed(chunks: int, sent: list, head: bytes = HEAD, chunk: bytes = b"\x00
         for _ in range(chunks):
             sent.append(len(chunk))
             yield chunk
+
     return body()
 
 
-@pytest.mark.parametrize("path", [
-    "/admin/profiles/1/avatar",  # Form() params: FastAPI would parse the body before require_admin
-    "/admin/profiles/1/details",
-    "/admin/weather-location",
-    "/admin/change-pin",
-    "/admin/new-pin",
-    "/admin/profiles/1/avatar/photo",
-    "/admin/no-such-route",
-])
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/admin/profiles/1/avatar",  # Form() params: FastAPI would parse the body before require_admin
+        "/admin/profiles/1/details",
+        "/admin/weather-location",
+        "/admin/change-pin",
+        "/admin/new-pin",
+        "/admin/profiles/1/avatar/photo",
+        "/admin/no-such-route",
+    ],
+)
 async def test_signed_out_writes_are_refused_before_the_body_is_read(db, client, path):
     sent = []
     r = await client.post(path, content=_streamed(30, sent), headers=MULTIPART)
@@ -72,14 +78,18 @@ async def test_a_normal_admin_form_still_works(db, admin_client):
 async def test_an_oversized_admin_form_gets_413(db, admin_client):
     # Declared too big: refused from the header.
     sent = []
-    r = await admin_client.post("/admin/profiles/1/details", content=_streamed(2, sent, b"school_year="),
-                                headers={**FORM, "content-length": str(2 * MB)})
+    r = await admin_client.post(
+        "/admin/profiles/1/details",
+        content=_streamed(2, sent, b"school_year="),
+        headers={**FORM, "content-length": str(2 * MB)},
+    )
     assert r.status_code == 413 and sum(sent) <= len(b"school_year=")
 
     # Streamed with no length: cut off just past the cap, not read to the end.
     sent.clear()
-    r = await admin_client.post("/admin/profiles/1/details", headers=FORM,
-                                content=_streamed(100, sent, b"school_year=", b"a" * 16 * 1024))
+    r = await admin_client.post(
+        "/admin/profiles/1/details", headers=FORM, content=_streamed(100, sent, b"school_year=", b"a" * 16 * 1024)
+    )
     assert r.status_code == 413
     assert sum(sent) <= upload_guard.MAX_FORM_BODY + 32 * 1024
     row = await (await db.execute("SELECT school_year FROM profiles WHERE id = 1")).fetchone()
@@ -95,8 +105,9 @@ async def test_login_needs_no_session_and_still_works(db, client):
 
 async def test_login_body_is_capped_too(client):
     sent = []
-    r = await client.post("/admin/login", content=_streamed(2, sent, b"pin="),
-                          headers={**FORM, "content-length": str(2 * MB)})
+    r = await client.post(
+        "/admin/login", content=_streamed(2, sent, b"pin="), headers={**FORM, "content-length": str(2 * MB)}
+    )
     assert r.status_code == 413 and sum(sent) <= len(b"pin=")
 
 

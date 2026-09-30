@@ -274,8 +274,15 @@ TOOL = {
                     "type": "object",
                     "additionalProperties": False,
                     "required": [
-                        "title", "date", "start_time", "end_time", "all_day", "notes",
-                        "child", "whole_school", "evidence",
+                        "title",
+                        "date",
+                        "start_time",
+                        "end_time",
+                        "all_day",
+                        "notes",
+                        "child",
+                        "whole_school",
+                        "evidence",
                     ],
                     "properties": {
                         "title": {"type": "string"},
@@ -328,10 +335,12 @@ def build_request(doc: SourceDocument, children: list[Child], today: date) -> di
     for attachment in doc.attachments:
         data = base64.standard_b64encode(attachment.data).decode("ascii")
         block_type = "document" if attachment.mime_type == PDF_TYPE else "image"
-        content.append({
-            "type": block_type,
-            "source": {"type": "base64", "media_type": attachment.mime_type, "data": data},
-        })
+        content.append(
+            {
+                "type": block_type,
+                "source": {"type": "base64", "media_type": attachment.mime_type, "data": data},
+            }
+        )
     context = [
         f"Today's date: {today.isoformat()} ({today.strftime('%A')}).",
         _children_block(children, doc.child_hint),
@@ -395,8 +404,11 @@ def _failure_code(exc: anthropic.APIError, doc: SourceDocument) -> str:
         if status == 413:
             return "too_large"
         # The API names the page limit in its message; only the code is kept.
-        if (status == 400 and any(a.mime_type == PDF_TYPE for a in doc.attachments)
-                and "page" in str(getattr(exc, "message", "")).lower()):
+        if (
+            status == 400
+            and any(a.mime_type == PDF_TYPE for a in doc.attachments)
+            and "page" in str(getattr(exc, "message", "")).lower()
+        ):
             return "pdf_too_long"
         return "rejected"
     return "error"
@@ -515,8 +527,12 @@ def _word_list(raw: dict, children, today) -> Candidate | None:
     starts, ends = _real_date(item.starts_on, today), _real_date(item.ends_on, today)
     if starts and ends and ends < starts:
         ends = None
-    return Candidate("word_list", _profile_for(item.child, children),
-                     {"title": title, "words": words, "starts_on": starts, "ends_on": ends}, item.evidence)
+    return Candidate(
+        "word_list",
+        _profile_for(item.child, children),
+        {"title": title, "words": words, "starts_on": starts, "ends_on": ends},
+        item.evidence,
+    )
 
 
 def _homework(raw: dict, children, today) -> Candidate | None:
@@ -619,10 +635,14 @@ def _term_dates(items: list, today: date) -> Candidate | None:
             continue
         try:
             item = _TermPeriod.model_validate(raw)
-        except (ValidationError, ValueError, TypeError):
+        except ValidationError, ValueError, TypeError:
             continue
-        period = {"kind": item.kind, "start_date": item.start_date, "end_date": item.end_date,
-                  "label": item.label or term_dates.KINDS[item.kind]}
+        period = {
+            "kind": item.kind,
+            "start_date": item.start_date,
+            "end_date": item.end_date,
+            "label": item.label or term_dates.KINDS[item.kind],
+        }
         problem = _period_problem(period, today)
         if problem:
             period["problem"] = problem
@@ -652,7 +672,7 @@ def validate_output(tool_input: dict, children: list[Child], today: date) -> lis
                 continue
             try:
                 candidate = parse(raw, children, today)
-            except (ValidationError, TypeError, ValueError):
+            except ValidationError, TypeError, ValueError:
                 continue
             if candidate:
                 candidates.append(candidate)
@@ -661,5 +681,5 @@ def validate_output(tool_input: dict, children: list[Child], today: date) -> lis
     if isinstance(raw_periods, list):
         term_candidate = _term_dates(raw_periods, today)
         if term_candidate:  # always kept: it's one candidate however many periods
-            candidates = [*candidates[:MAX_CANDIDATES - 1], term_candidate]
+            candidates = [*candidates[: MAX_CANDIDATES - 1], term_candidate]
     return candidates

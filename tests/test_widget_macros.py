@@ -25,8 +25,9 @@ async def _profile(db):
 
 async def test_task_tick_reveals_only_when_ticking(db, client):
     pid = await _profile(db)
-    await db.execute("INSERT INTO tasks (profile_id, title, is_completed) VALUES (?, 'Open', 0), (?, 'Done', 1)",
-                     (pid, pid))
+    await db.execute(
+        "INSERT INTO tasks (profile_id, title, is_completed) VALUES (?, 'Open', 0), (?, 'Done', 1)", (pid, pid)
+    )
     await db.commit()
 
     html = (await client.get("/widgets/tasks")).text
@@ -36,8 +37,10 @@ async def test_task_tick_reveals_only_when_ticking(db, client):
 async def test_homework_tick_reveals_only_when_ticking(db, client):
     pid = await _profile(db)
     now = datetime.now(await database.family_timezone(db)).isoformat()
-    await db.execute("INSERT INTO homework (profile_id, title, done, done_at) VALUES (?, 'Open', 0, NULL), "
-                     "(?, 'Done', 1, ?)", (pid, pid, now))
+    await db.execute(
+        "INSERT INTO homework (profile_id, title, done, done_at) VALUES (?, 'Open', 0, NULL), (?, 'Done', 1, ?)",
+        (pid, pid, now),
+    )
     await db.commit()
 
     html = (await client.get("/widgets/homework")).text
@@ -46,8 +49,9 @@ async def test_homework_tick_reveals_only_when_ticking(db, client):
 
 async def test_practice_words_tick_reveals_only_when_ticking(db, client):
     pid = await _profile(db)
-    await db.execute("INSERT INTO practice_word_lists (profile_id, title, words) VALUES (?, 'A', 'cat'), "
-                     "(?, 'B', 'dog')", (pid, pid))
+    await db.execute(
+        "INSERT INTO practice_word_lists (profile_id, title, words) VALUES (?, 'A', 'cat'), (?, 'B', 'dog')", (pid, pid)
+    )
     done_id = (await (await db.execute("SELECT id FROM practice_word_lists WHERE title = 'B'")).fetchone())[0]
     today = (await database.family_today(db)).isoformat()
     await db.execute("INSERT INTO practice_log (list_id, practised_on) VALUES (?, ?)", (done_id, today))

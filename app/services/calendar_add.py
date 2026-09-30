@@ -54,8 +54,8 @@ NOTE = "Added on the family display."
 DEFAULT_LENGTH = timedelta(hours=1)
 MAX_TITLE = 100
 MAX_DAYS_AHEAD = 400
-RATE_LIMIT = 20          # adds per RATE_WINDOW, for the whole wall
-RATE_WINDOW = 3600       # seconds
+RATE_LIMIT = 20  # adds per RATE_WINDOW, for the whole wall
+RATE_WINDOW = 3600  # seconds
 _recent_adds: deque[float] = deque()  # monotonic times of recent adds (one process)
 
 REQUEST_KEY = re.compile(r"[A-Za-z0-9_-]{8,64}")
@@ -73,7 +73,7 @@ ERRORS = {
     "scope": "Google needs reconnecting in Admin (Disconnect, then Connect) before events can be added.",
     # A timeout may come after Google made the event, so don't say it wasn't.
     "offline": "Couldn't reach Google Calendar. It may already have been added: check the calendar before "
-               "adding it again.",
+    "adding it again.",
     "missing": "The Family calendar can't be found any more. Choose it again in Admin.",
     "failed": "Google Calendar didn't accept the event, so it wasn't added.",
     "rate": "That's a lot of new events in one go. Try again in a little while.",
@@ -111,6 +111,7 @@ def _give_back(slot: float) -> None:
 
 # --- Validation ---------------------------------------------------------------------------
 
+
 def _clean_title(value: str | None) -> str:
     title = " ".join(_CONTROL.sub(" ", value or "").split())
     if not title or len(title) > MAX_TITLE:
@@ -143,7 +144,7 @@ async def _person(db, person_id) -> dict | None:
         return None
     try:
         pid = int(person_id)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         raise AddEventError("person") from None
     row = await (await db.execute("SELECT id, name FROM profiles WHERE id = ?", (pid,))).fetchone()
     if row is None:
@@ -152,7 +153,7 @@ async def _person(db, person_id) -> dict | None:
 
 
 def summary_for(title: str, person: dict | None) -> str:
-    """"Alanna: Dentist" for one person (unless the title already says so),
+    """ "Alanna: Dentist" for one person (unless the title already says so),
     else the title as typed."""
     if person is None:
         return title
@@ -172,20 +173,26 @@ def event_resource(eid: str, summary: str, day: date, start: str | None, end: st
     else:
         begins = datetime.combine(day, dtime.fromisoformat(start), tzinfo=tz)
         ends = datetime.combine(day, dtime.fromisoformat(end), tzinfo=tz) if end else begins + DEFAULT_LENGTH
-        when = {"start": {"dateTime": begins.isoformat(), "timeZone": tz.key},
-                "end": {"dateTime": ends.isoformat(), "timeZone": tz.key}}
+        when = {
+            "start": {"dateTime": begins.isoformat(), "timeZone": tz.key},
+            "end": {"dateTime": ends.isoformat(), "timeZone": tz.key},
+        }
     return {"id": eid, "summary": summary, "description": NOTE, **when}
 
 
 # --- Claims -------------------------------------------------------------------------------
+
 
 def _read_claims(raw: str | None) -> dict[str, dict]:
     try:
         value = json.loads(raw or "{}")
     except ValueError:
         return {}
-    return {k: v for k, v in value.items() if isinstance(k, str) and isinstance(v, dict)} \
-        if isinstance(value, dict) else {}
+    return (
+        {k: v for k, v in value.items() if isinstance(k, str) and isinstance(v, dict)}
+        if isinstance(value, dict)
+        else {}
+    )
 
 
 def _prune(claims: dict[str, dict], now: datetime) -> dict[str, dict]:
@@ -194,7 +201,7 @@ def _prune(claims: dict[str, dict], now: datetime) -> dict[str, dict]:
     for key, claim in claims.items():
         try:
             at = datetime.fromisoformat(claim.get("at", ""))
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             continue
         if at.tzinfo is not None and at >= cutoff:
             kept[key] = claim
@@ -227,30 +234,34 @@ def _stale(claim: dict) -> bool:
         return False
     try:
         at = datetime.fromisoformat(claim.get("at", ""))
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return True
     return at.tzinfo is None or datetime.now(UTC) - at > STALE_CLAIM
 
 
 async def _claim(db, key: str) -> dict | None:
     """Claims `key`. None if it's ours now; else the existing claim."""
+
     def change(claims):
         existing = claims.get(key)
         if existing is not None and not _stale(existing):
             return existing
         claims[key] = {"state": "adding", "at": datetime.now(UTC).isoformat()}
         return None
+
     return await _update_claims(db, change)
 
 
 async def _finish(db, key: str, done: dict | None) -> None:
     """Marks the claim done (with what was added), or releases it."""
+
     def change(claims):
         if done is None:
             claims.pop(key, None)
         else:
             claims[key] = {"state": "done", "at": datetime.now(UTC).isoformat(), **done}
         return None
+
     await _update_claims(db, change)
 
 
@@ -262,7 +273,7 @@ def _reasons(resp: httpx.Response) -> set[str]:
     try:
         errors = resp.json().get("error", {}).get("errors") or []
         return {str(e.get("reason")) for e in errors if isinstance(e, dict)}
-    except (ValueError, AttributeError):
+    except ValueError, AttributeError:
         return set()
 
 
@@ -285,6 +296,7 @@ def _failure_code(exc: httpx.HTTPError) -> str:
 
 # --- The add ------------------------------------------------------------------------------
 
+
 async def add_family_event(
     db,
     *,
@@ -300,8 +312,15 @@ async def add_family_event(
     already added, nothing new was created). Raises AddEventError, never a
     database error (those become "storage")."""
     try:
-        return await _add(db, title=title, day=day, start_time=start_time, end_time=end_time,
-                          person_id=person_id, request_key=request_key)
+        return await _add(
+            db,
+            title=title,
+            day=day,
+            start_time=start_time,
+            end_time=end_time,
+            person_id=person_id,
+            request_key=request_key,
+        )
     except sqlite3.Error as exc:
         logger.warning("Couldn't add an event (database): %s", type(exc).__name__)
         raise AddEventError("storage") from None
@@ -334,9 +353,13 @@ async def _add(db, *, title, day, start_time, end_time, person_id, request_key) 
         raise AddEventError("storage") from None
     if existing is not None:  # a repeat of an add: never a second event, never counted
         if existing.get("state") == "done":
-            return {"id": existing.get("id"), "summary": existing.get("summary", summary),
-                    "date": existing.get("date", the_day.isoformat()),
-                    "calendar": existing.get("calendar", family["summary"]), "duplicate": True}
+            return {
+                "id": existing.get("id"),
+                "summary": existing.get("summary", summary),
+                "date": existing.get("date", the_day.isoformat()),
+                "calendar": existing.get("calendar", family["summary"]),
+                "duplicate": True,
+            }
         raise AddEventError("busy")
     # Check and reserve the rate slot with no await in between, so
     # concurrent adds can't all pass the check before any of them counts.
@@ -375,8 +398,9 @@ def _same_start(theirs: dict, ours: dict) -> bool:
     if "date" in ours:
         return theirs.get("date") == ours["date"] and not theirs.get("dateTime")
     try:
-        return datetime.fromisoformat(str(theirs.get("dateTime")).replace("Z", "+00:00")) \
-            == datetime.fromisoformat(ours["dateTime"])
+        return datetime.fromisoformat(str(theirs.get("dateTime")).replace("Z", "+00:00")) == datetime.fromisoformat(
+            ours["dateTime"]
+        )
     except ValueError:
         return False
 
@@ -384,8 +408,11 @@ def _same_start(theirs: dict, ours: dict) -> bool:
 def _matches(event: dict, resource: dict) -> bool:
     """Whether an existing Google event is this very add: not deleted, the
     same title and the same start (day, and time unless all day)."""
-    return (event.get("status") != "cancelled" and event.get("summary") == resource["summary"]
-            and _same_start(event.get("start") or {}, resource["start"]))
+    return (
+        event.get("status") != "cancelled"
+        and event.get("summary") == resource["summary"]
+        and _same_start(event.get("start") or {}, resource["start"])
+    )
 
 
 async def _insert(db, key: str, family: dict, summary: str, day: date, start, end) -> dict:
@@ -418,8 +445,9 @@ async def _insert(db, key: str, family: dict, summary: str, day: date, start, en
         else:
             raise AddEventError("failed")
     except httpx.HTTPError as exc:
-        http_client.report_failure(logger, OUTAGE_KEY, "Couldn't add an event from the wall: %s",
-                                   http_client.describe(exc))
+        http_client.report_failure(
+            logger, OUTAGE_KEY, "Couldn't add an event from the wall: %s", http_client.describe(exc)
+        )
         raise AddEventError(_failure_code(exc)) from None
     except (ValueError, AttributeError) as exc:
         if isinstance(exc, AddEventError):

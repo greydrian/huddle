@@ -46,6 +46,7 @@ async def _queued(db):
 
 # --- Listing ---
 
+
 async def test_admin_lists_calendars_and_tasklists_from_google(admin_client, google_lists):
     resp = await admin_client.get("/admin?tab=google")
 
@@ -72,6 +73,7 @@ async def test_calendar_list_follows_every_page(admin_client, google, connected)
 
 
 # --- Saving ---
+
 
 async def test_saving_calendars_persists_googles_details_not_the_forms(admin_client, db, google_lists):
     resp = await admin_client.post(
@@ -117,9 +119,7 @@ async def test_saving_an_unknown_shopping_list_is_ignored(admin_client, db, goog
 async def test_saving_profile_task_lists_persists_and_relinks_only_changes(admin_client, db, google_lists):
     first, second = (p["id"] for p in (await _profiles(db))[:2])
     await db.execute("UPDATE profiles SET google_tasklist_id = 'list-kid' WHERE id = ?", (second,))
-    await db.execute(
-        "INSERT INTO tasks (profile_id, title, google_task_id) VALUES (?, 'Feed cat', 'g1')", (first,)
-    )
+    await db.execute("INSERT INTO tasks (profile_id, title, google_task_id) VALUES (?, 'Feed cat', 'g1')", (first,))
     await db.commit()
 
     resp = await admin_client.post(
@@ -147,11 +147,15 @@ async def test_blank_task_list_unlinks_a_profile(admin_client, db, google_lists)
 
 # --- Auth ---
 
-@pytest.mark.parametrize("path, data", [
-    ("/admin/google/calendars", {"calendar_id": "family@example.com"}),
-    ("/admin/google/shopping-list", {"tasklist_id": "list-shop"}),
-    ("/admin/google/task-lists", {"tasklist_1": "list-shop"}),
-])
+
+@pytest.mark.parametrize(
+    "path, data",
+    [
+        ("/admin/google/calendars", {"calendar_id": "family@example.com"}),
+        ("/admin/google/shopping-list", {"tasklist_id": "list-shop"}),
+        ("/admin/google/task-lists", {"tasklist_1": "list-shop"}),
+    ],
+)
 async def test_picker_saves_require_admin(client, db, google, connected, path, data):
     before = (await google_oauth.get_selected_calendars(db), await _profiles(db))
 
@@ -173,6 +177,7 @@ async def test_admin_page_requires_admin(client, google, connected):
 
 
 # --- Offline ---
+
 
 async def test_admin_renders_when_google_is_unreachable(admin_client, google, connected):
     google.get(CALENDAR_LIST_URL).mock(side_effect=httpx.ConnectError("offline"))
@@ -209,10 +214,13 @@ async def test_tasklists_403_prompts_a_reconnect(admin_client, google, connected
     assert "reach Google just now" not in resp.text
 
 
-@pytest.mark.parametrize("path, data", [
-    ("/admin/google/calendars", {"calendar_id": "family@example.com"}),
-    ("/admin/google/shopping-list", {"tasklist_id": "list-shop"}),
-])
+@pytest.mark.parametrize(
+    "path, data",
+    [
+        ("/admin/google/calendars", {"calendar_id": "family@example.com"}),
+        ("/admin/google/shopping-list", {"tasklist_id": "list-shop"}),
+    ],
+)
 async def test_picker_saves_while_offline_change_nothing(admin_client, db, google, connected, path, data):
     google.get(CALENDAR_LIST_URL).mock(side_effect=httpx.ConnectError("offline"))
     google.get(TASKLISTS_URL).mock(side_effect=httpx.ConnectError("offline"))

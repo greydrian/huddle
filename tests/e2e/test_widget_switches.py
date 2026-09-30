@@ -7,8 +7,10 @@ pytestmark = pytest.mark.e2e
 
 
 def _layout(server):
-    return {row[0]: row[1:] for row in server.query(
-        "SELECT widget_id, grid_x, grid_y, grid_w, grid_h, is_visible FROM layout_state")}
+    return {
+        row[0]: row[1:]
+        for row in server.query("SELECT widget_id, grid_x, grid_y, grid_w, grid_h, is_visible FROM layout_state")
+    }
 
 
 async def _wake(page):

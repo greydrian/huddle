@@ -50,8 +50,11 @@ async def list_message_ids(access_token: str, query: str, limit: int) -> list[st
     """Ids of the messages matching a Gmail search, newest first, every page
     (up to `limit`). Spam and Trash are left out, as in Gmail itself."""
     items = await get_all_pages(
-        MESSAGES_ENDPOINT, access_token, {"q": query, "maxResults": PAGE_SIZE},
-        items_key="messages", limit=limit,
+        MESSAGES_ENDPOINT,
+        access_token,
+        {"q": query, "maxResults": PAGE_SIZE},
+        items_key="messages",
+        limit=limit,
     )
     return [item["id"] for item in items if isinstance(item, dict) and item.get("id")]
 
@@ -77,29 +80,29 @@ def addresses(value: str | None) -> list[str]:
 def _internal_date(raw: dict) -> int | None:
     try:
         return int(raw["internalDate"])
-    except (KeyError, TypeError, ValueError):
+    except KeyError, TypeError, ValueError:
         return None
 
 
 @dataclass
 class Envelope:
     addresses: dict[str, list[str]]  # "from" / "to" / "cc" / "reply-to"
-    internal_date: int | None        # epoch ms
+    internal_date: int | None  # epoch ms
 
 
 async def get_envelope(access_token: str, message_id: str) -> Envelope:
     """Who a message is from and to, and when Gmail got it, fetched as
     metadata only (no subject, no body)."""
     params: list[tuple[str, str | int | float | bool | None]] = [
-        ("format", "metadata"), *(("metadataHeaders", h) for h in CHECK_HEADERS)
+        ("format", "metadata"),
+        *(("metadataHeaders", h) for h in CHECK_HEADERS),
     ]
     async with http_client.client() as client:
         resp = await client.get(_message_url(message_id), headers=_auth(access_token), params=params)
         resp.raise_for_status()
         raw = resp.json()
     headers = _headers(raw.get("payload") or {})
-    return Envelope({name.lower(): addresses(headers.get(name.lower())) for name in CHECK_HEADERS},
-                    _internal_date(raw))
+    return Envelope({name.lower(): addresses(headers.get(name.lower())) for name in CHECK_HEADERS}, _internal_date(raw))
 
 
 @dataclass
@@ -114,9 +117,9 @@ class AttachmentPart:
 @dataclass
 class Message:
     id: str
-    sender: str                   # the From header as sent
+    sender: str  # the From header as sent
     from_addresses: list[str]
-    to_addresses: list[str]       # To, Cc and Reply-To together
+    to_addresses: list[str]  # To, Cc and Reply-To together
     subject: str = field(repr=False)
     received_at: datetime | None
     internal_date: int | None
@@ -133,7 +136,7 @@ def _decode(data: str | None) -> bytes:
         return b""
     try:
         return base64.urlsafe_b64decode(data + "=" * (-len(data) % 4))
-    except (binascii.Error, ValueError):
+    except binascii.Error, ValueError:
         return b""
 
 
@@ -156,14 +159,35 @@ def _text_of(part: dict) -> str:
 
 # --- Quoted history ---
 
+
 class _HTMLText(HTMLParser):
     """HTML -> readable plain text: block elements become line breaks,
     scripts/styles/heads are dropped, entities are decoded, and quoted
     history is left out: <blockquote>, Gmail's div.gmail_quote, and
     everything after Outlook's reply markers."""
 
-    BLOCKS = {"p", "div", "br", "tr", "li", "h1", "h2", "h3", "h4", "h5", "h6", "table", "ul", "ol",
-              "section", "article", "header", "footer", "blockquote", "hr"}
+    BLOCKS = {
+        "p",
+        "div",
+        "br",
+        "tr",
+        "li",
+        "h1",
+        "h2",
+        "h3",
+        "h4",
+        "h5",
+        "h6",
+        "table",
+        "ul",
+        "ol",
+        "section",
+        "article",
+        "header",
+        "footer",
+        "blockquote",
+        "hr",
+    }
     SKIP = {"script", "style", "head", "title"}
     QUOTE_CLASSES = {"gmail_quote", "gmail_quote_container", "yahoo_quoted", "moz-cite-prefix"}
     # Outlook: the quoted message follows these, as siblings, to the end.
@@ -248,8 +272,8 @@ def html_all_text(markup: str) -> str:
 # Where quoted history starts in a plain-text body.
 _QUOTE_STARTS = (
     re.compile(r"^\s*On\b(?=.*\d).{0,300}\bwrote:\s*$", re.I | re.S),  # Gmail/Apple: "On <date>, <name> wrote:"
-    re.compile(r"^\s*-{2,}\s*Original Message\s*-{2,}\s*$", re.I),      # Outlook, older
-    re.compile(r"^\s*_{8,}\s*$"),                                       # Outlook's rule before "From:"
+    re.compile(r"^\s*-{2,}\s*Original Message\s*-{2,}\s*$", re.I),  # Outlook, older
+    re.compile(r"^\s*_{8,}\s*$"),  # Outlook's rule before "From:"
     re.compile(r"^\s*Le\b.{0,300}\ba écrit\s*:\s*$", re.I | re.S),
 )
 _FROM_LINE = re.compile(r"^\s*\*?From:\*?\s", re.I)
@@ -271,7 +295,7 @@ def strip_quoted(text: str) -> str:
             _QUOTE_STARTS[0].match(pair) and line.strip().lower().startswith("on ")
         ):
             break
-        if _FROM_LINE.match(line) and any(_SENT_LINE.match(n) for n in lines[index + 1:index + 5]):
+        if _FROM_LINE.match(line) and any(_SENT_LINE.match(n) for n in lines[index + 1 : index + 5]):
             break
         if line.lstrip().startswith(">"):
             continue
@@ -300,6 +324,7 @@ def auth_results(header_values: list[str]) -> dict[str, list[str]] | None:
 
 # --- Reading a message ---
 
+
 def _walk(part: dict, plain: list[str], rich: list[str], files: list[AttachmentPart]):
     mime = str(part.get("mimeType", "")).lower()
     body = part.get("body") or {}
@@ -309,13 +334,15 @@ def _walk(part: dict, plain: list[str], rich: list[str], files: list[AttachmentP
             _walk(child, plain, rich, files)
         return
     if filename or body.get("attachmentId"):
-        files.append(AttachmentPart(
-            filename=filename or "attachment",
-            mime_type=mime,
-            size=int(body.get("size") or 0),
-            attachment_id=body.get("attachmentId"),
-            inline_data=None if body.get("attachmentId") else _decode(body.get("data")),
-        ))
+        files.append(
+            AttachmentPart(
+                filename=filename or "attachment",
+                mime_type=mime,
+                size=int(body.get("size") or 0),
+                attachment_id=body.get("attachmentId"),
+                inline_data=None if body.get("attachmentId") else _decode(body.get("data")),
+            )
+        )
     elif mime == "text/plain":
         plain.append(_text_of(part))
     elif mime == "text/html":
@@ -334,16 +361,20 @@ def parse_message(raw: dict) -> Message:
     text = "\n\n".join(strip_quoted(t) for t in plain if t.strip())
     if not text.strip():
         text = "\n\n".join(strip_quoted(html_to_text(t)) for t in rich if t.strip())
-    everything = "\n".join([
-        *(value for _, value in _header_list(payload)),
-        *plain, *(html_all_text(t) for t in rich), *(f.filename for f in files),
-    ])
+    everything = "\n".join(
+        [
+            *(value for _, value in _header_list(payload)),
+            *plain,
+            *(html_all_text(t) for t in rich),
+            *(f.filename for f in files),
+        ]
+    )
     internal = _internal_date(raw)
     received = None
     if internal is not None:
         try:
             received = datetime.fromtimestamp(internal / 1000, UTC)
-        except (OverflowError, OSError, ValueError):
+        except OverflowError, OSError, ValueError:
             pass
     return Message(
         id=str(raw.get("id", "")),

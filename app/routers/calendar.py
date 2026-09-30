@@ -147,9 +147,7 @@ async def calendar_widget(
 
 
 @router.get("/widgets/calendar/day/{date}", response_class=HTMLResponse)
-async def calendar_day_widget(
-    request: Request, date: str, back: str | None = None, person: str | None = None
-):
+async def calendar_day_widget(request: Request, date: str, back: str | None = None, person: str | None = None):
     parsed = _date_or_400(date)
     async with get_db() as db:
         context = await calendar_view.widget_context(db, "day", day=parsed, back=back, person=_person(person))
@@ -163,10 +161,24 @@ async def add_calendar_event(request: Request):
     in: with a note on success, or with the form still open, what was typed
     and a friendly message (200, so htmx swaps it in)."""
     form = await request.form()
-    fields = {key: str(form.get(key) or "")[:200] for key in (
-        "title", "day", "start_time", "end_time", "person_id", "request_key",
-        "view", "year", "month", "start", "date", "back", "person",
-    )}
+    fields = {
+        key: str(form.get(key) or "")[:200]
+        for key in (
+            "title",
+            "day",
+            "start_time",
+            "end_time",
+            "person_id",
+            "request_key",
+            "view",
+            "year",
+            "month",
+            "start",
+            "date",
+            "back",
+            "person",
+        )
+    }
     view = fields["view"] if fields["view"] in calendar_view.VIEWS else None
     year = int(fields["year"]) if fields["year"].isdigit() and 1970 <= int(fields["year"]) <= 2100 else None
     month = int(fields["month"]) if fields["month"].isdigit() and 1 <= int(fields["month"]) <= 12 else None
@@ -176,21 +188,35 @@ async def add_calendar_event(request: Request):
 
     async def render(**extra):
         return await calendar_view.widget_context(
-            db, view, year=year, month=month, start=calendar_view.parse_date(fields["start"]), day=day,
-            back=fields["back"] or None, person=_person(fields["person"]), **extra,
+            db,
+            view,
+            year=year,
+            month=month,
+            start=calendar_view.parse_date(fields["start"]),
+            day=day,
+            back=fields["back"] or None,
+            person=_person(fields["person"]),
+            **extra,
         )
 
     async with get_db() as db:
         try:
             added = await calendar_add.add_family_event(
-                db, title=fields["title"], day=fields["day"], start_time=fields["start_time"],
-                end_time=fields["end_time"], person_id=fields["person_id"] or None,
+                db,
+                title=fields["title"],
+                day=fields["day"],
+                start_time=fields["start_time"],
+                end_time=fields["end_time"],
+                person_id=fields["person_id"] or None,
                 request_key=fields["request_key"],
             )
         except calendar_add.AddEventError as exc:
-            context = await render(add_error=exc.message, add_form={
-                key: fields[key] for key in ("title", "day", "start_time", "end_time", "person_id", "request_key")
-            })
+            context = await render(
+                add_error=exc.message,
+                add_form={
+                    key: fields[key] for key in ("title", "day", "start_time", "end_time", "person_id", "request_key")
+                },
+            )
         else:
             context = await render(added=added)
     return _render(request, context)

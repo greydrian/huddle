@@ -53,18 +53,20 @@ async def load(db, selection: str, start: date, end: date, calendar_id: str) -> 
     """(this calendar's events touching [start, end), when they were
     fetched) from the newest cached range that covers it — so a day view
     can be served from its month — or None if nothing covers it."""
-    row = await (await db.execute(
-        """SELECT events_json, fetched_at FROM calendar_cache
+    row = await (
+        await db.execute(
+            """SELECT events_json, fetched_at FROM calendar_cache
            WHERE selection = ? AND calendar_id = ? AND range_start <= ? AND range_end >= ?
            ORDER BY fetched_at DESC LIMIT 1""",
-        (selection, calendar_id, start.isoformat(), end.isoformat()),
-    )).fetchone()
+            (selection, calendar_id, start.isoformat(), end.isoformat()),
+        )
+    ).fetchone()
     if row is None:
         return None
     try:
         events = json.loads(row["events_json"])
         fetched_at = datetime.fromisoformat(row["fetched_at"])
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         return None
     first, last = start.isoformat(), end.isoformat()
     return [e for e in events if e["date"] < last and e["end_date"] >= first], fetched_at

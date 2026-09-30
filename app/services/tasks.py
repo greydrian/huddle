@@ -37,7 +37,7 @@ def parse_hhmm(value) -> time | None:
         if len(hours) not in (1, 2) or len(minutes) != 2:
             return None
         return time(int(hours), int(minutes))
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         return None
 
 
@@ -57,8 +57,10 @@ async def get_group_boundaries(db) -> tuple[str, str]:
     """(After school starts, Evening starts) as 'HH:MM'. A stored pair that
     no longer validates falls back to the defaults rather than breaking the
     widget."""
-    raw = (await get_setting(db, AFTER_SCHOOL_SETTING, DEFAULT_AFTER_SCHOOL),
-           await get_setting(db, EVENING_SETTING, DEFAULT_EVENING))
+    raw = (
+        await get_setting(db, AFTER_SCHOOL_SETTING, DEFAULT_AFTER_SCHOOL),
+        await get_setting(db, EVENING_SETTING, DEFAULT_EVENING),
+    )
     try:
         return clean_boundaries(*raw)
     except ValueError:
@@ -104,6 +106,7 @@ def clean_group(value) -> str | None:
 
 # --- Carry-over -------------------------------------------------------------------------
 
+
 def late_label(due_on: str | None, today: date) -> str | None:
     """'from yesterday' / 'from Mon' / 'from 3 Sep' for a one-off whose day
     has passed; None when it's due today (or later, or has no date)."""
@@ -125,6 +128,7 @@ def late_label(due_on: str | None, today: date) -> str | None:
 
 # --- The widget -------------------------------------------------------------------------
 
+
 async def get_profiles_with_tasks(db, today: date | None = None) -> list[dict]:
     """Return profiles, each with today's non-archived tasks attached — a
     recurring task set to specific days only shows on those days, and a
@@ -132,20 +136,24 @@ async def get_profiles_with_tasks(db, today: date | None = None) -> list[dict]:
     the container's). Each task carries `local_only` (its person has no
     Google list, so it's on this display only) and `late` (a missed one-off
     carried over: "from yesterday")."""
-    profiles = [avatars.attach(dict(row)) for row in await (await db.execute(
-        f"SELECT {avatars.PROFILE_COLUMNS} FROM profiles ORDER BY sort_order"
-    )).fetchall()]
+    profiles = [
+        avatars.attach(dict(row))
+        for row in await (
+            await db.execute(f"SELECT {avatars.PROFILE_COLUMNS} FROM profiles ORDER BY sort_order")
+        ).fetchall()
+    ]
 
     today = today or await family_today(db)
     weekday = today.weekday()
-    rows = await (await db.execute(
-        "SELECT * FROM tasks WHERE archived = 0 ORDER BY is_completed, created_at"
-    )).fetchall()
+    rows = await (
+        await db.execute("SELECT * FROM tasks WHERE archived = 0 ORDER BY is_completed, created_at")
+    ).fetchall()
     school_day = None
     if any(r["is_recurring"] and recurrence.is_school_days(r["recurrence_rule"]) for r in rows):
         school_day = await term_dates.is_school_day(db, today)
     tasks = [
-        dict(row) for row in rows
+        dict(row)
+        for row in rows
         if not row["is_recurring"] or recurrence.is_due(row["recurrence_rule"], weekday, school_day)
     ]
 
@@ -154,8 +162,7 @@ async def get_profiles_with_tasks(db, today: date | None = None) -> list[dict]:
         profile["tasks"] = [t for t in tasks if t["profile_id"] == profile["id"]]
         for task in profile["tasks"]:
             task["local_only"] = not profile["linked"]
-            task["late"] = (None if task["is_recurring"] or task["is_completed"]
-                            else late_label(task["due_on"], today))
+            task["late"] = None if task["is_recurring"] or task["is_completed"] else late_label(task["due_on"], today)
 
     return profiles
 
@@ -171,11 +178,12 @@ def build_sections(profiles: list[dict], current: str) -> list[dict]:
     still to do), then "Any time" (doable now too), then later groups. Only
     groups with a task today appear, apart from the current one."""
     if not any(_group_of(t) for p in profiles for t in p["tasks"]):
-        return [{"key": None, "label": None, "current": False, "earlier": False,
-                 "headless": True, "profiles": profiles}]
+        return [
+            {"key": None, "label": None, "current": False, "earlier": False, "headless": True, "profiles": profiles}
+        ]
 
     now = GROUPS.index(current)
-    order = [current, *GROUPS[:now], None, *GROUPS[now + 1:]]
+    order = [current, *GROUPS[:now], None, *GROUPS[now + 1 :]]
     sections = []
     for key in order:
         members = []
@@ -184,11 +192,16 @@ def build_sections(profiles: list[dict], current: str) -> list[dict]:
             if tasks:
                 members.append({**p, "tasks": tasks})
         if members or key == current:
-            sections.append({
-                "key": key, "label": GROUP_LABELS[key], "current": key == current,
-                "earlier": key in GROUPS and GROUPS.index(key) < now,
-                "headless": False, "profiles": members,
-            })
+            sections.append(
+                {
+                    "key": key,
+                    "label": GROUP_LABELS[key],
+                    "current": key == current,
+                    "earlier": key in GROUPS and GROUPS.index(key) < now,
+                    "headless": False,
+                    "profiles": members,
+                }
+            )
     return sections
 
 
@@ -209,8 +222,8 @@ async def widget_context(db) -> dict:
 # --- Quick add (PIN-free, from the widget) -----------------------------------------------
 
 MAX_TITLE = 200
-QUICK_ADD_LIMIT = 30          # adds per QUICK_ADD_WINDOW, for the whole kiosk
-QUICK_ADD_WINDOW = 3600       # seconds
+QUICK_ADD_LIMIT = 30  # adds per QUICK_ADD_WINDOW, for the whole kiosk
+QUICK_ADD_WINDOW = 3600  # seconds
 _recent_adds: deque[float] = deque()  # monotonic times of recent adds (one process)
 
 QUICK_ADD_ERRORS = {
@@ -248,11 +261,9 @@ async def quick_add(db, profile_id, title: str, time_of_day=None) -> int:
         raise QuickAddError("title")
     try:
         pid = int(profile_id)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         raise QuickAddError("person") from None
-    profile = await (await db.execute(
-        "SELECT id, google_tasklist_id FROM profiles WHERE id = ?", (pid,)
-    )).fetchone()
+    profile = await (await db.execute("SELECT id, google_tasklist_id FROM profiles WHERE id = ?", (pid,))).fetchone()
     if profile is None:
         raise QuickAddError("person")
     try:
@@ -288,20 +299,27 @@ async def quick_add(db, profile_id, title: str, time_of_day=None) -> int:
 
 # --- Admin ------------------------------------------------------------------------------
 
+
 async def get_admin_tasks(db) -> list[dict]:
     """Every live task for Admin's schedule panel, with a readable schedule
     and the day chips to pre-tick in the edit form (empty = every day, a
     one-off, or school days)."""
-    tasks = [dict(r) for r in await (await db.execute(
-        "SELECT tasks.* FROM tasks "
-        "JOIN profiles ON profiles.id = tasks.profile_id "
-        "WHERE archived = 0 ORDER BY profiles.sort_order, tasks.created_at"
-    )).fetchall()]
+    tasks = [
+        dict(r)
+        for r in await (
+            await db.execute(
+                "SELECT tasks.* FROM tasks "
+                "JOIN profiles ON profiles.id = tasks.profile_id "
+                "WHERE archived = 0 ORDER BY profiles.sort_order, tasks.created_at"
+            )
+        ).fetchall()
+    ]
     for task in tasks:
         task["schedule"] = recurrence.describe(task["recurrence_rule"]) if task["is_recurring"] else None
         task["school_days"] = bool(task["is_recurring"]) and recurrence.is_school_days(task["recurrence_rule"])
-        days = (recurrence.parse_rule(task["recurrence_rule"])
-                if task["is_recurring"] and not task["school_days"] else None)
+        days = (
+            recurrence.parse_rule(task["recurrence_rule"]) if task["is_recurring"] and not task["school_days"] else None
+        )
         task["days"] = [recurrence.WEEKDAYS[i] for i in sorted(days)] if days else []
         task["group_label"] = GROUP_LABELS[_group_of(task)] if _group_of(task) else None
     return tasks
@@ -334,9 +352,7 @@ async def _update_and_queue(db, where: str, set_clause: str) -> int:
     task again (and last-write-wins could then undo the reset)."""
     rows = await (await db.execute(f"SELECT id FROM tasks WHERE {where}")).fetchall()
     for row in rows:
-        await db.execute(
-            f"UPDATE tasks SET {set_clause}, updated_at = datetime('now') WHERE id = ?", (row["id"],)
-        )
+        await db.execute(f"UPDATE tasks SET {set_clause}, updated_at = datetime('now') WHERE id = ?", (row["id"],))
         await queue_sync(db, "tasks", {"task_id": row["id"]})
     return len(rows)
 
@@ -346,9 +362,7 @@ async def archive_completed_one_off_tasks(db) -> int:
     view — archived locally, deleted from Google on the next sync. Unticked
     one-offs are left alone: they carry over, labelled late from their
     due_on (spec 10.4), keeping the same row and Google id."""
-    return await _update_and_queue(
-        db, "is_recurring = 0 AND is_completed = 1 AND archived = 0", "archived = 1"
-    )
+    return await _update_and_queue(db, "is_recurring = 0 AND is_completed = 1 AND archived = 0", "archived = 1")
 
 
 async def reset_recurring_tasks(db) -> int:

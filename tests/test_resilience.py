@@ -49,12 +49,19 @@ async def test_invalid_calendar_inputs_are_400_not_500(connected, client):
 
 
 async def test_multi_day_event_renders_as_one_spanning_bar(db, connected, google):
-    google.get(url__regex=EVENTS_URL_PATTERN).respond(200, json={"items": [{
-        "summary": "Half term",
-        # Google's all-day end date is exclusive: this covers Wed 12 - Fri 14.
-        "start": {"date": "2026-08-12"},
-        "end": {"date": "2026-08-15"},
-    }]})
+    google.get(url__regex=EVENTS_URL_PATTERN).respond(
+        200,
+        json={
+            "items": [
+                {
+                    "summary": "Half term",
+                    # Google's all-day end date is exclusive: this covers Wed 12 - Fri 14.
+                    "start": {"date": "2026-08-12"},
+                    "end": {"date": "2026-08-15"},
+                }
+            ]
+        },
+    )
 
     grid = await google_calendar.get_month_grid(db, 2026, 8)
 

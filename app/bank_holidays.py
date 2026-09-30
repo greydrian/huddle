@@ -22,8 +22,8 @@ logger = logging.getLogger(__name__)
 FEED_URL = "https://www.gov.uk/bank-holidays.json"
 DIVISION = "england-and-wales"
 UPDATED_SETTING = "bank_holidays_updated_at"  # UTC ISO time of the last good fetch
-REFRESH_AFTER = timedelta(days=7)   # weekly
-STALE_AFTER = timedelta(days=30)    # Admin warns past this
+REFRESH_AFTER = timedelta(days=7)  # weekly
+STALE_AFTER = timedelta(days=30)  # Admin warns past this
 CHECK_SECONDS = 6 * 3600
 STARTUP_DELAY = timedelta(seconds=30)  # after startup, out of the way of the first page loads
 MAX_EVENTS = 1000  # the feed has about 80 per division; anything far bigger is not the feed
@@ -36,7 +36,7 @@ def parse_feed(data) -> dict[str, str]:
     shaped as expected (nothing is stored then)."""
     try:
         events = data[DIVISION]["events"]
-    except (KeyError, TypeError):
+    except KeyError, TypeError:
         raise ValueError("no england-and-wales events") from None
     if not isinstance(events, list) or not events or len(events) > MAX_EVENTS:
         raise ValueError("unexpected event list")
@@ -71,7 +71,9 @@ async def refresh(db) -> bool:
         holidays = await fetch()
     except (httpx.HTTPError, ValueError) as exc:
         http_client.report_failure(
-            logger, OUTAGE_KEY, "Couldn't update bank holidays; keeping the old ones: %s",
+            logger,
+            OUTAGE_KEY,
+            "Couldn't update bank holidays; keeping the old ones: %s",
             http_client.describe(exc),
         )
         return False
