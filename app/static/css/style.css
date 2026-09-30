@@ -257,7 +257,8 @@ input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-
 }
 
 /* --- "Next up" strip (templates/_next_up.html, app/services/next_up.py) ---
-   Quiet lines under the banners: each person's next event today. Read at a
+   Quiet lines under the banners: each person's next event today, then the
+   nearest countdowns. Read at a
    glance from across the room, so no cards and no buttons. It wraps rather
    than scrolling sideways (nobody scrolls a wall display); its height only
    changes when a re-fetch lands, which fresh.js holds while the wall is in use. */
@@ -276,6 +277,10 @@ input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-
 .next-up-text { display: inline-flex; align-items: baseline; gap: 8px; font-size: 1.05rem; }
 .next-up-title { font-weight: 600; max-width: 22ch; overflow: hidden; text-overflow: ellipsis; }
 .next-up-when { color: var(--ink-soft); font-size: 1rem; }
+/* Countdowns (services/countdowns.py): after the day's events, pushed to the
+   right while they share a line. */
+.next-up-group { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px 18px; min-width: 0; }
+.next-up-item + .next-up-group { margin-left: auto; }
 
 /* The page stays locked (above); the area under the top bar scrolls.
    Gridstack gives #dashboard-grid an inline height as tall as its rows,
@@ -1157,6 +1162,7 @@ html:has(.admin-shell), html:has(.admin-shell) body { height: auto; overflow-y: 
 /* Like the dashboard rows: no rule under the last one in a group. */
 .admin-item:last-child { border-bottom: none; }
 .admin-item-label { flex: 1; min-width: 0; }
+.countdown-past .admin-item-label { color: var(--ink-soft); }
 .task-edit summary {
   list-style: none; display: inline-flex; min-height: 48px; padding: 8px 14px;
   font-size: 0.9rem; background: var(--sunken); color: var(--ink);

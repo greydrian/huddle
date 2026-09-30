@@ -15,7 +15,7 @@ from fastapi.responses import RedirectResponse
 from app import google_oauth, google_tasks, school_email
 from app.admin_tabs import admin_url
 from app.database import family_timezone, family_today
-from app.services import banners, extraction, term_dates
+from app.services import banners, countdowns, extraction, term_dates
 
 __all__ = [
     "ADMIN_ERRORS",
@@ -176,6 +176,16 @@ ADMIN_ERRORS = {
         "may fall inside a term, and INSET days inside a holiday. Nothing was saved.",
     ),
     "term-missing": ("term-dates", "That period no longer exists. It may have just been deleted."),
+    "countdown-title": (
+        "countdowns",
+        f"Give the countdown a name of up to {countdowns.MAX_TITLE} characters. Nothing was saved.",
+    ),
+    "countdown-date": ("countdowns", "Pick a date from today to two years ahead. Nothing was saved."),
+    "countdown-person": ("countdowns", "That family member no longer exists. Nothing was saved."),
+    "countdown-full": (
+        "countdowns",
+        f"There are already {countdowns.MAX_COUNTDOWNS} countdowns. Delete some old ones first.",
+    ),
 }
 
 

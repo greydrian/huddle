@@ -781,6 +781,14 @@ answer; they're decided in outline and settled in detail when built.
   title. All-day events and term-date bars are left to the calendar and banners. It wraps onto a
   second line rather than scrolling, and like the banner bar its refresh waits while the wall is
   in use. Admin → Display → Banners has an on/off switch (default on).
+- **Countdowns** (built). "Half term in 21 days", "Trip to Gran in 3 days": after the day's events
+  in the same strip, under a "Counting down" label, the nearest three, each optionally one
+  person's (their pill). Two sources: dates added in Admin → Display → Countdowns (a name up to 60
+  characters, a date from today to two years ahead, optionally whose), and the next half term or
+  holiday from the term dates (10.6) once it's under 60 days away, which can be switched off
+  there. A date that has passed stops showing; Admin lists it greyed until someone deletes it.
+  Countdowns show even when the next-up events are switched off. Once schools are per child (11.2),
+  the school break becomes one per school.
 
 ---
 

@@ -9,6 +9,9 @@ to a person in Admin, else the person's name in the title; everything else
 is Everyone's. The banner bar covers the last few minutes before an event;
 this covers the rest of the day.
 
+Countdowns ("Half term in 12 days", services/countdowns.py) share the
+strip, after the day's events.
+
 It refreshes through /api/rev as the "next_up" key (app/freshness.py). The
 minutes-to text changes every minute, so the strip is re-fetched about once
 a minute while anything is coming up, and never while the wall is in use
@@ -20,7 +23,7 @@ from datetime import datetime, timedelta
 
 from app import avatars, google_calendar
 from app.database import family_timezone, get_setting, set_setting
-from app.services import calendar_prefs, people
+from app.services import calendar_prefs, countdowns, people
 from app.services.calendar_view import event_owners
 
 SETTING = "next_up_enabled"  # "1" (default) or "0": Admin → Display → Banners
@@ -115,8 +118,12 @@ def _clock(tz) -> datetime:
 
 async def context(db, now: datetime | None = None) -> dict:
     """Template context for _next_up.html, from the dashboard, its own route
-    and /api/rev alike."""
-    if not await is_enabled(db):
-        return {"next_up": [], "next_up_enabled": False}
+    and /api/rev alike. Countdowns (services/countdowns.py) share the strip
+    and show whether or not the next-up part is switched on."""
     now = now or _clock(await family_timezone(db))
-    return {"next_up": await items(db, now), "next_up_enabled": True}
+    enabled = await is_enabled(db)
+    return {
+        "next_up": await items(db, now) if enabled else [],
+        "next_up_enabled": enabled,
+        "countdowns": await countdowns.upcoming(db, now.date()),
+    }
