@@ -359,9 +359,11 @@ async def add_term_period(
 ):
     async with get_db() as db:
         try:
-            if not await schools.exists(db, school_id):
+            # Blank: the oldest school (the form sends one when there are two or more).
+            if school_id.strip() and not await schools.exists(db, school_id):
                 raise term_dates.PeriodError("term-school")
-            await term_dates.add_period(db, kind, start_date, end_date, label, int(school_id))
+            chosen = int(school_id) if school_id.strip() else None
+            await term_dates.add_period(db, kind, start_date, end_date, label, chosen)
         except term_dates.PeriodError as exc:
             return await render_admin(
                 request,
