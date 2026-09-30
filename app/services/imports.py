@@ -247,18 +247,22 @@ def content_ref(text: str, blobs: list[bytes]) -> str:
 
 async def get_children(db, school_id: int | None = None) -> list[Child]:
     """Who the extractor may assign items to: the children at `school_id`
-    when it has any (spec 11.2: a school's email is about its children),
-    else family members with a year group, or everyone if no year groups
-    are set yet."""
+    when it has any (spec 11.2: a school's email is about its children).
+    Otherwise family members with a year group, or everyone if no year
+    groups are set yet, but for a known school never a child linked to a
+    different one (a new nursery's email must not pre-fill the Year 4
+    child)."""
     rows = [
         dict(r)
         for r in await (
             await db.execute("SELECT id, name, school_year, school_id FROM profiles ORDER BY sort_order")
         ).fetchall()
     ]
-    at_school = [r for r in rows if school_id is not None and r["school_id"] == school_id]
-    if at_school:
-        return [Child(r["id"], r["name"], (r["school_year"] or "").strip() or None) for r in at_school]
+    if school_id is not None:
+        at_school = [r for r in rows if r["school_id"] == school_id]
+        if at_school:
+            return [Child(r["id"], r["name"], (r["school_year"] or "").strip() or None) for r in at_school]
+        rows = [r for r in rows if r["school_id"] is None]
     with_year = [r for r in rows if (r["school_year"] or "").strip()]
     return [Child(r["id"], r["name"], (r["school_year"] or "").strip() or None) for r in (with_year or rows)]
 

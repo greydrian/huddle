@@ -339,6 +339,25 @@ async def test_admin_saves_sender_lists(db, admin_client):
 # --- The check ---
 
 
+async def test_each_email_is_read_with_its_senders_school(db, gmail, claude, mailbox, monkeypatch):
+    """Spec 11.2: the school whose senders list the From address decides
+    whose children Claude is offered (and where term dates go)."""
+    nursery = await schools.add(db, "Little Acorns")
+    await schools.update(db, nursery, "Little Acorns", "hello@acorns.example")
+    asked = []
+    real = imports.get_children
+
+    async def spy(db, school_id=None):
+        asked.append(school_id)
+        return await real(db, school_id)
+
+    monkeypatch.setattr(imports, "get_children", spy)
+    mailbox.add("m1")
+    mailbox.add("m2", sender="Acorns <hello@acorns.example>", received=NOW - timedelta(hours=2))
+    assert (await school_email.check_now(db, NOW)).emails == 2
+    assert asked == [1, nursery]
+
+
 async def test_school_emails_become_inbox_items(db, gmail, claude, mailbox):
     mailbox.add("m1", text="Year 4: please read chapter 3 by Friday.")
     result = await school_email.check_now(db, NOW)

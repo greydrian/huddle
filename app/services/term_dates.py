@@ -286,8 +286,7 @@ async def is_school_day(db, day: date, school_id: int | None = None) -> bool:
 
 async def family_ids(db) -> list[int]:
     """The schools the family's children go to, else every school (so dates
-    entered before anyone was linked still count). Same as
-    schools.family_ids, kept here so this module needn't import schools."""
+    entered before anyone was linked still count)."""
     rows = await (
         await db.execute("SELECT DISTINCT school_id FROM profiles WHERE school_id IS NOT NULL ORDER BY school_id")
     ).fetchall()

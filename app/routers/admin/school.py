@@ -229,7 +229,7 @@ async def _approve_term_dates(request: Request, candidate_id: int, source_id: in
     period_include naming the ticked rows) into the term dates."""
     form = await request.form()
     school_field = str(form.get("school_id") or "")
-    school_id = int(school_field) if school_field.isdigit() else None
+    school_id = schools.parse_id(school_field)
     columns = [form.getlist(f"period_{name}")[:MAX_TERM_ROWS] for name in ("kind", "start", "end", "label")]
     included = set(form.getlist("period_include"))
     rows = [
@@ -238,7 +238,9 @@ async def _approve_term_dates(request: Request, candidate_id: int, source_id: in
     ]
     async with get_db() as db:
         try:
-            if school_id is not None and not await schools.exists(db, school_id):
+            if (school_field.strip() and school_id is None) or (
+                school_id is not None and not await schools.exists(db, school_id)
+            ):
                 raise term_dates.PeriodError("term-school")
             await imports.approve_term_dates(db, candidate_id, [r for r in rows if r["include"]], school_id)
         except imports.CandidateError as exc:
@@ -362,7 +364,7 @@ async def add_term_period(
             # Blank: the oldest school (the form sends one when there are two or more).
             if school_id.strip() and not await schools.exists(db, school_id):
                 raise term_dates.PeriodError("term-school")
-            chosen = int(school_id) if school_id.strip() else None
+            chosen = schools.parse_id(school_id)
             await term_dates.add_period(db, kind, start_date, end_date, label, chosen)
         except term_dates.PeriodError as exc:
             return await render_admin(

@@ -146,6 +146,19 @@ async def startup_checks(db):
     await database._add_missing_widgets(db, database.DEFAULT_LAYOUT)
     await _seed_pin(db, DEFAULT_PIN)
     await _seed_sync_status(db)
+    await _rehome_school_periods(db)
+
+
+async def _rehome_school_periods(db):
+    """Term dates with no school (written by code from before migration 10,
+    after a rollback without a database restore) go to the oldest school, so
+    Admin can see them and they count for school days again."""
+    if not await (await db.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'schools'")).fetchone():
+        return  # before migration 10 (the baseline tests run migration 1 only)
+    await db.execute(
+        """UPDATE school_periods SET school_id = (SELECT MIN(id) FROM schools)
+           WHERE school_id IS NULL AND EXISTS (SELECT 1 FROM schools)"""
+    )
 
 
 # --- 0001 baseline ----------------------------------------------------------------------

@@ -16,7 +16,7 @@ from datetime import date, timedelta
 
 from app import avatars
 from app.database import get_setting, set_setting
-from app.services import term_dates
+from app.services import schools, term_dates
 
 SHOWN = 3
 BREAK_HORIZON = 60  # days: further off, a school break isn't worth the space
@@ -101,7 +101,7 @@ async def _next_breaks(db, today: date) -> list[dict]:
     than one)."""
     horizon = today + timedelta(days=BREAK_HORIZON)
     school_ids = await term_dates.family_ids(db)
-    names = {r["id"]: r["name"] for r in await (await db.execute("SELECT id, name FROM schools")).fetchall()}
+    names = await schools.names(db)
     found = []
     for school_id in school_ids:
         for period in await term_dates.list_periods(db, school_id):  # by start date

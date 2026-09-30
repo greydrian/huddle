@@ -106,7 +106,7 @@ async def save_profile_details(
         if school_id.strip():
             if not await schools.exists(db, school_id):
                 return admin_error("profile-school")
-            school = int(school_id)
+            school = schools.parse_id(school_id)
         cursor = await db.execute(
             "UPDATE profiles SET school_year = ?, is_parent = ?, email = ?, school_id = ? WHERE id = ?",
             (year, int(is_parent), address, school, profile_id),

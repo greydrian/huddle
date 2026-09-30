@@ -717,10 +717,12 @@ answer; they're decided in outline and settled in detail when built.
   - A widget's "school days only" (10.3) shows when **any** child with a school has school that
     day. With nobody linked to a school yet, every school counts; with no schools at all, school
     days are Mon–Fri minus bank holidays.
-  - The school email check reads every school's senders in one search. An email's school is the
-    one whose senders list its sender (the oldest, if two do). Claude is offered only that
-    school's children, so a one-child school pre-fills the child, and a term-dates letter goes to
-    that school's dates (the inbox can change it once there are two schools).
+  - The school email check reads every school's senders in one search, so all schools together
+    keep the old limit of 20 senders. An email's school is the one whose senders list its sender
+    (the oldest, if two do). Claude is offered only that school's children (a school nobody is
+    linked to yet gets the children with no school, never another school's), so a one-child
+    school pre-fills the child, and a term-dates letter goes to that school's dates (the inbox can
+    change it once there are two schools).
   - With two or more schools, the calendar bars, "no school" banners and countdowns name the
     school ("Gresham: Half term"); with one, nothing reads differently.
   - Migration 10 moved the term dates and senders onto a Gresham record and linked every family

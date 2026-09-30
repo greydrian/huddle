@@ -181,8 +181,8 @@ ADMIN_ERRORS = {
     "school-full": ("schools", f"Huddle keeps at most {schools.MAX_SCHOOLS} schools. Delete one first."),
     "school-list-senders": (
         "schools",
-        f"Each sender must be an email address or *@domain, one per line "
-        f"(at most {school_email.MAX_ENTRIES}). Nothing was changed.",
+        f"Each sender must be an email address or *@domain, one per line, with at most "
+        f"{school_email.MAX_ENTRIES} across all schools. Nothing was changed.",
     ),
     "school-missing": ("schools", "That school no longer exists. It may have just been deleted."),
     "profile-school": ("family", "That school no longer exists. Nothing was changed."),

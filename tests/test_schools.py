@@ -24,8 +24,13 @@ def admin_client(client):
 
 
 async def link(db, profile_id, school_id):
-    await schools.set_profile_school(db, profile_id, school_id)
+    await db.execute("UPDATE profiles SET school_id = ? WHERE id = ?", (school_id, profile_id))
     await db.commit()
+
+
+async def school_of(db, profile_id):
+    row = await (await db.execute("SELECT school_id FROM profiles WHERE id = ?", (profile_id,))).fetchone()
+    return row["school_id"]
 
 
 @pytest.fixture
@@ -170,8 +175,15 @@ async def test_senders_are_every_schools_and_an_email_knows_its_school(db, two_s
 async def test_a_schools_email_is_about_its_children(db, two_schools):
     assert [c.name for c in await imports.get_children(db, two_schools)] == ["Jamie"]
     assert [c.name for c in await imports.get_children(db, GRESHAM)] == ["Riley"]
+    # A school nobody is linked to yet is never offered another school's child.
     empty = await schools.add(db, "Nobody's school")
-    assert [c.name for c in await imports.get_children(db, empty)] == ["Mum", "Dad", "Riley", "Jamie"]
+    assert [c.name for c in await imports.get_children(db, empty)] == ["Mum", "Dad"]
+    await link(db, JAMIE, None)
+    await db.execute("UPDATE profiles SET school_year = 'Nursery' WHERE id = ?", (JAMIE,))
+    await db.commit()
+    assert [c.name for c in await imports.get_children(db, empty)] == ["Jamie"]
+    # No school known (an upload for nobody in particular): as before.
+    assert [c.name for c in await imports.get_children(db)] == ["Jamie"]
 
 
 async def _term_candidate(db, school_id, ref):
@@ -244,22 +256,22 @@ async def test_admin_adds_edits_and_deletes_a_school(db, admin_client):
     await link(db, JAMIE, nursery["id"])
     await admin_client.post(f"/admin/schools/{nursery['id']}/delete")
     assert [s["name"] for s in await schools.list_schools(db)] == ["Gresham"]
-    assert await schools.of_profile(db, JAMIE) is None
+    assert await school_of(db, JAMIE) is None
     (count,) = await (await db.execute("SELECT COUNT(*) FROM school_periods")).fetchone()
     assert count == 0
 
 
 async def test_admin_links_a_child_to_a_school(db, admin_client):
     resp = await admin_client.post(f"/admin/profiles/{RILEY}/details", data={"school_year": "Year 4", "school_id": "1"})
-    assert resp.status_code == 303 and await schools.of_profile(db, RILEY) == GRESHAM
+    assert resp.status_code == 303 and await school_of(db, RILEY) == GRESHAM
     assert '<option value="1" selected>Gresham</option>' in (await admin_client.get("/admin?tab=family")).text
 
     resp = await admin_client.post(f"/admin/profiles/{RILEY}/details", data={"school_id": "42"})
     assert resp.headers["location"].endswith("error=profile-school#family")
-    assert await schools.of_profile(db, RILEY) == GRESHAM
+    assert await school_of(db, RILEY) == GRESHAM
 
     await admin_client.post(f"/admin/profiles/{RILEY}/details", data={"school_year": "Year 4"})
-    assert await schools.of_profile(db, RILEY) is None
+    assert await school_of(db, RILEY) is None
 
 
 async def test_admin_term_dates_need_a_school(db, admin_client, two_schools):
@@ -286,3 +298,53 @@ async def test_two_schools_starting_the_same_day_both_show_on_the_calendar(db, t
     await term_dates.add_period(db, "term", "2027-01-05", "2027-03-24", "Spring", two_schools)
     _, markers = await google_calendar._school_periods(db, date(2027, 1, 1), date(2027, 1, 31))
     assert markers["2027-01-05"] == "Gresham: Term starts · Little Acorns: Term starts"
+
+
+@pytest.mark.parametrize("value", ["²", "1e3", "-1", " ", "99999999999999999999", "0x1", None])
+def test_school_ids_from_forms_are_plain_small_numbers(value):
+    assert schools.parse_id(value) is None
+
+
+async def test_forged_school_ids_never_500(db, admin_client, two_schools):
+    for value in ("²", "99999999999999999999"):
+        resp = await admin_client.post(f"/admin/profiles/{RILEY}/details", data={"school_id": value})
+        assert resp.headers["location"].endswith("error=profile-school#family")
+        form = {"kind": "inset", "start_date": "2026-11-02", "end_date": "2026-11-02", "school_id": value}
+        assert (await admin_client.post("/admin/term-dates", data=form)).status_code == 400
+    assert await school_of(db, RILEY) == GRESHAM
+
+
+async def test_all_schools_senders_share_one_cap(db, two_schools, monkeypatch):
+    monkeypatch.setattr(school_email, "MAX_ENTRIES", 3)
+    await schools.update(db, two_schools, "Little Acorns", "hello@acorns.example")  # 2 + 1
+    with pytest.raises(schools.SchoolError, match="school-list-senders"):
+        await schools.update(db, two_schools, "Little Acorns", "hello@acorns.example\nhead@acorns.example")
+    # A sender both schools list counts once.
+    await schools.update(db, two_schools, "Little Acorns", "*@gresham.croydon.sch.uk\nhello@acorns.example")
+
+
+async def test_term_dates_left_without_a_school_are_rehomed_on_boot(db):
+    """Old code (a rollback without a database restore) writes periods with
+    no school; the next boot gives them to the oldest school."""
+    await db.execute(
+        "INSERT INTO school_periods (kind, start_date, end_date, label) VALUES ('inset', '2026-11-02', '2026-11-02', 'INSET')"
+    )
+    await db.commit()
+    await database.init_db()
+    assert [p["kind"] for p in await term_dates.list_periods(db, GRESHAM)] == ["inset"]
+
+
+async def test_the_inbox_asks_which_school_once_there_are_two(db, admin_client, two_schools):
+    candidate = await _term_candidate(db, two_schools, "letter-9")
+    page = (await admin_client.get("/admin?tab=school")).text
+    inbox = page[page.index('id="inbox"') : page.index('id="school-email"')]
+    assert "Little Acorns · 1 dates" in inbox
+    assert f'<option value="{two_schools}" selected>Little Acorns</option>' in inbox
+
+    # A failed approve (nothing ticked) re-renders with the school that was picked.
+    resp = await admin_client.post(
+        f"/admin/inbox/candidates/{candidate}/approve",
+        data={"school_id": str(GRESHAM), "period_kind": "half_term", "period_start": "2026-10-19"},
+        headers={"HX-Request": "true"},
+    )
+    assert f'<option value="{GRESHAM}" selected>Gresham</option>' in resp.text

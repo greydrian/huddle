@@ -9,10 +9,22 @@ dates and senders that came before, so one school behaves as before. A
 nursery can be a school too, with its own dates.
 """
 
+import re
+
 from app import school_email
 
 MAX_NAME = 60
 MAX_SCHOOLS = 10
+
+
+_ID = re.compile(r"[0-9]{1,9}")
+
+
+def parse_id(value) -> int | None:
+    """A form's school id, or None for anything that isn't a plain small
+    number ("²".isdigit() is True, and SQLite overflows past 2**63)."""
+    text = str(value if value is not None else "").strip()
+    return int(text) if _ID.fullmatch(text) else None
 
 
 class SchoolError(ValueError):
@@ -55,34 +67,10 @@ async def names(db) -> dict[int, str]:
 
 
 async def exists(db, school_id) -> bool:
-    try:
-        school_id = int(school_id)
-    except TypeError, ValueError:
+    parsed = parse_id(school_id)
+    if parsed is None:
         return False
-    return await (await db.execute("SELECT 1 FROM schools WHERE id = ?", (school_id,))).fetchone() is not None
-
-
-async def default_id(db) -> int | None:
-    """The oldest school: what a question about "the" school means when
-    nobody says which (and the only one, for most families)."""
-    row = await (await db.execute("SELECT id FROM schools ORDER BY id LIMIT 1")).fetchone()
-    return row["id"] if row else None
-
-
-async def of_profile(db, profile_id) -> int | None:
-    row = await (await db.execute("SELECT school_id FROM profiles WHERE id = ?", (profile_id,))).fetchone()
-    return row["school_id"] if row else None
-
-
-async def family_ids(db) -> list[int]:
-    """The schools the family's children go to; every school if nobody is
-    linked to one yet (so term dates entered before linking still count)."""
-    rows = await (
-        await db.execute("SELECT DISTINCT school_id FROM profiles WHERE school_id IS NOT NULL ORDER BY school_id")
-    ).fetchall()
-    if rows:
-        return [r["school_id"] for r in rows]
-    return [r["id"] for r in await (await db.execute("SELECT id FROM schools ORDER BY id")).fetchall()]
+    return await (await db.execute("SELECT 1 FROM schools WHERE id = ?", (parsed,))).fetchone() is not None
 
 
 async def all_senders(db) -> list[str]:
@@ -112,12 +100,17 @@ async def add(db, name: str) -> int:
 
 
 async def update(db, school_id: int, name: str, senders: str) -> None:
-    """Renames a school and replaces its senders. Raises SchoolError."""
+    """Renames a school and replaces its senders. Raises SchoolError. All
+    schools' senders together stay within school_email.MAX_ENTRIES: they
+    make one Gmail search."""
     clean = _clean_name(name)
     try:
         entries = school_email.parse_entries(senders)
     except school_email.InvalidEntry:
         raise SchoolError("school-list-senders") from None
+    others = [e for s in await list_schools(db) if s["id"] != school_id for e in s["senders"]]
+    if len(set(others) | set(entries)) > school_email.MAX_ENTRIES:
+        raise SchoolError("school-list-senders")
     cursor = await db.execute(
         "UPDATE schools SET name = ?, senders = ? WHERE id = ?", (clean, "\n".join(entries), school_id)
     )
@@ -130,8 +123,3 @@ async def delete(db, school_id: int) -> None:
     """Deletes the school and its term dates; its children keep no school."""
     await db.execute("DELETE FROM schools WHERE id = ?", (school_id,))
     await db.commit()
-
-
-async def set_profile_school(db, profile_id: int, school_id: int | None) -> None:
-    """No commit: the caller saves the rest of the profile with it."""
-    await db.execute("UPDATE profiles SET school_id = ? WHERE id = ?", (school_id, profile_id))
