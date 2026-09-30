@@ -25,6 +25,7 @@ async def display_context(db, base: dict, extra: dict) -> dict:
         "weather_location": await weather.get_location(db),
         "weather_error": extra.get("weather_error"),
         "appearance_setting": await appearance.get_appearance(db),
+        "night_source": await appearance.night_source(db),
         "appearances": appearance.APPEARANCES,
         "widget_settings": await layout.admin_widgets(db),
         "school_day_today": await term_dates.is_school_day(db, await common.family_today(db)),

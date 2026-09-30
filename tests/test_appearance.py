@@ -1,12 +1,15 @@
 """Day/night appearance (decided in the family's timezone, never the
 container's UTC clock) and the person-colour ink helper."""
 
-from datetime import datetime
+import json
+import logging
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
 
 from app import appearance, database
+from app.services import weather
 
 LONDON = ZoneInfo("Europe/London")
 SYDNEY = ZoneInfo("Australia/Sydney")
@@ -152,3 +155,169 @@ def test_person_ink_clears_large_text_contrast_with_night_inks():
                 c = f"#{r:02X}{g:02X}{b:02X}"
                 ink = night_light if appearance.person_ink(c) == "light" else night_dark
                 assert appearance.contrast(c, ink) >= 3.0, c
+
+
+# --- Sunset-based night (spec 11.4) ---
+
+READING = {"name": "Reading", "country": "United Kingdom", "latitude": 51.45, "longitude": -0.97}
+DAY = date(2026, 10, 15)
+
+
+@pytest.fixture(autouse=True)
+def fresh_fallback_log(monkeypatch):
+    monkeypatch.setattr(appearance, "_logged", set())
+
+
+async def _sun_forecast(db, days, zone="Europe/London", location=READING):
+    """Saves a forecast as the weather service would: `days` maps a date to
+    (sunrise, sunset) local strings, or None for a day without them."""
+    await weather.set_location(db, location)
+    daily = []
+    for day, sun in days.items():
+        entry = {"date": day.isoformat(), "weather_code": 3, "max": 14.0, "min": 6.0}
+        if sun:
+            entry["sunrise"], entry["sunset"] = f"{day.isoformat()}T{sun[0]}", f"{day.isoformat()}T{sun[1]}"
+        daily.append(entry)
+    forecast = {"utc_offset_seconds": 3600, "timezone": zone, "current": {"temperature": 12.0, "weather_code": 3}}
+    forecast["daily"] = daily
+    cache = {"fetched_at": "2026-10-15T05:00:00+00:00", "latitude": location["latitude"]}
+    cache |= {"longitude": location["longitude"], "forecast": forecast}
+    await database.set_setting(db, weather.CACHE_SETTING, json.dumps(cache))
+    await db.commit()
+
+
+def _local(hour, minute=0, day=DAY):
+    return datetime(day.year, day.month, day.day, hour, minute, tzinfo=LONDON)
+
+
+@pytest.mark.parametrize(
+    ("hour", "minute", "mode", "switch"),
+    [
+        (5, 0, "night", _local(7, 21)),  # before sunrise: morning comes at sunrise, not 07:00
+        (7, 21, "day", _local(18, 5)),  # sunrise edge
+        (12, 0, "day", _local(18, 5)),
+        (18, 4, "day", _local(18, 5)),  # 18:04 is still day: an October evening, not 19:00
+        (18, 5, "night", _local(7, 23, DAY + timedelta(days=1))),  # sunset edge -> tomorrow's sunrise
+        (23, 0, "night", _local(7, 23, DAY + timedelta(days=1))),
+    ],
+)
+async def test_auto_night_runs_from_sunset_to_sunrise(db, hour, minute, mode, switch):
+    await _sun_forecast(db, {DAY: ("07:21", "18:05"), DAY + timedelta(days=1): ("07:23", "18:03")})
+    result = await appearance.current_mode(db, _local(hour, minute))
+    assert result["mode"] == mode
+    assert result["switch_in"] == int((switch - _local(hour, minute)).total_seconds())
+    assert await database.get_setting(db, appearance.FALLBACK_SETTING) is None  # nothing fell back
+
+
+async def test_after_sunset_without_tomorrows_sunrise_morning_is_07_00(db):
+    await _sun_forecast(db, {DAY: ("07:21", "18:05")})
+    result = await appearance.current_mode(db, _local(20))
+    assert result == {"mode": "night", "switch_in": 11 * 3600}
+
+
+async def test_sun_times_convert_from_the_forecast_zone_to_the_family_zone(db):
+    """Forecast in Paris time (UTC+2 in October), family in London (UTC+1):
+    a 19:05 Paris sunset is 18:05 London."""
+    await _sun_forecast(db, {DAY: ("08:21", "19:05")}, zone="Europe/Paris")
+    assert (await appearance.current_mode(db, _local(18, 4)))["mode"] == "day"
+    assert (await appearance.current_mode(db, _local(18, 5)))["mode"] == "night"
+
+
+@pytest.mark.parametrize(
+    ("setup", "reason"),
+    [
+        ("nothing", "no_location"),
+        ("location only", "no_forecast"),
+        ("forecast without sun times", "no_forecast"),
+        ("forecast for other days", "stale_forecast"),
+        ("sunset before sunrise", "bad_times"),
+        ("a two-hour day", "bad_times"),
+    ],
+)
+async def test_fallback_to_19_to_07_says_why(db, caplog, setup, reason):
+    if setup == "location only":
+        await weather.set_location(db, READING)
+    elif setup == "forecast without sun times":
+        await _sun_forecast(db, {DAY: None})
+    elif setup == "forecast for other days":
+        await _sun_forecast(db, {DAY - timedelta(days=5): ("07:10", "18:20")})
+    elif setup == "sunset before sunrise":
+        await _sun_forecast(db, {DAY: ("18:05", "07:21")})
+    elif setup == "a two-hour day":
+        await _sun_forecast(db, {DAY: ("11:00", "13:00")})
+
+    with caplog.at_level(logging.INFO, logger="app.appearance"):
+        at_1830 = await appearance.current_mode(db, _local(18, 30))
+        await appearance.current_mode(db, _local(18, 45))  # same day, same reason: logged once
+
+    assert at_1830 == {"mode": "day", "switch_in": 30 * 60}  # the fixed night starts at 19:00
+    logged = [r for r in caplog.records if "fixed 19:00-07:00" in r.getMessage()]
+    assert len(logged) == 1 and reason in logged[0].getMessage()
+    assert logged[0].levelno == (logging.INFO if reason == "no_location" else logging.WARNING)
+    assert json.loads(await database.get_setting(db, appearance.FALLBACK_SETTING)) == {
+        "date": DAY.isoformat(),
+        "reason": reason,
+    }
+
+
+async def test_fallback_is_logged_again_the_next_day(db, caplog):
+    with caplog.at_level(logging.INFO, logger="app.appearance"):
+        await appearance.current_mode(db, _local(12))
+        await appearance.current_mode(db, _local(12, day=DAY + timedelta(days=1)))
+    assert sum("fixed 19:00-07:00" in r.getMessage() for r in caplog.records) == 2
+
+
+async def test_pinned_appearance_never_reads_or_logs_the_sun(db, caplog):
+    await appearance.set_appearance(db, "light")
+    with caplog.at_level(logging.INFO, logger="app.appearance"):
+        assert await appearance.current_mode(db, _local(23)) == {"mode": "day", "switch_in": None}
+    assert not caplog.records
+    assert await database.get_setting(db, appearance.FALLBACK_SETTING) is None
+
+
+async def test_admin_shows_where_tonights_night_comes_from(db, client, monkeypatch):
+    from app.routers.admin import SESSION_COOKIE
+    from app.security import create_session_token
+
+    client.cookies.set(SESSION_COOKIE, create_session_token())
+    source = await appearance.night_source(db)
+    assert source["kind"] == "fixed" and source["reason"] == "no_location" and source["last_fallback"] is None
+    html = (await client.get("/admin?tab=display")).text
+    assert "the fixed 19:00–07:00 night, because no weather location is set" in html
+
+    await _sun_forecast(db, {DAY: ("07:21", "18:05")})
+    await appearance.current_mode(db, _local(12, day=DAY - timedelta(days=1)))  # yesterday fell back
+    monkeypatch.setattr(appearance, "datetime", _FrozenDatetime)
+    html = (await client.get("/admin?tab=display")).text
+    assert "dark from sunset 18:05 to sunrise 07:21, from the weather forecast" in html
+    assert "Last fell back on Wed 14 Oct: the saved forecast doesn&#39;t cover today" in html
+
+
+class _FrozenDatetime(datetime):
+    @classmethod
+    def now(cls, tz=None):
+        return _local(12).astimezone(tz)
+
+
+async def test_forecast_stores_sun_times_and_zone(db, google):
+    await weather.set_location(db, READING)
+    route = google.get(weather.FORECAST_URL).respond(
+        200,
+        json={
+            "utc_offset_seconds": 3600,
+            "timezone": "Europe/London",
+            "current": {"temperature_2m": 12.0, "weather_code": 2},
+            "daily": {
+                "time": ["2026-10-15"],
+                "weather_code": [2],
+                "temperature_2m_max": [15.0],
+                "temperature_2m_min": [7.0],
+                "sunrise": ["2026-10-15T07:21"],
+                "sunset": ["2026-10-15T18:05"],
+            },
+        },
+    )
+    await weather.refresh(db)
+    assert "sunrise" in route.calls.last.request.url.params["daily"]
+    days = await weather.sun_times(db)
+    assert days[DAY] == (_local(7, 21), _local(18, 5))
