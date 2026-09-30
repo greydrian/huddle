@@ -420,7 +420,7 @@ def weekly_order(ids: list[int], today: date) -> list[int]:
     week (every reload agrees), a new one each Monday."""
     year, week, _ = today.isocalendar()
     ordered = sorted(ids)
-    random.Random(f"huddle-photos-{year}-W{week:02d}").shuffle(ordered)
+    random.Random(f"huddle-photos-{year}-W{week:02d}").shuffle(ordered)  # noqa: S311 (a repeatable order, not security)
     return ordered
 
 
@@ -642,7 +642,7 @@ async def stop_poller_and_wait() -> None:
             await task
         except asyncio.CancelledError:
             pass
-        except Exception:  # the loop has logged it already
+        except Exception:  # noqa: S110 (the loop has logged it already)
             pass
 
 

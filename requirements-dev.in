@@ -11,3 +11,5 @@ ruff==0.16.9
 playwright==1.63.0
 # Type checking (the CI `typecheck` job).
 mypy
+# Known-vulnerability check of the lock files (.github/workflows/audit.yml).
+pip-audit==2.10.1
