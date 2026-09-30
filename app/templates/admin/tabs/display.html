@@ -1,0 +1,168 @@
+{#- Admin → Display tab: included by admin/settings.html for admin_tab == "display".
+    Context: app/routers/admin/display.py (display_context) plus what page.py gives every tab. -#}
+{% from "admin/_macros.html" import section_error with context %}
+  <!-- Widgets (spec 10.3): each switch is its own one-button form. -->
+  {% macro widget_switch(action, name, on, label, widget_label) %}
+  <form method="post" action="{{ action }}" class="widget-switch-form">
+    <input type="hidden" name="{{ name }}" value="{{ 'false' if on else 'true' }}">
+    <button type="submit" class="widget-switch" role="switch" aria-checked="{{ 'true' if on else 'false' }}"
+            aria-label="{{ label }}: {{ widget_label }}">
+      <span class="widget-switch-track" aria-hidden="true"><span class="widget-switch-knob"></span></span>
+      <span class="widget-switch-text">{{ label }}</span>
+    </button>
+  </form>
+  {% endmacro %}
+  <div class="admin-panel" id="widgets">
+    <h2>Widgets</h2>
+    {{ section_error("widgets") }}
+    <p class="admin-hint">Hide a widget and the ones below it move up to fill its space; nothing else on the wall moves. Show it again and it goes back where it was, or to the nearest free space. The wall updates by itself within a minute.</p>
+    {% for w in widget_settings %}
+    <div class="admin-row widget-row{{ ' is-hidden' if not w.visible else '' }}">
+      <span class="admin-item-label"><strong>{{ w.label }}</strong>
+        {%- if not w.visible %} <span class="admin-meta">· hidden</span>
+        {%- elif w.school_days_only and not school_day_today %} <span class="admin-meta">· not shown today (not a school day)</span>{% endif %}</span>
+      <span class="widget-switches">
+        {{ widget_switch("/admin/widgets/" ~ w.id ~ "/visibility", "visible", w.visible, "Show", w.label) }}
+        {{ widget_switch("/admin/widgets/" ~ w.id ~ "/school-days", "enabled", w.school_days_only, "School days only", w.label) }}
+      </span>
+    </div>
+    {% endfor %}
+    <p class="admin-hint">"School days only" widgets show on school days and are left out on weekends, holidays, half terms, INSET days and bank holidays (from the term dates under School). Today is {{ 'a school day' if school_day_today else 'not a school day' }}.</p>
+  </div>
+
+  <!-- Weather location -->
+  <div class="admin-panel" id="weather">
+    <h2>Weather location</h2>
+    {% if weather_error == 'notfound' %}
+    <p class="admin-error">Couldn't find that place — try a nearby town or add the country.</p>
+    {% elif weather_error == 'offline' %}
+    <p class="admin-error">Couldn't reach the weather service just now — try again in a minute.</p>
+    {% endif %}
+    {% if weather_location %}
+    <p>
+      Using: <strong>{{ weather_location.name }}{% if weather_location.country %}, {{ weather_location.country }}{% endif %}</strong>
+      <span class="admin-meta">({{ '%.2f' % weather_location.latitude }}, {{ '%.2f' % weather_location.longitude }})</span>
+    </p>
+    <p class="admin-hint">Wrong place? Add the county or country, e.g. "Reading, Berkshire".</p>
+    {% else %}
+    <p class="admin-hint">Type your town and the dashboard will show its forecast.</p>
+    {% endif %}
+    <form class="admin-form" method="post" action="/admin/weather-location">
+      <input type="text" name="place" placeholder="Town or city" required autocomplete="off"{% if onscreen_keyboard %} data-osk="text"{% endif %}>
+      <button type="submit" class="btn">{{ 'Change location' if weather_location else 'Set location' }}</button>
+    </form>
+  </div>
+
+  <!-- Appearance -->
+  <div class="admin-panel" id="display">
+    <h2>Appearance</h2>
+    {{ section_error("display") }}
+    <form method="post" action="/admin/appearance">
+      {% for value, label in appearances.items() %}
+      <label class="admin-check">
+        <input type="radio" name="value" value="{{ value }}" {{ 'checked' if value == appearance_setting else '' }}>
+        {{ label }}
+      </label>
+      {% endfor %}
+      <p class="admin-hint">Evening and morning follow the family's timezone (the connected calendar's). The dashboard switches by itself — no reload needed.</p>
+      <button type="submit" class="btn btn-small">Save</button>
+    </form>
+  </div>
+
+  <!-- Notification banner (spec 10.1, app/services/banners.py) -->
+  <div class="admin-panel" id="banners">
+    <h2>Banners</h2>
+    {{ section_error("banners") }}
+    <p class="admin-hint">A slim bar under the date saying what's coming up. Tap a banner on the wall to dismiss it.</p>
+    <form method="post" action="/admin/banners">
+      <div class="banner-settings">
+        {% for kind, label in banner_triggers.items() %}
+        {% set trigger = banner_settings.triggers[kind] %}
+        <div class="banner-setting">
+          <span class="banner-setting-name">{{ label }}</span>
+          <label class="admin-check"><input type="checkbox" name="on_{{ kind }}" value="1" {{ 'checked' if trigger.on else '' }}> Show</label>
+          <label class="admin-check"><input type="checkbox" name="sound_{{ kind }}" value="1" {{ 'checked' if trigger.sound else '' }}> Chime</label>
+        </div>
+        {% endfor %}
+      </div>
+      <div class="admin-form banner-times">
+        <label class="hw-field">Event warning (minutes) <input type="number" name="lead_minutes" value="{{ banner_settings.lead_minutes }}" min="{{ banner_lead_range[0] }}" max="{{ banner_lead_range[1] }}" step="1" required inputmode="numeric"{% if onscreen_keyboard %} data-osk="numeric"{% endif %}></label>
+        <label class="hw-field">Quiet from <input type="time" name="quiet_start" value="{{ banner_settings.quiet_start }}" required></label>
+        <label class="hw-field">until <input type="time" name="quiet_end" value="{{ banner_settings.quiet_end }}" required></label>
+      </div>
+      <p class="admin-hint">An event's own popup reminder sets how early it shows (at most 2 hours); the minutes here are for events without one. Quiet hours show no banners and play no sound. They're separate from night colours, so a 19:30 club still gets its banner.</p>
+      <p class="admin-hint">Chimes: the tablet keeps sound off until someone touches the screen after the display loads, so banners before that show without a chime. In Fully Kiosk, Web Content Settings → Autoplay Audio may let it start sooner.</p>
+      <button type="submit" class="btn btn-small">Save</button>
+    </form>
+  </div>
+
+  <!-- On-screen keyboard -->
+  <div class="admin-panel" id="keyboard">
+    <h2>On-screen Keyboard</h2>
+    <form method="post" action="/admin/onscreen-keyboard">
+      <label class="admin-check">
+        <input type="checkbox" name="enabled" value="true" {{ 'checked' if onscreen_keyboard else '' }}>
+        Use the built-in keyboard on the dashboard and PIN screen
+      </label>
+      <p class="admin-hint">
+        Replaces the tablet's own keyboard (which is suppressed while this is on).
+      </p>
+      <button type="submit" class="btn btn-small">Save</button>
+    </form>
+  </div>
+
+  <!-- Idle screen (spec 10.2, app/idle.py, static/js/idle.js) -->
+  <div class="admin-panel" id="idle">
+    <h2>Idle screen</h2>
+    {{ section_error("idle") }}
+    <form method="post" action="/admin/idle">
+      <fieldset class="idle-choice">
+        <legend>When nobody has touched the wall for a while</legend>
+        {% for value, label in idle_modes.items() %}
+        <label class="admin-check"><input type="radio" name="mode" value="{{ value }}" {{ 'checked' if value == idle_settings.mode else '' }}> {{ label }}</label>
+        {% endfor %}
+      </fieldset>
+      <fieldset class="idle-choice">
+        <legend>At night</legend>
+        {% for value, label in idle_modes.items() %}
+        <label class="admin-check"><input type="radio" name="night_mode" value="{{ value }}" {{ 'checked' if value == idle_settings.night_mode else '' }}> {{ label }}</label>
+        {% endfor %}
+      </fieldset>
+      <div class="admin-form idle-numbers">
+        <label class="hw-field">Idle after (minutes) <input type="number" name="delay_minutes" value="{{ idle_settings.delay_minutes }}" min="{{ idle_ranges.delay_minutes[0] }}" max="{{ idle_ranges.delay_minutes[1] }}" step="1" required inputmode="numeric"{% if onscreen_keyboard %} data-osk="numeric"{% endif %}></label>
+        <label class="hw-field">Each photo (seconds) <input type="number" name="interval_seconds" value="{{ idle_settings.interval_seconds }}" min="{{ idle_ranges.interval_seconds[0] }}" max="{{ idle_ranges.interval_seconds[1] }}" step="1" required inputmode="numeric"{% if onscreen_keyboard %} data-osk="numeric"{% endif %}></label>
+        <label class="hw-field">Dim to (%) <input type="number" name="dim_percent" value="{{ idle_settings.dim_percent }}" min="{{ idle_ranges.dim_percent[0] }}" max="{{ idle_ranges.dim_percent[1] }}" step="1" required inputmode="numeric"{% if onscreen_keyboard %} data-osk="numeric"{% endif %}></label>
+      </div>
+      <div class="admin-form idle-numbers">
+        <label class="hw-field">Night starts <input type="time" name="night_start" value="{{ idle_settings.night_start }}"></label>
+        <label class="hw-field">Night ends <input type="time" name="night_end" value="{{ idle_settings.night_end }}"></label>
+      </div>
+      <p class="admin-hint">Leave both night times blank to follow Appearance (night colours). The slideshow shows the time, the next event today and the weather; with no photos chosen it's a calm clock. The first tap on an idle wall only wakes it. It never goes idle while someone is typing, dragging or has a list open, or just after a banner appears.</p>
+      <button type="submit" class="btn btn-small">Save</button>
+    </form>
+    <div class="admin-note">
+      <p><strong>Set up Fully Kiosk to match</strong> (Fully PLUS is needed for real dimming: without it the wall dims with a dark overlay and the backlight stays on):</p>
+      <ul>
+        <li>Turn <strong>off</strong> Fully's own screensaver and its screen-off timer. Huddle does idle itself.</li>
+        <li>For overnight screen-off, set Fully's own wake/sleep schedule (Device Management → Scheduled Wakeup/Sleep). A screen Fully has turned off doesn't wake on a tap, so keep that for the night only.</li>
+        <li>Enable Fully's JavaScript Interface (Advanced Web Settings) so Huddle can lower the brightness.</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- Photos (spec 10.2, app/google_photos.py): a separate sign-in -->
+  <div class="admin-panel" id="photos">
+    <h2>Photos</h2>
+    {{ section_error("photos") }}
+    {% include "admin/_photos_status.html" %}
+  </div>
+
+  <!-- Device management -->
+  <div class="admin-panel" id="device">
+    <h2>Device</h2>
+    <p><a href="/pen-test" class="btn btn-quiet">Pen test (for checking a new tablet)</a></p>
+    <p class="admin-hint">
+      Wi-Fi settings and restart/sleep controls are planned but not yet built
+      (v1 scope per the spec — software update button intentionally deferred).
+    </p>
+  </div>

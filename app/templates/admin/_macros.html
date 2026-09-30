@@ -1,0 +1,4 @@
+{#- Shared by the Admin tab templates (admin/tabs/*.html). -#}
+{#- A form that could not be saved comes back with ?error=<code>; admin's ADMIN_ERRORS
+    maps it to its section and message, and the section shows it. -#}
+{% macro section_error(section) %}{% if form_error and form_error.section == section %}<p class="admin-error" role="alert">{{ form_error.message }}</p>{% endif %}{% endmacro %}

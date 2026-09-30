@@ -1,0 +1,180 @@
+{#- Admin → School tab: included by admin/settings.html for admin_tab == "school".
+    Context: app/routers/admin/school.py (school_context) plus what page.py gives every tab. -#}
+{% from "admin/_macros.html" import section_error with context %}
+  <!-- School inbox: Classroom screenshots / pasted text, read by Claude
+       (app/services/imports.py). Nothing reaches the wall until approved. -->
+  <div class="admin-panel" id="classroom">
+    <h2>Add from Classroom</h2>
+    {{ section_error("classroom") }}
+    <p class="admin-hint">Screenshot the Classroom post on your phone (or copy its text) and add it here. Claude reads it and puts the spellings and homework it finds in the School inbox below for you to check. Nothing goes on the wall until you approve it.</p>
+    {% if not inbox_configured %}
+    <div class="inbox-setup" role="note">
+      <p><strong>Not set up yet.</strong> Reading school posts needs an Anthropic API key:</p>
+      <ol>
+        <li>Create a key at <strong>console.anthropic.com</strong> (API keys).</li>
+        <li>Add <code>ANTHROPIC_API_KEY=your-key</code> to the <code>.env</code> file next to <code>docker-compose.yml</code>.</li>
+        <li>Restart: <code>docker compose up -d</code>.</li>
+      </ol>
+      <p class="admin-meta">Optional: <code>ANTHROPIC_MODEL</code> picks the model (default <code>claude-sonnet-5</code>). Anything added before then waits in the inbox as "not set up"; add it again afterwards.</p>
+    </div>
+    {% endif %}
+    <form class="admin-form inbox-add" method="post" action="/admin/inbox/add" enctype="multipart/form-data">
+      <label class="hw-field inbox-file">Screenshots or a PDF (up to 3)
+        <input type="file" name="files" accept="image/*,application/pdf" multiple>
+      </label>
+      <textarea name="text" maxlength="30000" placeholder="…or paste the post's text here" aria-label="Pasted text"{% if onscreen_keyboard %} data-osk="text"{% endif %}></textarea>
+      <select name="child_id" aria-label="Which child is this for? (optional)">
+        <option value="">Which child? (optional)</option>
+        {% for p in profiles %}<option value="{{ p.id }}">{{ p.name }}{% if p.school_year %} ({{ p.school_year }}){% endif %}</option>{% endfor %}
+      </select>
+      <button type="submit" class="btn">Add to inbox</button>
+    </form>
+  </div>
+
+  <div class="admin-panel" id="inbox">
+    <h2>School inbox</h2>
+    {{ section_error("inbox") }}
+    {% for source in inbox.active %}{% include "admin/_inbox_source.html" %}{% else %}
+    <p class="admin-meta">Nothing waiting to be checked.</p>
+    {% endfor %}
+    {% if inbox.processed %}
+    <details class="finished-homework inbox-processed">
+      <summary>Show processed ({{ inbox.processed|length }})</summary>
+      {% for source in inbox.processed %}{% include "admin/_inbox_source.html" %}{% endfor %}
+    </details>
+    {% endif %}
+  </div>
+
+  <!-- School email (app/school_email.py): the school's emails, read from Gmail on a
+       schedule, go into the School inbox above. `school` is school_email.summary();
+       ?school_email=started|busy comes from Check now (fixed messages only). -->
+  {% set school_result = request.query_params.get("school_email") %}
+  <div class="admin-panel" id="school-email">
+    <h2>School email</h2>
+    {{ section_error("school-email") }}
+    {% if not google_configured %}
+    <p class="admin-hint">Needs Google set up first (see README, "School email import").</p>
+    {% elif not school.connected %}
+    <p class="admin-hint">Connect a Google account (<a class="inline-link" href="/admin?tab=google#google">Google &amp; Sync</a>) to read the school's emails.</p>
+    {% elif not school.gmail_scope %}
+    <p class="admin-error" role="note">Reconnect Google to enable school email import: Disconnect, then Connect Google Account (<a class="inline-link" href="/admin?tab=google#google">Google &amp; Sync</a>). Calendar and Tasks keep working meanwhile.</p>
+    {% elif not inbox_configured %}
+    <p class="admin-error" role="note">School emails are read by Claude: add an Anthropic API key first (see Add from Classroom above).</p>
+    {% endif %}
+    {% include "admin/_school_email_status.html" %}
+    {% if school_result == "started" %}
+    <p class="admin-meta" role="status">Checking in the background: the status above updates by itself, and anything found goes into the School inbox.</p>
+    {% elif school_result == "busy" %}
+    <p class="admin-meta" role="status">A check was already running; its result is above.</p>
+    {% endif %}
+    <form method="post" action="/admin/school-email/check" class="school-email-check">
+      <button type="submit" class="btn btn-small">Check now</button>
+    </form>
+
+    <form class="admin-form school-email-schedule" method="post" action="/admin/school-email/schedule">
+      <label class="hw-field">Check school email
+        <select name="mode">
+          {% for value, label in school.schedules.items() %}<option value="{{ value }}" {{ 'selected' if value == school.schedule.mode else '' }}>{{ label }}</option>{% endfor %}
+        </select>
+      </label>
+      <label class="hw-field">At <input type="time" name="time" value="{{ school.schedule.time }}" required></label>
+      <button type="submit" class="btn btn-small">Save</button>
+      <span class="admin-meta admin-form-note">{{ school.schedule.label() }} (twice daily adds 12 hours before or after)</span>
+    </form>
+
+    <form class="admin-form school-email-senders" method="post" action="/admin/school-email/senders">
+      <label class="hw-field">School senders (one per line; *@domain for everyone there)
+        <textarea name="senders" rows="3" autocapitalize="off" spellcheck="false"{% if onscreen_keyboard %} data-osk="text"{% endif %}>{{ school.senders | join("\n") }}</textarea>
+      </label>
+      <label class="hw-field">Never read
+        <textarea name="exclusions" rows="3" autocapitalize="off" spellcheck="false"{% if onscreen_keyboard %} data-osk="text"{% endif %}>{{ school.exclusions | join("\n") }}</textarea>
+      </label>
+      <button type="submit" class="btn btn-small">Save senders</button>
+      <span class="admin-meta admin-form-note">{{ school.always_excluded | join(", ") }} is never read, whatever is listed here. Only emails from these senders are sent to Claude.</span>
+    </form>
+
+    <div class="admin-subsection">
+      <h3>School events go to calendar</h3>
+      {% if school.connected and not school.events_scope %}
+      <p class="admin-hint">Reconnect to allow adding to your calendar.</p>
+      {% endif %}
+      {% if writable_calendars %}
+      <form class="admin-form" method="post" action="/admin/school-email/calendar">
+        <select name="calendar_id" aria-label="Calendar for school events">
+          <option value="">Don't add events (discard only)</option>
+          {% for cal in writable_calendars %}<option value="{{ cal.id }}" {{ 'selected' if event_setup.calendar and event_setup.calendar.id == cal.id else '' }}>{{ cal.summary }}{% if cal.primary %} (primary){% endif %}</option>{% endfor %}
+        </select>
+        <button type="submit" class="btn btn-small">Save</button>
+      </form>
+      {% elif event_setup.calendar %}
+      <p>Using <strong>{{ event_setup.calendar.summary }}</strong> <span class="admin-meta">(couldn't load the calendar list just now)</span></p>
+      {% else %}
+      <p class="admin-meta">No calendar to pick yet{% if school.connected %}: couldn't load calendars this account can edit{% endif %}.</p>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Term dates (app/services/term_dates.py, spec 10.6): one set for the household.
+       They decide school days, and holidays / half terms / INSET days show on the
+       wall calendar (never written to Google). A failed save re-renders with
+       term_form (its "id" None for the add form). -->
+  {% macro term_fields(f) %}
+      <label class="hw-field">Kind
+        <select name="kind" required>
+          {% for value, name in term_kinds.items() %}<option value="{{ value }}" {{ 'selected' if value == f.kind else '' }}>{{ name }}</option>{% endfor %}
+        </select>
+      </label>
+      <label class="hw-field">From <input type="date" name="start_date" value="{{ f.start_date or '' }}" required></label>
+      <label class="hw-field">Until <input type="date" name="end_date" value="{{ f.end_date or '' }}" required></label>
+      <label class="hw-field term-label-field">Name
+        <input type="text" name="label" value="{{ f.label or '' }}" maxlength="80" placeholder="e.g. Autumn term" autocomplete="off"{% if onscreen_keyboard %} data-osk="text"{% endif %}>
+      </label>
+  {% endmacro %}
+  {% set tf = term_form if term_form and term_form.id is none else {} %}
+  <div class="admin-panel" id="term-dates">
+    <h2>Term dates</h2>
+    {{ section_error("term-dates") }}
+    {% for year in term_missing_years %}
+    <div class="term-warning" role="note">
+      <p><strong>Term dates missing for {{ year }}.</strong> Until they're added, school days are Monday to Friday except bank holidays.</p>
+      <p class="admin-meta">Add the school's term dates PDF or letter under Add from Classroom (Claude reads it, then you check and approve it in the School inbox), or add each term, half term, holiday and INSET day below.</p>
+    </div>
+    {% endfor %}
+    {% for warning in term_incomplete %}
+    <div class="term-warning" role="note">
+      <p><strong>{{ warning }}</strong></p>
+      <p class="admin-meta">Days outside every term count as not school days, so a missing term turns its school days off.</p>
+    </div>
+    {% endfor %}
+    <p class="admin-hint">Terms, half terms, holidays and INSET days decide which days are school days. Holidays, half terms and INSET days show on the wall calendar (only on this display; nothing is added to Google). Check them once a year.</p>
+    {% for year in term_years %}
+    <h3 class="term-year">{{ year.label }}</h3>
+    {% for p in year.periods %}
+    {% set editing = term_form and term_form.id == p.id %}
+    <div class="admin-row admin-item term-row">
+      <span class="admin-item-label"><span class="term-kind term-kind-{{ p.kind }}">{{ term_kinds[p.kind] }}</span> {{ p.label }}
+        <span class="admin-meta">· {{ p.start_date }}{% if p.end_date != p.start_date %} to {{ p.end_date }}{% endif %}{% if p.source == 'import' %} · from the School inbox{% endif %}</span></span>
+      <details class="task-edit"{{ ' open' if editing else '' }}>
+        <summary class="btn"><span class="task-edit-open">Edit</span><span class="task-edit-close">Cancel</span></summary>
+        <form class="admin-form" method="post" action="/admin/term-dates/{{ p.id }}/edit">
+          {{ term_fields(term_form if editing else p) }}
+          <button type="submit" class="btn">Save changes</button>
+        </form>
+      </details>
+      <form method="post" action="/admin/term-dates/{{ p.id }}/delete">
+        <button type="submit" class="btn btn-danger btn-small">Delete</button>
+      </form>
+    </div>
+    {% endfor %}
+    {% else %}
+    <p class="admin-meta">No term dates yet.</p>
+    {% endfor %}
+    <form class="admin-form term-add" method="post" action="/admin/term-dates">
+      {{ term_fields(tf) }}
+      <button type="submit" class="btn">Add period</button>
+    </form>
+    <p class="admin-meta term-bank-holidays">
+      {% if bank_holidays.updated_label %}Bank holidays (England and Wales) updated {{ bank_holidays.updated_label }}{% if bank_holidays.stale %}: over a month ago, so they may be out of date. They're fetched from GOV.UK again automatically{% endif %}.
+      {% else %}Bank holidays (England and Wales) haven't been fetched from GOV.UK yet. They're fetched automatically once the display is online.{% endif %}
+    </p>
+  </div>

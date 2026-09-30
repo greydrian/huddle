@@ -14,6 +14,7 @@ import pytest
 from app import bank_holidays, database, http_client, migrations
 from app.admin_tabs import admin_url
 from app.routers import admin
+from app.routers.admin import common as admin_common
 from app.security import create_session_token
 from app.services import extraction, imports, term_dates
 
@@ -412,7 +413,7 @@ def admin_today(monkeypatch):
     async def fake_today(db):
         return TODAY
 
-    monkeypatch.setattr(admin, "family_today", fake_today)
+    monkeypatch.setattr(admin_common, "family_today", fake_today)
 
 
 async def test_admin_adds_edits_and_deletes_periods(db, admin_client, admin_today):

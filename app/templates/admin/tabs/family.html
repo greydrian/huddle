@@ -1,0 +1,306 @@
+{#- Admin → Family tab: included by admin/settings.html for admin_tab == "family".
+    Context: app/routers/admin/family.py (family_context) plus what page.py gives every tab. -#}
+{% from "_icons.html" import icon, person_avatar %}
+{% from "admin/_macros.html" import section_error with context %}
+  <!-- Family members -->
+  <div class="admin-panel" id="family">
+    <h2>Family Members</h2>
+    {{ section_error("family") }}
+    {% for p in profiles %}
+    <div class="admin-row family-row">
+      <span class="admin-person">{{ person_avatar(p.name, p.colour_hex, p.avatar) }}{{ p.name }}{% if p.is_parent %}<span class="admin-badge">Parent</span>{% endif %}</span>
+      <form method="post" action="/admin/profiles/{{ p.id }}/delete">
+        <button type="submit" class="btn btn-danger btn-small">Remove</button>
+      </form>
+      {#- Children's year group: the School inbox matches "Year 4" posts to them.
+          Parent + email (spec 10.0) are for the assistant's parent tasks and digest. -#}
+      <form class="admin-form profile-details" method="post" action="/admin/profiles/{{ p.id }}/details">
+        <input type="text" name="school_year" value="{{ p.school_year or '' }}" maxlength="30" placeholder="Year group" aria-label="{{ p.name }}'s year group" autocomplete="off"{% if onscreen_keyboard %} data-osk="text"{% endif %}>
+        <label class="admin-check"><input type="checkbox" name="is_parent" value="true" {{ 'checked' if p.is_parent else '' }}> Parent</label>
+        {#- type=text, not email: the on-screen keyboard can't place the caret in an email input. -#}
+        <input type="text" name="email" value="{{ p.email or '' }}" maxlength="254" placeholder="Email (optional)" aria-label="{{ p.name }}'s email" autocomplete="off" autocapitalize="off" spellcheck="false"{% if onscreen_keyboard %} data-osk="text"{% endif %}>
+        <button type="submit" class="btn btn-quiet btn-small">Save</button>
+      </form>
+      {#- Spec 10.9: the avatar shown on their name pill everywhere. One tap on an
+          emoji uses it; the photo is cropped round, 256 px, stored in the database. -#}
+      <details class="task-edit avatar-edit">
+        <summary class="btn"><span class="task-edit-open">Avatar</span><span class="task-edit-close">Close</span></summary>
+        <div class="avatar-panel">
+          <form class="admin-form avatar-kinds" method="post" action="/admin/profiles/{{ p.id }}/avatar">
+            <span class="admin-meta admin-form-note">Show:</span>
+            <button type="submit" name="kind" value="initial" class="btn btn-quiet btn-small avatar-kind" aria-pressed="{{ 'true' if p.avatar.kind == 'initial' else 'false' }}">{{ person_avatar(p.name, p.colour_hex) }}Initial</button>
+            {% if p.avatar_hash %}
+            <button type="submit" name="kind" value="photo" class="btn btn-quiet btn-small avatar-kind" aria-pressed="{{ 'true' if p.avatar.kind == 'photo' else 'false' }}">{{ person_avatar(p.name, p.colour_hex, {"kind": "photo", "url": "/avatars/" ~ p.id ~ "-" ~ p.avatar_hash}) }}Photo</button>
+            {% endif %}
+            {% if p.avatar_emoji %}
+            <button type="submit" name="kind" value="emoji" class="btn btn-quiet btn-small avatar-kind" aria-pressed="{{ 'true' if p.avatar.kind == 'emoji' else 'false' }}">{{ person_avatar(p.name, p.colour_hex, {"kind": "emoji", "emoji": p.avatar_emoji}) }}Emoji</button>
+            {% endif %}
+          </form>
+          <form class="emoji-grid" method="post" action="/admin/profiles/{{ p.id }}/avatar" role="group" aria-label="{{ p.name }}'s emoji">
+            <input type="hidden" name="kind" value="emoji">
+            {% for e in curated_emoji %}
+            <button type="submit" name="emoji" value="{{ e }}" class="emoji-choice" aria-pressed="{{ 'true' if p.avatar.kind == 'emoji' and p.avatar_emoji == e else 'false' }}">{{ e }}</button>
+            {% endfor %}
+          </form>
+          <form class="admin-form" method="post" action="/admin/profiles/{{ p.id }}/avatar">
+            <input type="hidden" name="kind" value="emoji">
+            <input type="text" name="custom_emoji" class="avatar-custom-emoji" maxlength="32" placeholder="Or type one emoji" aria-label="{{ p.name }}'s emoji (one emoji)" autocomplete="off" spellcheck="false"
+                   value="{{ p.avatar_emoji if p.avatar_emoji and p.avatar_emoji not in curated_emoji else '' }}">
+            <button type="submit" class="btn btn-quiet btn-small">Use emoji</button>
+          </form>
+          <form class="admin-form avatar-photo-form" method="post" action="/admin/profiles/{{ p.id }}/avatar/photo" enctype="multipart/form-data">
+            {% if p.avatar_hash %}<img class="avatar-preview" src="/avatars/{{ p.id }}-{{ p.avatar_hash }}" alt="{{ p.name }}'s photo" width="96" height="96" style="--person: {{ p.colour_hex }};">{% endif %}
+            <input type="file" name="photo" accept="image/*,.heic,.heif" required aria-label="{{ p.name }}'s photo">
+            <button type="submit" class="btn btn-small">{{ 'Replace photo' if p.avatar_hash else 'Upload photo' }}</button>
+            <span class="admin-meta admin-form-note">JPEG, PNG, WebP, GIF or HEIC (iPhone), up to 8 MB. Cropped to a circle; location and camera details are removed.</span>
+          </form>
+          {% if p.avatar_hash %}
+          <form method="post" action="/admin/profiles/{{ p.id }}/avatar/photo/remove">
+            <button type="submit" class="btn btn-danger btn-small">Remove photo</button>
+          </form>
+          {% endif %}
+        </div>
+      </details>
+    </div>
+    {% endfor %}
+    <form class="admin-form" method="post" action="/admin/profiles">
+      <input type="text" name="name" placeholder="Name" required autocomplete="off"{% if onscreen_keyboard %} data-osk="text"{% endif %}>
+      <input type="color" name="colour_hex" value="#C1584A">
+      <button type="submit" class="btn">Add family member</button>
+    </form>
+  </div>
+
+  <!-- Tasks -->
+  {#- Tasks themselves live in Google Tasks; only who and which days are set here. -#}
+  <div class="admin-panel" id="tasks">
+    <h2>Task Schedules</h2>
+    {{ section_error("tasks") }}
+    <p class="admin-meta">Add, rename or delete tasks in Google Tasks — they sync here within a minute. Quick one-offs can also be added from the dashboard's Tasks widget. Set which days each one repeats, and its time of day, below.</p>
+    {#- Spec 10.4: the widget groups tasks by time of day; the current group comes first. -#}
+    <form class="admin-form task-group-times" method="post" action="/admin/tasks/groups">
+      <label class="hw-field">After school from <input type="time" name="after_school_start" value="{{ task_group_bounds[0] }}" required></label>
+      <label class="hw-field">Evening from <input type="time" name="evening_start" value="{{ task_group_bounds[1] }}" required></label>
+      <button type="submit" class="btn btn-quiet btn-small">Save times</button>
+      <span class="admin-meta admin-form-note">Morning runs until After school starts.</span>
+    </form>
+    {% if term_dates_missing and tasks | selectattr("school_days") | list %}
+    <p class="admin-meta" role="note">Term dates missing for {{ term_dates_missing | join(" and ") }}: "School days" tasks use Mon–Fri minus bank holidays until they're added (<a class="inline-link" href="/admin?tab=school#term-dates">School → Term dates</a>).</p>
+    {% endif %}
+    {% for p in profiles %}
+    {% set person_tasks = tasks | selectattr("profile_id", "equalto", p.id) | list %}
+    <div class="schedule-person">
+      <h3>{{ person_avatar(p.name, p.colour_hex, p.avatar) }}{{ p.name }}{% if not p.google_tasklist_id %} <span class="admin-meta">· {% if person_tasks %}These stay on this display only until a Google list is linked (<a class="inline-link" href="/admin?tab=google#task-lists">Google &amp; Sync → Task Sync</a>){% else %}Link a Google list under <a class="inline-link" href="/admin?tab=google#task-lists">Google &amp; Sync → Task Sync</a> to give them tasks{% endif %}</span>{% endif %}</h3>
+      {% for t in person_tasks %}
+      <div class="admin-row admin-item">
+        <span class="admin-item-label">{{ t.title }} <span class="admin-meta">· {{ 'repeats ' ~ t.schedule if t.schedule else 'one-off' }}{% if t.group_label %} · {{ t.group_label }}{% endif %}</span></span>
+        <details class="task-edit">
+          <summary class="btn"><span class="task-edit-open">Schedule</span><span class="task-edit-close">Cancel</span></summary>
+          <form class="admin-form" method="post" action="/admin/tasks/{{ t.id }}/edit">
+            <div class="day-picker" role="group" aria-label="Repeats on">
+              <label class="admin-check">
+                <input type="checkbox" name="is_recurring" value="true" {{ 'checked' if t.is_recurring and not t.days else '' }}> Every day
+              </label>
+              <span class="admin-meta">or only:</span>
+              {% for d in weekdays %}
+              <label class="day-chip"><input type="checkbox" name="days" value="{{ d }}" {{ 'checked' if d in t.days else '' }}><span>{{ d }}</span></label>
+              {% endfor %}
+              {#- Follows the term dates (Mon–Fri minus bank holidays without them); wins over the day chips. -#}
+              <label class="day-chip"><input type="checkbox" name="school_days" value="true" {{ 'checked' if t.school_days else '' }}><span>School days</span></label>
+            </div>
+            <div class="day-picker" role="radiogroup" aria-label="Time of day">
+              <span class="admin-meta">Time of day:</span>
+              <label class="day-chip"><input type="radio" name="time_of_day" value="any" {{ 'checked' if not t.group_label else '' }}><span>Any time</span></label>
+              {% for key, label in task_groups %}
+              <label class="day-chip"><input type="radio" name="time_of_day" value="{{ key }}" {{ 'checked' if t.time_of_day == key else '' }}><span>{{ label }}</span></label>
+              {% endfor %}
+            </div>
+            <label class="admin-check">Person
+              <select name="profile_id" required aria-label="Person">
+                {#- Moving a task to someone with no Google list would delete its Google copy. -#}
+                {% for op in profiles %}{% if op.id == t.profile_id %}<option value="{{ op.id }}" selected>{{ op.name }}</option>
+                {%- elif op.google_tasklist_id %}<option value="{{ op.id }}">{{ op.name }}</option>
+                {%- else %}<option value="{{ op.id }}" disabled>{{ op.name }} (no Google list)</option>{% endif %}{% endfor %}
+              </select>
+            </label>
+            <button type="submit" class="btn">Save</button>
+            <span class="admin-meta admin-form-note">Nothing ticked = a one-off task.</span>
+          </form>
+        </details>
+      </div>
+      {% else %}
+      {% if p.google_tasklist_id %}<p class="admin-meta schedule-empty">No tasks.</p>{% endif %}
+      {% endfor %}
+    </div>
+    {% endfor %}
+  </div>
+
+  <!-- Homework -->
+  {#- After a validation error, homework_form / words_form hold what was submitted
+      ("id" none = the add form) so the form comes back as typed. -#}
+  {#- The fixed subject (icon + colour, spec 10.10). "Match the subject" maps the
+      typed subject through the synonym table (services/homework.subject_key_for). -#}
+  {% macro subject_select(pick) %}
+  <select name="subject_key" aria-label="Subject icon">
+    <option value="">Icon: match the subject</option>
+    {% for key, (label, _icon) in homework_subjects.items() %}<option value="{{ key }}" {{ 'selected' if key == pick else '' }}>Icon: {{ label }}</option>{% endfor %}
+  </select>
+  {% endmacro %}
+  {% macro homework_row(h) %}
+  {% set editing = homework_form and homework_form.id == h.id %}
+  {% set f = homework_form if editing else h %}
+  <div class="admin-row admin-item">
+    <span class="admin-item-label">{{ h.profile_name }} — <span class="hw-subject subj-{{ h.subj.key }}">{{ icon(h.subj.icon, 16) }}{{ h.subj.text }}</span> {{ h.title }}
+      <span class="admin-meta">{% if h.due_date %}· due {{ h.due_date }}{% else %}· no due date{% endif %}{% if h.done %} · done{% if h.done_when %} {{ h.done_when }}{% endif %}{% endif %}{% if h.archived %} · archived{% endif %}</span></span>
+    <details class="task-edit"{{ ' open' if editing else '' }}>
+      <summary class="btn"><span class="task-edit-open">Edit</span><span class="task-edit-close">Cancel</span></summary>
+      <form class="admin-form" method="post" action="/admin/homework/{{ h.id }}/edit">
+        <select name="profile_id" required aria-label="Child">
+          {% for p in profiles %}<option value="{{ p.id }}" {{ 'selected' if p.id|string == f.profile_id|string else '' }}>{{ p.name }}</option>{% endfor %}
+        </select>
+        <input type="text" name="subject" value="{{ f.subject or '' }}" maxlength="60" placeholder="Subject" aria-label="Subject" autocomplete="off"{% if onscreen_keyboard %} data-osk="text"{% endif %}>
+        {{ subject_select(f.subject_pick) }}
+        <input type="text" name="title" value="{{ f.title }}" maxlength="120" required aria-label="Homework" autocomplete="off"{% if onscreen_keyboard %} data-osk="text"{% endif %}>
+        <input type="text" name="details" value="{{ f.details or '' }}" maxlength="1000" placeholder="Details (optional)" aria-label="Details" autocomplete="off"{% if onscreen_keyboard %} data-osk="text"{% endif %}>
+        <label class="hw-field">Due <input type="date" name="due_date" value="{{ f.due_date or '' }}"></label>
+        <button type="submit" class="btn">Save changes</button>
+      </form>
+    </details>
+    <form method="post" action="/admin/homework/{{ h.id }}/archive">
+      <button type="submit" class="btn btn-quiet btn-small">{{ 'Restore' if h.archived else 'Archive' }}</button>
+    </form>
+    <form method="post" action="/admin/homework/{{ h.id }}/delete">
+      <button type="submit" class="btn btn-danger btn-small">Delete</button>
+    </form>
+  </div>
+  {% endmacro %}
+  {% set hf = homework_form if homework_form and homework_form.id is none else {} %}
+  {% set wf = words_form if words_form and words_form.id is none else {} %}
+  <div class="admin-panel" id="homework">
+    <h2>Homework</h2>
+    {{ section_error("homework") }}
+    {% if homework_error %}<p class="admin-error" role="alert">{{ homework_error }}</p>{% endif %}
+    {% for h in homework_items %}{{ homework_row(h) }}{% else %}
+    <p class="admin-meta">No homework on the board.</p>
+    {% endfor %}
+    {% if finished_homework %}
+    {% set editing_finished = homework_form and homework_form.id in finished_homework|map(attribute='id')|list %}
+    <details class="finished-homework"{{ ' open' if editing_finished else '' }}>
+      <summary>Show finished ({{ finished_homework|length }})</summary>
+      {% for h in finished_homework %}{{ homework_row(h) }}{% endfor %}
+    </details>
+    {% endif %}
+    <form class="admin-form" method="post" action="/admin/homework">
+      <select name="profile_id" required aria-label="Child">
+        {% for p in profiles %}<option value="{{ p.id }}" {{ 'selected' if hf and p.id|string == hf.profile_id|string else '' }}>{{ p.name }}</option>{% endfor %}
+      </select>
+      <input type="text" name="subject" value="{{ hf.subject or '' }}" maxlength="60" placeholder="Subject (e.g. Maths)" aria-label="Subject" autocomplete="off"{% if onscreen_keyboard %} data-osk="text"{% endif %}>
+      {{ subject_select(hf.subject_pick) }}
+      <input type="text" name="title" value="{{ hf.title or '' }}" maxlength="120" placeholder="What's the homework?" required aria-label="Homework" autocomplete="off"{% if onscreen_keyboard %} data-osk="text"{% endif %}>
+      <input type="text" name="details" value="{{ hf.details or '' }}" maxlength="1000" placeholder="Details (optional)" aria-label="Details" autocomplete="off"{% if onscreen_keyboard %} data-osk="text"{% endif %}>
+      <label class="hw-field">Due (optional) <input type="date" name="due_date" value="{{ hf.due_date or '' }}"></label>
+      <button type="submit" class="btn">Add homework</button>
+    </form>
+
+    {#- Done history (spec 10.10): every tick and untick on the wall, with when
+        (family time). Who isn't known: the kiosk has no sign-in. -#}
+    <div class="admin-subsection hw-history">
+      <h3>Recently ticked</h3>
+      {% for e in homework_events %}
+      <p class="hw-event"><span class="hw-event-when">{{ e.when }}</span>
+        <span>{{ e.profile_name }} {{ 'ticked' if e.done else 'unticked' }} <span class="hw-subject subj-{{ e.subj.key }}">{{ icon(e.subj.icon, 16) }}{{ e.subj.text }}</span> {{ e.title }}</span></p>
+      {% else %}
+      <p class="admin-meta">Nothing ticked yet. When homework is ticked done on the wall, it shows here with the time.</p>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- Reading log -->
+  {#- Last 4 weeks, Monday to Sunday, per child (spec 10.10). A tick is a night
+      they read; days off school are shaded. No points, no totals. -#}
+  <div class="admin-panel" id="reading">
+    <h2>Reading Log</h2>
+    <p class="admin-hint">Children tick “Read tonight” on the Homework widget. Here are the last 4 weeks, to help fill in the school reading record.</p>
+    {% for child in reading_history.children %}
+    <div class="rd-history">
+      <h3 class="rd-history-name">{{ person_avatar(child.name, child.colour_hex, child.avatar) }}{{ child.name }}</h3>
+      <div class="rd-grid-scroll">
+      <table class="rd-grid">
+        <thead><tr>{% for d in reading_history.weekdays %}<th scope="col">{{ d }}</th>{% endfor %}</tr></thead>
+        <tbody>
+          {% for week in child.weeks %}
+          <tr>
+            {% for c in week %}
+            <td class="{{ 'is-read' if c.read else '' }}{{ ' is-off' if not c.school_day else '' }}{{ ' is-future' if c.future else '' }}{{ ' is-today' if c.today else '' }}"
+                title="{{ c.label }}{{ ': read' if c.read else '' }}">
+              <span class="rd-day">{{ c.day }}</span>
+              {% if c.read %}{{ icon("check", 18) }}<span class="visually-hidden">read</span>{% endif %}
+            </td>
+            {% endfor %}
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      </div>
+    </div>
+    {% else %}
+    <p class="admin-meta">Set a year group for each child in Family Members to start the reading log.</p>
+    {% endfor %}
+  </div>
+
+  <!-- Handwriting practice words -->
+  <div class="admin-panel" id="practice-words">
+    <h2>Practice Words</h2>
+    {{ section_error("practice-words") }}
+    {% if words_error %}<p class="admin-error" role="alert">{{ words_error }}</p>{% endif %}
+    {% for wl in word_lists %}
+    {% set editing = words_form and words_form.id == wl.id %}
+    {% set f = words_form if editing else wl %}
+    <div class="admin-row admin-item">
+      <span class="admin-item-label">{{ wl.profile_name }} — {{ wl.title }}
+        <span class="admin-meta">· {{ wl.words.split('\n') | length }} words{% if wl.starts_on or wl.ends_on %} · {{ wl.starts_on or '…' }} to {{ wl.ends_on or '…' }}{% endif %}{% if wl.archived %} · archived{% endif %}</span></span>
+      <details class="task-edit"{{ ' open' if editing else '' }}>
+        <summary class="btn"><span class="task-edit-open">Edit</span><span class="task-edit-close">Cancel</span></summary>
+        <form class="admin-form" method="post" action="/admin/practice-words/{{ wl.id }}/edit">
+          <select name="profile_id" required aria-label="Child">
+            {% for p in profiles %}<option value="{{ p.id }}" {{ 'selected' if p.id|string == f.profile_id|string else '' }}>{{ p.name }}</option>{% endfor %}
+          </select>
+          <input type="text" name="title" value="{{ f.title }}" maxlength="120" required aria-label="List title" autocomplete="off"{% if onscreen_keyboard %} data-osk="text"{% endif %}>
+          <textarea name="words" required aria-label="Words, one per line or separated by commas" autocapitalize="off" spellcheck="false"{% if onscreen_keyboard %} data-osk="text"{% endif %}>{{ f.words }}</textarea>
+          <label class="hw-field">From <input type="date" name="starts_on" value="{{ f.starts_on or '' }}"></label>
+          <label class="hw-field">Until <input type="date" name="ends_on" value="{{ f.ends_on or '' }}"></label>
+          <button type="submit" class="btn">Save changes</button>
+        </form>
+      </details>
+      <form method="post" action="/admin/practice-words/{{ wl.id }}/archive">
+        <button type="submit" class="btn btn-quiet btn-small">{{ 'Restore' if wl.archived else 'Archive' }}</button>
+      </form>
+      <form method="post" action="/admin/practice-words/{{ wl.id }}/delete">
+        <button type="submit" class="btn btn-danger btn-small">Delete</button>
+      </form>
+    </div>
+    {% else %}
+    <p class="admin-meta">No word lists yet.</p>
+    {% endfor %}
+    <form class="admin-form" method="post" action="/admin/practice-words">
+      <select name="profile_id" required aria-label="Child">
+        {% for p in profiles %}<option value="{{ p.id }}" {{ 'selected' if wf and p.id|string == wf.profile_id|string else '' }}>{{ p.name }}</option>{% endfor %}
+      </select>
+      <input type="text" name="title" value="{{ wf.title or '' }}" maxlength="120" placeholder="Title (e.g. Week 3 handwriting)" required aria-label="List title" autocomplete="off"{% if onscreen_keyboard %} data-osk="text"{% endif %}>
+      <textarea name="words" required placeholder="Words — one per line, or separated by commas" aria-label="Words" autocapitalize="off" spellcheck="false"{% if onscreen_keyboard %} data-osk="text"{% endif %}>{{ wf.words or '' }}</textarea>
+      <label class="hw-field">From (optional) <input type="date" name="starts_on" value="{{ wf.starts_on or '' }}"></label>
+      <label class="hw-field">Until (optional) <input type="date" name="ends_on" value="{{ wf.ends_on or '' }}"></label>
+      <button type="submit" class="btn">Add word list</button>
+    </form>
+
+    <form method="post" action="/admin/handwriting-style" class="admin-subsection">
+      <h3>Handwriting style</h3>
+      {% for value, label in handwriting_styles.items() %}
+      <label class="hand-option">
+        <input type="radio" name="style" value="{{ value }}" {{ 'checked' if value == handwriting_style else '' }}>
+        <span>{{ label }}</span>
+        <span class="hand-sample hand-{{ value }}">little</span>
+      </label>
+      {% endfor %}
+      <button type="submit" class="btn btn-small admin-submit">Save</button>
+    </form>
+  </div>

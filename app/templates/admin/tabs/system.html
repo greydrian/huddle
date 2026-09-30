@@ -1,0 +1,32 @@
+{#- Admin → System tab: included by admin/settings.html for admin_tab == "system".
+    Context: app/routers/admin/system.py (system_context) plus what page.py gives every tab. -#}
+{% from "admin/_macros.html" import section_error with context %}
+  <!-- Backups (app/backup.py; restore steps in the README) -->
+  <div class="admin-panel" id="backups">
+    <h2>Backups</h2>
+    {{ section_error("backups") }}
+    {% if backup_status.newest_at %}
+    <p>
+      Latest: <strong>{{ backup_status.newest_at.strftime('%a %d %b, %H:%M') }}</strong>
+      <span class="admin-meta">({{ backup_status.newest_size | filesizeformat }} · {{ backup_status.count }} kept)</span>
+    </p>
+    {% else %}
+    <p>No backups yet.</p>
+    {% endif %}
+    <p class="admin-hint">The database is backed up every night at about 3:30. Copy the backups folder off this box now and then; see the README.</p>
+    <form method="post" action="/admin/backups/run">
+      <button type="submit" class="btn btn-small">Back up now</button>
+    </form>
+  </div>
+
+  <!-- Change PIN -->
+  <div class="admin-panel" id="pin">
+    <h2>Change Admin PIN</h2>
+    {{ section_error("pin") }}
+    <p class="admin-hint">4 to 8 digits. Not one digit repeated (like 0000) or a straight run (like 1234 or 9876). Changing it logs out every other device.</p>
+    <form class="admin-form" method="post" action="/admin/change-pin">
+      <input type="password" name="new_pin" inputmode="numeric" pattern="[0-9]{4,8}" minlength="4" maxlength="8" placeholder="New PIN" aria-label="New PIN" required autocomplete="off"{% if onscreen_keyboard %} data-osk="numeric"{% endif %}>
+      <input type="password" name="confirm_pin" inputmode="numeric" pattern="[0-9]{4,8}" minlength="4" maxlength="8" placeholder="New PIN again" aria-label="New PIN again" required autocomplete="off"{% if onscreen_keyboard %} data-osk="numeric"{% endif %}>
+      <button type="submit" class="btn">Update PIN</button>
+    </form>
+  </div>
