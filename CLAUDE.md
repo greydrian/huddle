@@ -32,6 +32,7 @@ python -c "import app.main"   # fastest syntax/import check
 # a hash check of static/vendor (SHA256SUMS), a `docker build` that boots the image until /health
 # answers, and pip-audit of both lock files (.github/workflows/audit.yml, also weekly)
 ruff check app tests          # config in pyproject.toml; DTZ rules flag naive dates on purpose; S = bandit
+ruff format app tests         # CI runs `ruff format --check`: never hand-format, run this before committing
 mypy                          # app/ only, lenient; [tool.mypy] in pyproject.toml — keep it at zero errors
 python -m pytest -q           # skips tests/e2e (pytest.ini: -m "not e2e")
 python -m pytest tests/test_task_sync.py::test_outage_keeps_queue_and_does_not_burn_retries
