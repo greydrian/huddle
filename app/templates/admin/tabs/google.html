@@ -1,0 +1,149 @@
+{#- Admin → Google tab: included by admin/settings.html for admin_tab == "google".
+    Context: app/routers/admin/google.py (google_context) plus what page.py gives every tab. -#}
+{% from "_icons.html" import person_avatar %}
+{% from "admin/_macros.html" import section_error with context %}
+  <!-- Google account -->
+  <div class="admin-panel" id="google">
+    <h2>Google Account</h2>
+    {% if google_account %}
+    <div class="admin-row">
+      <span>Connected as <strong>{{ google_account }}</strong> — Calendar (read-only) + Tasks</span>
+      <form method="post" action="/admin/google/disconnect">
+        <button type="submit" class="btn btn-danger btn-small">Disconnect</button>
+      </form>
+    </div>
+    {% if available_calendars %}
+    <form class="calendar-picker" id="calendars" method="post" action="/admin/google/calendars">
+      <p class="admin-hint">Calendars shown on the dashboard:</p>
+      {% for cal in available_calendars %}
+      <label class="admin-check">
+        <input type="checkbox" name="calendar_id" value="{{ cal.id }}"
+               {{ 'checked' if cal.id in selected_calendar_ids else '' }}>
+        <span class="calendar-swatch" style="--cal: {{ cal.color }};"></span>
+        {{ cal.summary }}{% if cal.primary %} (primary){% endif %}
+      </label>
+      {% endfor %}
+      <button type="submit" class="btn">Save calendars</button>
+    </form>
+    {% endif %}
+    {% elif google_configured %}
+    <p class="admin-hint">
+      Connect a Google account to bring your family calendar onto the dashboard.
+    </p>
+    <a href="/admin/google/connect" class="btn">Connect Google Account</a>
+    {% else %}
+    <p class="admin-hint">
+      Not configured yet — set <code>GOOGLE_CLIENT_ID</code> and <code>GOOGLE_CLIENT_SECRET</code>
+      (see README, "Connecting Google (Calendar + Tasks)") before this can be connected.
+    </p>
+    {% endif %}
+    {% if google_account %}
+    {#- Calendar options (spec 10.5, services/calendar_prefs.py). -#}
+    <div class="admin-subsection" id="calendar-options">
+      <h3>Calendar on the wall</h3>
+      {{ section_error("calendar-options") }}
+      <form class="admin-form" method="post" action="/admin/google/calendar-view">
+        <label class="admin-hint admin-label" for="calendar-default-view">Shows, and goes back to after 3 minutes untouched:</label>
+        <select id="calendar-default-view" name="view">
+          {% for key, label in calendar_views.items() %}<option value="{{ key }}" {{ 'selected' if calendar_default_view == key else '' }}>{{ label }}</option>{% endfor %}
+        </select>
+        <button type="submit" class="btn btn-small">Save</button>
+      </form>
+
+      <p class="admin-hint admin-label">Adding events from the wall (the calendar's "+") always goes into one shared Family calendar:</p>
+      {% if not calendar_events_scope %}
+      <p class="admin-hint">Reconnect to allow adding events: Disconnect, then Connect Google Account.</p>
+      {% endif %}
+      {% if family_choices %}
+      <form class="admin-form" method="post" action="/admin/google/family-calendar">
+        <select name="calendar_id" aria-label="Family calendar">
+          <option value="">Don't add events from the wall</option>
+          {% for cal in family_choices %}<option value="{{ cal.id }}" {{ 'selected' if family_calendar and family_calendar.id == cal.id else '' }}>{{ cal.summary }}{% if cal.primary %} (primary){% endif %}</option>{% endfor %}
+        </select>
+        <button type="submit" class="btn btn-small">Save</button>
+      </form>
+      {% elif family_calendar %}
+      <p>Using <strong>{{ family_calendar.summary }}</strong> <span class="admin-meta">(couldn't load the calendar list just now)</span></p>
+      {% else %}
+      <p class="admin-meta">No calendar to pick: tick a calendar this account can edit under "Calendars shown on the dashboard" first.</p>
+      {% endif %}
+      {% if not family_calendar_active %}
+      <p class="admin-hint">{% if family_calendar %}{{ family_calendar.summary }} isn't shown on the wall any more, so{% else %}No Family calendar is chosen, so{% endif %} the wall has no "+" for adding events.</p>
+      {% endif %}
+
+      {% if selected_calendars %}
+      <form method="post" action="/admin/google/calendar-people">
+        <p class="admin-hint admin-label">Whose events each calendar holds (the person filter). On an Everyone calendar, an event counts for whoever its title names, like "Riley: Swimming".</p>
+        {% for cal in selected_calendars %}
+        <div class="tasklist-row">
+          <input type="hidden" name="calendar_{{ loop.index }}" value="{{ cal.id }}">
+          <span class="tasklist-person"><span class="calendar-swatch" style="--cal: {{ cal.color }};"></span>{{ cal.summary }}</span>
+          {% set owner = calendar_people.get(cal.id, 'everyone') %}
+          <select name="owner_{{ loop.index }}" aria-label="Whose events are in {{ cal.summary }}">
+            <option value="everyone">Everyone</option>
+            {% for p in profiles %}<option value="{{ p.id }}" {{ 'selected' if owner == p.id else '' }}>{{ p.name }}</option>{% endfor %}
+          </select>
+        </div>
+        {% endfor %}
+        <button type="submit" class="btn btn-small admin-submit">Save</button>
+      </form>
+      {% endif %}
+    </div>
+
+    <div class="admin-subsection" id="task-lists">
+      <h3>Task Sync</h3>
+      {% if google_offline %}
+      <p class="admin-error">
+        Couldn't reach Google just now — lists below may be incomplete. Try again in a minute.
+      </p>
+      {% endif %}
+      {% if tasklists_error %}
+      <p class="admin-error">
+        Couldn't load your Google Task lists — this account was likely connected before Task
+        sync was added. Disconnect and reconnect above to grant access.
+      </p>
+      {% elif available_tasklists %}
+      <form class="shopping-list-picker" method="post" action="/admin/google/shopping-list">
+        <label class="admin-hint admin-label">
+          Shopping list syncs with:
+        </label>
+        <select name="tasklist_id" required>
+          <option value="">— choose a list —</option>
+          {% for tl in available_tasklists %}
+          <option value="{{ tl.id }}" {{ 'selected' if shopping_tasklist and shopping_tasklist.id == tl.id else '' }}>{{ tl.title }}</option>
+          {% endfor %}
+        </select>
+        <button type="submit" class="btn btn-small">Save</button>
+      </form>
+
+      <form method="post" action="/admin/google/task-lists">
+        <label class="admin-hint admin-label">
+          Task lists (per family member):
+        </label>
+        {% for p in profiles %}
+        <div class="tasklist-row">
+          <span class="admin-person tasklist-person">{{ person_avatar(p.name, p.colour_hex, p.avatar) }}{{ p.name }}</span>
+          <select name="tasklist_{{ p.id }}">
+            <option value="">Not synced</option>
+            {% for tl in available_tasklists %}
+            <option value="{{ tl.id }}" {{ 'selected' if p.google_tasklist_id == tl.id else '' }}>{{ tl.title }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        {% endfor %}
+        <button type="submit" class="btn btn-small admin-submit">Save task lists</button>
+      </form>
+      {% else %}
+      <p class="admin-hint">
+        No Google Tasks lists found on this account. Create one in the Google Tasks app first.
+      </p>
+      {% endif %}
+    </div>
+    {% endif %}
+    <p class="admin-hint admin-footnote">
+      Google Photos and Classroom access aren't wired up yet — see the project README for the plan.
+    </p>
+  </div>
+
+  <!-- Sync health -->
+  {% include "admin/_sync_panel.html" %}

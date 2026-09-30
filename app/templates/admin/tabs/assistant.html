@@ -1,0 +1,21 @@
+{#- Admin → Assistant tab: included by admin/settings.html for admin_tab == "assistant".
+    Context: app/routers/admin/assistant.py (assistant_context) plus what page.py gives every tab. -#}
+  <!-- Assistant (docs/assistant-spec.md): settings arrive with each capability. -->
+  <div class="admin-panel" id="assistant">
+    <h2>Assistant</h2>
+    {% if inbox_configured %}
+    <p><span class="sync-state sync-state-ok"><span class="sync-dot-mark" aria-hidden="true"></span>Anthropic API key set</span>
+      <span class="admin-meta">Model: <code>{{ assistant_model }}</code></span></p>
+    {% else %}
+    <p><span class="sync-state sync-state-amber"><span class="sync-dot-mark" aria-hidden="true"></span>No Anthropic API key</span></p>
+    <p class="admin-hint">Add <code>ANTHROPIC_API_KEY=your-key</code> to the <code>.env</code> file next to <code>docker-compose.yml</code>, then restart (<code>docker compose up -d</code>). The School tab's Classroom and email import need it too.</p>
+    {% endif %}
+    <p class="admin-hint">The assistant only ever suggests: nothing reaches the wall, a calendar, a task list or an email until someone confirms it. Coming here, one at a time:</p>
+    <ul class="assistant-coming">
+      <li><strong>Any letter or photo</strong>: payments and reply deadlines become parent tasks and reminders, for a parent to approve.</li>
+      <li><strong>Quick add</strong> in plain words on the tablet: events, shopping and tasks.</li>
+      <li><strong>Questions</strong> such as "What's on Thursday?", answered from Huddle's own data.</li>
+      <li><strong>A weekly family digest</strong> on the display and by email to the parents (Family tab: tick Parent and add an email).</li>
+      <li><strong>Meal planning help</strong>, on request.</li>
+    </ul>
+  </div>

@@ -4,6 +4,7 @@ import pytest
 
 from app import database
 from app.routers import admin
+from app.routers.admin import common as admin_common
 from app.security import create_session_token
 from app.services import homework
 
@@ -16,7 +17,7 @@ def today(monkeypatch):
         return TODAY
 
     monkeypatch.setattr(homework, "family_today", fake_today)
-    monkeypatch.setattr(admin, "family_today", fake_today)
+    monkeypatch.setattr(admin_common, "family_today", fake_today)
     return TODAY
 
 

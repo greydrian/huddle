@@ -533,9 +533,12 @@ app/
     meals.py         7-day meal plan
     weather.py       Open-Meteo geocoding, forecast + cache, Weather widget
     homework.py      Homework and practice-words widgets and their kiosk taps
-    admin.py         PIN login + all Admin settings
+    admin/           Admin, one module per tab: page.py (GET /admin), login.py (PIN, lockout),
+                     family.py, school.py, display.py, google.py, assistant.py, system.py,
+                     common.py (ADMIN_ERRORS, tab-context registry)
     photos.py        Admin → Idle screen and Photos (sign-in, picker QR, status, remove)
-  templates/         base, dashboard, _icons, _keyboard_assets, widgets/, admin/
+  templates/         base, dashboard, _icons, _keyboard_assets, widgets/, admin/ (settings.html is the
+                     shell; admin/tabs/<tab>.html holds each tab's sections)
   static/
     css/             style.css (design system), homework.css, keyboard.css
     js/keyboard.js   On-screen keyboard behaviour (loaded only when enabled)

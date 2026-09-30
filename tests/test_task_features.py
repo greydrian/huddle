@@ -13,6 +13,7 @@ import pytest
 
 from app import database, migrations, recurrence, task_sync
 from app.routers import admin
+from app.routers.admin import common as admin_common
 from app.security import create_session_token
 from app.services import tasks, term_dates
 
@@ -581,7 +582,7 @@ async def test_admin_group_edit_leaves_a_pre_migration_one_off_undated(db, admin
 async def test_admin_making_a_task_one_off_starts_it_today(db, admin_client, monkeypatch):
     pid = await _pid(db)
     task_id = await _add(db, pid, "Piano", is_recurring=1, due_on="2026-01-01")
-    monkeypatch.setattr(admin, "family_today", lambda _db: _today(date(2026, 9, 29)))
+    monkeypatch.setattr(admin_common, "family_today", lambda _db: _today(date(2026, 9, 29)))
 
     await admin_client.post(f"/admin/tasks/{task_id}/edit", data={"profile_id": pid})
 
