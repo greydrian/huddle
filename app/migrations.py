@@ -687,6 +687,50 @@ async def m0009_countdowns(db):
     )
 
 
+# Frozen for migration 10: the school the family's existing term dates and
+# school email senders belonged to, and the senders used when none were saved.
+M0010_SCHOOL_NAME = "Gresham"
+M0010_DEFAULT_SENDERS = "office@greshamprimary.school\n*@gresham.croydon.sch.uk"
+
+
+async def m0010_schools(db):
+    """Spec 11.2: a school is its own record, with its own term dates and
+    school email senders, and each family member optionally belongs to one.
+    Today's term dates and senders move onto one Gresham record, and every
+    family member with a year group is linked to it; nothing else changes
+    until a second school is added. Deleting a school deletes its term dates
+    and leaves its children with no school."""
+    await db.execute(
+        """CREATE TABLE IF NOT EXISTS schools (
+               id INTEGER PRIMARY KEY AUTOINCREMENT,
+               name TEXT NOT NULL,
+               senders TEXT NOT NULL DEFAULT '',   -- one entry per line, as school_email.parse_entries reads
+               created_at TEXT NOT NULL DEFAULT (datetime('now'))
+           )"""
+    )
+    await database._add_column_if_missing(
+        db, "school_periods", "school_id", "INTEGER REFERENCES schools(id) ON DELETE CASCADE"
+    )
+    await database._add_column_if_missing(
+        db, "profiles", "school_id", "INTEGER REFERENCES schools(id) ON DELETE SET NULL"
+    )
+    await db.execute("CREATE INDEX IF NOT EXISTS school_periods_school ON school_periods (school_id, start_date)")
+    if await (await db.execute("SELECT 1 FROM schools LIMIT 1")).fetchone():
+        return
+    senders = await database.get_setting(db, "school_email_senders")
+    cursor = await db.execute(
+        "INSERT INTO schools (name, senders) VALUES (?, ?)",
+        (M0010_SCHOOL_NAME, M0010_DEFAULT_SENDERS if senders is None else senders),
+    )
+    school_id = cursor.lastrowid
+    await db.execute("UPDATE school_periods SET school_id = ? WHERE school_id IS NULL", (school_id,))
+    await db.execute(
+        "UPDATE profiles SET school_id = ? WHERE school_id IS NULL AND TRIM(COALESCE(school_year, '')) != ''",
+        (school_id,),
+    )
+    await db.execute("DELETE FROM app_settings WHERE key = 'school_email_senders'")
+
+
 # Append only: see the module docstring.
 MIGRATIONS: list[Migration] = [
     Migration(1, "baseline", m0001_baseline),
@@ -698,6 +742,7 @@ MIGRATIONS: list[Migration] = [
     Migration(7, "homework_extras", m0007_homework_extras),
     Migration(8, "avatars", m0008_avatars),
     Migration(9, "countdowns", m0009_countdowns),
+    Migration(10, "schools", m0010_schools),
 ]
 
 

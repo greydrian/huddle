@@ -148,13 +148,18 @@ async def get_profiles_with_tasks(db, today: date | None = None) -> list[dict]:
     rows = await (
         await db.execute("SELECT * FROM tasks WHERE archived = 0 ORDER BY is_completed, created_at")
     ).fetchall()
-    school_day = None
-    if any(r["is_recurring"] and recurrence.is_school_days(r["recurrence_rule"]) for r in rows):
-        school_day = await term_dates.is_school_day(db, today)
+    # "School days" follows the task owner's school, else the family's (spec 11.2).
+    school_days: dict[int | None, bool] = {}
+    for row in rows:
+        if row["is_recurring"] and recurrence.is_school_days(row["recurrence_rule"]):
+            owner = row["profile_id"]
+            if owner not in school_days:
+                school_days[owner] = await term_dates.person_school_day(db, today, owner)
     tasks = [
         dict(row)
         for row in rows
-        if not row["is_recurring"] or recurrence.is_due(row["recurrence_rule"], weekday, school_day)
+        if not row["is_recurring"]
+        or recurrence.is_due(row["recurrence_rule"], weekday, school_days.get(row["profile_id"]))
     ]
 
     for profile in profiles:

@@ -254,7 +254,7 @@ async def shown_layout(db, today: date | None = None) -> list[dict]:
     rows = [r for r in await _rows(db) if r["is_visible"]]
     if not any(r["school_days_only"] for r in rows):
         return rows
-    return day_layout(rows, await term_dates.is_school_day(db, today or await family_today(db)))
+    return day_layout(rows, await term_dates.family_school_day(db, today or await family_today(db)))
 
 
 async def shown_ids(db, today: date | None = None) -> list[str]:

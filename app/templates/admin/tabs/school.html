@@ -82,15 +82,13 @@
       <span class="admin-meta admin-form-note">{{ school.schedule.label() }} (twice daily adds 12 hours before or after)</span>
     </form>
 
-    <form class="admin-form school-email-senders" method="post" action="/admin/school-email/senders">
-      <label class="hw-field">School senders (one per line; *@domain for everyone there)
-        <textarea name="senders" rows="3" autocapitalize="off" spellcheck="false"{% if onscreen_keyboard %} data-osk="text"{% endif %}>{{ school.senders | join("\n") }}</textarea>
-      </label>
+    <p class="admin-meta">Reads email from each school's senders ({{ school.senders | length }} in all), set under <a class="inline-link" href="#schools">Schools</a> below. Only emails from those senders are sent to Claude.</p>
+    <form class="admin-form school-email-senders" method="post" action="/admin/school-email/exclusions">
       <label class="hw-field">Never read
         <textarea name="exclusions" rows="3" autocapitalize="off" spellcheck="false"{% if onscreen_keyboard %} data-osk="text"{% endif %}>{{ school.exclusions | join("\n") }}</textarea>
       </label>
-      <button type="submit" class="btn btn-small">Save senders</button>
-      <span class="admin-meta admin-form-note">{{ school.always_excluded | join(", ") }} is never read, whatever is listed here. Only emails from these senders are sent to Claude.</span>
+      <button type="submit" class="btn btn-small">Save</button>
+      <span class="admin-meta admin-form-note">{{ school.always_excluded | join(", ") }} is never read, whatever is listed here or under Schools.</span>
     </form>
 
     <div class="admin-subsection">
@@ -114,7 +112,45 @@
     </div>
   </div>
 
-  <!-- Term dates (app/services/term_dates.py, spec 10.6): one set for the household.
+  <!-- Schools (app/services/schools.py, spec 11.2): each has its own term dates and
+       school email senders; each family member optionally belongs to one (Family tab). -->
+  <div class="admin-panel" id="schools">
+    <h2>Schools</h2>
+    {{ section_error("schools") }}
+    <p class="admin-hint">Each school has its own term dates (below) and the senders its email comes from. Pick each child's school under <a class="inline-link" href="/admin?tab=family#family">Family</a>: their "School days" chores follow it. A nursery can be a school too.</p>
+    {% for s in schools %}
+    <div class="admin-row admin-item school-row">
+      <span class="admin-item-label"><strong>{{ s.name }}</strong>
+        <span class="admin-meta">· {% if s.children %}{{ s.children | join(", ") }}{% else %}no one linked yet{% endif %}</span>
+        <span class="admin-meta school-senders">{% if s.senders %}Email from {{ s.senders | join(", ") }}{% else %}No school email senders{% endif %}</span></span>
+      <details class="task-edit">
+        <summary class="btn"><span class="task-edit-open">Edit</span><span class="task-edit-close">Cancel</span></summary>
+        <form class="admin-form" method="post" action="/admin/schools/{{ s.id }}/edit">
+          <label class="hw-field">Name
+            <input type="text" name="name" value="{{ s.name }}" maxlength="60" required autocomplete="off"{% if onscreen_keyboard %} data-osk="text"{% endif %}>
+          </label>
+          <label class="hw-field">School email senders (one per line; *@domain for everyone there)
+            <textarea name="senders" rows="3" autocapitalize="off" spellcheck="false"{% if onscreen_keyboard %} data-osk="text"{% endif %}>{{ s.senders | join("\n") }}</textarea>
+          </label>
+          <button type="submit" class="btn">Save school</button>
+        </form>
+        <form method="post" action="/admin/schools/{{ s.id }}/delete">
+          <button type="submit" class="btn btn-danger btn-small">Delete {{ s.name }} and its term dates</button>
+        </form>
+      </details>
+    </div>
+    {% else %}
+    <p class="admin-meta">No schools yet. Add one to enter term dates.</p>
+    {% endfor %}
+    <form class="admin-form" method="post" action="/admin/schools">
+      <label class="hw-field">New school
+        <input type="text" name="name" maxlength="60" required placeholder="e.g. Little Acorns Nursery" autocomplete="off"{% if onscreen_keyboard %} data-osk="text"{% endif %}>
+      </label>
+      <button type="submit" class="btn">Add school</button>
+    </form>
+  </div>
+
+  <!-- Term dates (app/services/term_dates.py, spec 10.6): one set per school.
        They decide school days, and holidays / half terms / INSET days show on the
        wall calendar (never written to Google). A failed save re-renders with
        term_form (its "id" None for the add form). -->
@@ -131,23 +167,29 @@
       </label>
   {% endmacro %}
   {% set tf = term_form if term_form and term_form.id is none else {} %}
+  {% set several = term_schools | length > 1 %}
   <div class="admin-panel" id="term-dates">
     <h2>Term dates</h2>
     {{ section_error("term-dates") }}
-    {% for year in term_missing_years %}
+    {% for ts in term_schools %}
+    {% set prefix = ts.name ~ ": " if several else "" %}
+    {% for year in ts.missing_years %}
     <div class="term-warning" role="note">
-      <p><strong>Term dates missing for {{ year }}.</strong> Until they're added, school days are Monday to Friday except bank holidays.</p>
+      <p><strong>{{ prefix }}Term dates missing for {{ year }}.</strong> Until they're added, school days are Monday to Friday except bank holidays.</p>
       <p class="admin-meta">Add the school's term dates PDF or letter under Add from Classroom (Claude reads it, then you check and approve it in the School inbox), or add each term, half term, holiday and INSET day below.</p>
     </div>
     {% endfor %}
-    {% for warning in term_incomplete %}
+    {% for warning in ts.incomplete %}
     <div class="term-warning" role="note">
-      <p><strong>{{ warning }}</strong></p>
+      <p><strong>{{ prefix }}{{ warning }}</strong></p>
       <p class="admin-meta">Days outside every term count as not school days, so a missing term turns its school days off.</p>
     </div>
     {% endfor %}
+    {% endfor %}
     <p class="admin-hint">Terms, half terms, holidays and INSET days decide which days are school days. Holidays, half terms and INSET days show on the wall calendar (only on this display; nothing is added to Google). Check them once a year.</p>
-    {% for year in term_years %}
+    {% for ts in term_schools %}
+    {% if several %}<h3 class="term-school">{{ ts.name }}</h3>{% endif %}
+    {% for year in ts.years %}
     <h3 class="term-year">{{ year.label }}</h3>
     {% for p in year.periods %}
     {% set editing = term_form and term_form.id == p.id %}
@@ -167,12 +209,26 @@
     </div>
     {% endfor %}
     {% else %}
-    <p class="admin-meta">No term dates yet.</p>
+    <p class="admin-meta">No term dates yet{{ ' for ' ~ ts.name if several }}.</p>
     {% endfor %}
+    {% endfor %}
+    {% if term_schools %}
     <form class="admin-form term-add" method="post" action="/admin/term-dates">
+      {% if several %}
+      <label class="hw-field">School
+        <select name="school_id" required>
+          {% for ts in term_schools %}<option value="{{ ts.id }}" {{ 'selected' if tf.school_id | string == ts.id | string else '' }}>{{ ts.name }}</option>{% endfor %}
+        </select>
+      </label>
+      {% else %}
+      <input type="hidden" name="school_id" value="{{ term_schools[0].id }}">
+      {% endif %}
       {{ term_fields(tf) }}
       <button type="submit" class="btn">Add period</button>
     </form>
+    {% else %}
+    <p class="admin-meta">Add a school under <a class="inline-link" href="#schools">Schools</a> first.</p>
+    {% endif %}
     <p class="admin-meta term-bank-holidays">
       {% if bank_holidays.updated_label %}Bank holidays (England and Wales) updated {{ bank_holidays.updated_label }}{% if bank_holidays.stale %}: over a month ago, so they may be out of date. They're fetched from GOV.UK again automatically{% endif %}.
       {% else %}Bank holidays (England and Wales) haven't been fetched from GOV.UK yet. They're fetched automatically once the display is online.{% endif %}

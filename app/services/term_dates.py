@@ -3,11 +3,14 @@ School term dates (spec 10.6): the periods a parent enters in Admin or
 approves from the School inbox, plus the GOV.UK bank holidays
 (app/bank_holidays.py keeps that table fresh).
 
-One set per household (Gresham's dates are whole-school). A period is
-inclusive at both ends. They answer "is this a school day?" for the
-"school days" repeat option (10.4) and the "school days only" widget option
-(10.3), and they appear on the calendar as local-only bars (never written
-to Google).
+Each school (services/schools.py, spec 11.2) has its own set; a function
+given no school_id means the oldest school (the only one, for most
+families). A period is inclusive at both ends. They answer "is this a
+school day?": for a person (`person_school_day`: their school's, else the
+family's) for the "school days" repeat option (10.4), and for the family
+(`family_school_day`: any child's school is open) for the "school days
+only" widget option (10.3). They appear on the calendar as local-only bars
+(never written to Google).
 
 School years run 1 September to 31 August and are labelled "2026–27".
 When a date's school year has no term at all, school days fall back to
@@ -138,10 +141,25 @@ def clash(period: dict, others) -> dict | None:
 # --- Storage ---
 
 
-async def list_periods(db) -> list[dict]:
+async def resolve_school(db, school_id: int | None = None) -> int | None:
+    """school_id itself, or the oldest school when none is given (None if
+    there are no schools at all: then there are no term dates either)."""
+    if school_id is not None:
+        return school_id
+    row = await (await db.execute("SELECT id FROM schools ORDER BY id LIMIT 1")).fetchone()
+    return row["id"] if row else None
+
+
+async def list_periods(db, school_id: int | None = None) -> list[dict]:
+    """One school's periods, by start date."""
+    school_id = await resolve_school(db, school_id)
     return [
         dict(r)
-        for r in await (await db.execute("SELECT * FROM school_periods ORDER BY start_date, end_date, id")).fetchall()
+        for r in await (
+            await db.execute(
+                "SELECT * FROM school_periods WHERE school_id IS ? ORDER BY start_date, end_date, id", (school_id,)
+            )
+        ).fetchall()
     ]
 
 
@@ -150,39 +168,46 @@ async def get_period(db, period_id: int) -> dict | None:
     return dict(row) if row else None
 
 
-async def _check_clash(db, period: dict, exclude_id: int | None = None):
-    others = [p for p in await list_periods(db) if p["id"] != exclude_id]
+async def _check_clash(db, period: dict, school_id: int | None, exclude_id: int | None = None):
+    others = [p for p in await list_periods(db, school_id) if p["id"] != exclude_id]
     other = clash(period, others)
     if other:
         raise PeriodError("term-overlap", other)
 
 
-async def insert_period(db, period: dict, source: str) -> int:
+async def insert_period(db, period: dict, source: str, school_id: int | None = None) -> int:
     """Inserts a clean_period() result. No commit: callers own the transaction."""
     if source not in SOURCES:
         raise ValueError(f"unknown source {source!r}")
+    school_id = await resolve_school(db, school_id)
+    if school_id is None:
+        raise PeriodError("term-school")
     cursor = await db.execute(
-        "INSERT INTO school_periods (kind, start_date, end_date, label, source) VALUES (?, ?, ?, ?, ?)",
-        (period["kind"], period["start_date"], period["end_date"], period["label"], source),
+        "INSERT INTO school_periods (kind, start_date, end_date, label, source, school_id) VALUES (?, ?, ?, ?, ?, ?)",
+        (period["kind"], period["start_date"], period["end_date"], period["label"], source, school_id),
     )
     return cursor.lastrowid
 
 
-async def add_period(db, kind, start_date, end_date, label="") -> int:
+async def add_period(db, kind, start_date, end_date, label="", school_id: int | None = None) -> int:
     """Admin's add form. Raises PeriodError (nothing saved)."""
     period = clean_period(kind, start_date, end_date, label)
-    await _check_clash(db, period)
-    period_id = await insert_period(db, period, "manual")
+    school_id = await resolve_school(db, school_id)
+    if school_id is None:
+        raise PeriodError("term-school")
+    await _check_clash(db, period, school_id)
+    period_id = await insert_period(db, period, "manual", school_id)
     await db.commit()
     return period_id
 
 
 async def update_period(db, period_id: int, kind, start_date, end_date, label="") -> None:
-    """Admin's edit form: the source is kept. Raises PeriodError."""
-    if await get_period(db, period_id) is None:
+    """Admin's edit form: the source and school are kept. Raises PeriodError."""
+    stored = await get_period(db, period_id)
+    if stored is None:
         raise PeriodError("term-missing")
     period = clean_period(kind, start_date, end_date, label)
-    await _check_clash(db, period, exclude_id=period_id)
+    await _check_clash(db, period, stored["school_id"], exclude_id=period_id)
     await db.execute(
         """UPDATE school_periods SET kind = ?, start_date = ?, end_date = ?, label = ?,
                updated_at = datetime('now') WHERE id = ?""",
@@ -208,13 +233,15 @@ def group_by_school_year(periods: list[dict]) -> list[dict]:
 # --- Questions ---
 
 
-async def has_terms(db, start_year: int) -> bool:
-    """Whether any term falls in that school year."""
+async def has_terms(db, start_year: int, school_id: int | None = None) -> bool:
+    """Whether any of the school's terms falls in that school year."""
     first, last = school_year_span(start_year)
+    school_id = await resolve_school(db, school_id)
     row = await (
         await db.execute(
-            "SELECT 1 FROM school_periods WHERE kind = 'term' AND start_date <= ? AND end_date >= ? LIMIT 1",
-            (last.isoformat(), first.isoformat()),
+            """SELECT 1 FROM school_periods WHERE kind = 'term' AND school_id IS ?
+               AND start_date <= ? AND end_date >= ? LIMIT 1""",
+            (school_id, last.isoformat(), first.isoformat()),
         )
     ).fetchone()
     return row is not None
@@ -225,7 +252,7 @@ async def is_bank_holiday(db, day: date) -> bool:
     return row is not None
 
 
-async def school_day_status(db, day: date) -> tuple[bool, str]:
+async def school_day_status(db, day: date, school_id: int | None = None) -> tuple[bool, str]:
     """(is it a school day, how that was decided). Source TERM_DATES: the
     day's school year has term dates, and it's a school day when it's a
     weekday inside a term, not a bank holiday, and not in a half term,
@@ -235,22 +262,63 @@ async def school_day_status(db, day: date) -> tuple[bool, str]:
     into a September with no terms yet), counts."""
     weekday = day.weekday() < 5
     iso = day.isoformat()
+    school_id = await resolve_school(db, school_id)
     kinds = {
         r["kind"]
         for r in await (
-            await db.execute("SELECT kind FROM school_periods WHERE start_date <= ? AND end_date >= ?", (iso, iso))
+            await db.execute(
+                "SELECT kind FROM school_periods WHERE school_id IS ? AND start_date <= ? AND end_date >= ?",
+                (school_id, iso, iso),
+            )
         ).fetchall()
     }
     days_off = bool(kinds - {"term"})
-    if not await has_terms(db, school_year_of(day)):
+    if not await has_terms(db, school_year_of(day), school_id):
         return weekday and not days_off and not await is_bank_holiday(db, day), FALLBACK
     if not weekday or await is_bank_holiday(db, day):
         return False, TERM_DATES
     return "term" in kinds and not days_off, TERM_DATES
 
 
-async def is_school_day(db, day: date) -> bool:
-    return (await school_day_status(db, day))[0]
+async def is_school_day(db, day: date, school_id: int | None = None) -> bool:
+    return (await school_day_status(db, day, school_id))[0]
+
+
+async def family_ids(db) -> list[int]:
+    """The schools the family's children go to, else every school (so dates
+    entered before anyone was linked still count). Same as
+    schools.family_ids, kept here so this module needn't import schools."""
+    rows = await (
+        await db.execute("SELECT DISTINCT school_id FROM profiles WHERE school_id IS NOT NULL ORDER BY school_id")
+    ).fetchall()
+    if not rows:
+        rows = await (await db.execute("SELECT id AS school_id FROM schools ORDER BY id")).fetchall()
+    return [r["school_id"] for r in rows]
+
+
+async def family_school_day(db, day: date) -> bool:
+    """Whether any child's school is open (spec 11.2): the "school days
+    only" widget option and "school days" chores for anyone without a
+    school of their own. No schools at all: Monday–Friday minus bank
+    holidays."""
+    ids = await family_ids(db)
+    if not ids:
+        return day.weekday() < 5 and not await is_bank_holiday(db, day)
+    for school_id in ids:
+        if await is_school_day(db, day, school_id):
+            return True
+    return False
+
+
+async def person_school_day(db, day: date, profile_id: int | None) -> bool:
+    """A person's school day: their own school's, else the family's (so a
+    parent's "Pack lunches" skips half term too)."""
+    row = None
+    if profile_id is not None:
+        row = await (await db.execute("SELECT school_id FROM profiles WHERE id = ?", (profile_id,))).fetchone()
+    if row and row["school_id"] is not None:
+        return await is_school_day(db, day, row["school_id"])
+    return await family_school_day(db, day)
 
 
 # The next school year's dates are only asked for once they're needed:
@@ -258,17 +326,17 @@ async def is_school_day(db, day: date) -> bool:
 NEXT_YEAR_WARNING_MONTH = 5
 
 
-async def missing_years(db, today: date) -> list[str]:
-    """Labels of the school years Admin should warn about: the current one
-    if it has no term dates, and (from May) the next one too."""
+async def missing_years(db, today: date, school_id: int | None = None) -> list[str]:
+    """Labels of the school years Admin should warn about for the school:
+    the current one if it has no term dates, and (from May) the next one too."""
     current = school_year_of(today)
     years = [current]
     if NEXT_YEAR_WARNING_MONTH <= today.month < 9:
         years.append(current + 1)
-    return [school_year_label(y) for y in years if not await has_terms(db, y)]
+    return [school_year_label(y) for y in years if not await has_terms(db, y, school_id)]
 
 
-async def incomplete_years(db, today: date) -> list[str]:
+async def incomplete_years(db, today: date, school_id: int | None = None) -> list[str]:
     """Warnings for the current or next school year when it has some terms
     but not all: fewer than three, or a weekday between two terms that no
     holiday, half term, INSET day, closure or bank holiday covers (those
@@ -280,7 +348,7 @@ async def incomplete_years(db, today: date) -> list[str]:
         first, last = school_year_span(year)
         periods = [
             p
-            for p in await list_periods(db)
+            for p in await list_periods(db, school_id)
             if p["start_date"] <= last.isoformat() and p["end_date"] >= first.isoformat()
         ]
         terms = [p for p in periods if p["kind"] == "term"]
@@ -324,17 +392,27 @@ async def _first_gap(db, terms: list[dict], days_off: list[dict]) -> str | None:
     return None
 
 
+def with_school(period: dict, text: str) -> str:
+    """ "Gresham: Half term" when periods_between named the school (more
+    than one school), else the text as it is."""
+    return f"{period['school']}: {text}" if period.get("school") else text
+
+
 async def periods_between(db, start: date, end: date) -> list[dict]:
-    """Everything touching [start, end] inclusive, for the calendar: the
-    school periods, then each bank holiday as a one-day period of kind
-    "bank_holiday" (source "bank_holiday")."""
+    """Everything touching [start, end] inclusive, for the calendar and
+    banners: every school's periods (with "school", its name, set only
+    when there's more than one school, so one school reads as before), then
+    each bank holiday as a one-day period of kind "bank_holiday" (source
+    "bank_holiday")."""
     first, last = start.isoformat(), end.isoformat()
+    (school_count,) = await (await db.execute("SELECT COUNT(*) FROM schools")).fetchone()
     periods = [
-        dict(r)
+        dict(r) | {"school": r["school"] if school_count > 1 else None}
         for r in await (
             await db.execute(
-                """SELECT id, kind, start_date, end_date, label, source FROM school_periods
-           WHERE start_date <= ? AND end_date >= ? ORDER BY start_date, id""",
+                """SELECT p.id, p.kind, p.start_date, p.end_date, p.label, p.source, p.school_id, s.name AS school
+                   FROM school_periods p LEFT JOIN schools s ON s.id = p.school_id
+                   WHERE p.start_date <= ? AND p.end_date >= ? ORDER BY p.start_date, p.school_id, p.id""",
                 (last, first),
             )
         ).fetchall()
@@ -352,6 +430,8 @@ async def periods_between(db, start: date, end: date) -> list[dict]:
                 "end_date": row["date"],
                 "label": row["title"],
                 "source": "bank_holiday",
+                "school_id": None,
+                "school": None,
             }
         )
     return periods

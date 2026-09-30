@@ -56,7 +56,7 @@
     <div class="inbox-candidate-head">
       <span class="inbox-kind inbox-kind-{{ c.kind }}">{{ kind_labels[c.kind] }}</span>
       {% if c.kind == 'event' %}<span class="admin-meta">{{ 'Whole school' if p.whole_school else (c.profile_name or 'No child chosen') }}</span>{% endif %}
-      {% if c.kind == 'term_dates' %}<span class="admin-meta">Whole school · {{ p.periods | length }} dates</span>{% endif %}
+      {% if c.kind == 'term_dates' %}{% set term_school = schools | selectattr("id", "equalto", p.school_id) | first %}<span class="admin-meta">{{ term_school.name if term_school and schools | length > 1 else 'Whole school' }} · {{ p.periods | length }} dates</span>{% endif %}
       {% if c.duplicate %}<span class="inbox-duplicate">{{ 'Already added' if c.kind == 'term_dates' else 'Already on the wall' }}</span>{% endif %}
     </div>
     {% if editing and inbox_error %}<p class="admin-error" role="alert">{{ inbox_error }}</p>{% endif %}
@@ -88,6 +88,16 @@
         in the term dates start unticked and are skipped anyway. -#}
     <form class="term-import" method="post" action="/admin/inbox/candidates/{{ c.id }}/approve" hx-post="/admin/inbox/candidates/{{ c.id }}/approve">
       {% set rows = inbox_form.periods if editing else p.periods %}
+      {#- Spec 11.2: which school's term dates; the sender's school (or the picked child's) to start with. -#}
+      {% if schools | length > 1 %}
+      {% set chosen = inbox_form.school_id if editing and inbox_form.school_id else p.school_id %}
+      <label class="hw-field">School
+        <select name="school_id" required>
+          <option value="">Which school?</option>
+          {% for s in schools %}<option value="{{ s.id }}" {{ 'selected' if s.id == chosen else '' }}>{{ s.name }}</option>{% endfor %}
+        </select>
+      </label>
+      {% endif %}
       {% for r in rows %}
       {% set read = p.periods[loop.index0] if loop.index0 < p.periods | length else {} %}
       {% set already = read.already %}

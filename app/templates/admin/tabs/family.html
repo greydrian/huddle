@@ -12,10 +12,15 @@
       <form method="post" action="/admin/profiles/{{ p.id }}/delete">
         <button type="submit" class="btn btn-danger btn-small">Remove</button>
       </form>
-      {#- Children's year group: the School inbox matches "Year 4" posts to them.
+      {#- Children's year group and school: the School inbox matches "Year 4" posts to them.
           Parent + email (spec 10.0) are for the assistant's parent tasks and digest. -#}
       <form class="admin-form profile-details" method="post" action="/admin/profiles/{{ p.id }}/details">
         <input type="text" name="school_year" value="{{ p.school_year or '' }}" maxlength="30" placeholder="Year group" aria-label="{{ p.name }}'s year group" autocomplete="off"{% if onscreen_keyboard %} data-osk="text"{% endif %}>
+        {#- Spec 11.2: whose term dates their "school days" follow, and whose school email is about them. -#}
+        <select name="school_id" aria-label="{{ p.name }}'s school">
+          <option value="">No school</option>
+          {% for s in schools %}<option value="{{ s.id }}" {{ 'selected' if s.id == p.school_id else '' }}>{{ s.name }}</option>{% endfor %}
+        </select>
         <label class="admin-check"><input type="checkbox" name="is_parent" value="true" {{ 'checked' if p.is_parent else '' }}> Parent</label>
         {#- type=text, not email: the on-screen keyboard can't place the caret in an email input. -#}
         <input type="text" name="email" value="{{ p.email or '' }}" maxlength="254" placeholder="Email (optional)" aria-label="{{ p.name }}'s email" autocomplete="off" autocapitalize="off" spellcheck="false"{% if onscreen_keyboard %} data-osk="text"{% endif %}>

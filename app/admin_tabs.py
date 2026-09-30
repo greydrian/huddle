@@ -30,6 +30,7 @@ SECTIONS = {
     "classroom": "school",
     "inbox": "school",
     "school-email": "school",
+    "schools": "school",
     "term-dates": "school",
     "widgets": "display",
     "weather": "display",

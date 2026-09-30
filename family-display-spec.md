@@ -705,18 +705,28 @@ answer; they're decided in outline and settled in detail when built.
 ### 11.2 Two children, one school, a second later (changes 4.3, 4.8 and 10.6)
 - **Decided:** support several children properly. Today: two children, one in Year 4 at
   Gresham, one not yet at school.
-- *Proposed design:* a **school** is its own record (name, sender allowlist, term dates, whether
-  it has Classroom). Each child optionally belongs to one school; a child with no school has no
-  "school days" and gets no school import. A nursery can be a school too, with its own dates.
-  - Term dates (10.6) belong to a school, not to the whole family.
-  - The "School days" repeat option (10.4) follows **the task owner's** school; a task for a
-    parent or a child without a school falls back to Mon–Fri minus bank holidays.
+- **Built.** A **school** is its own record (name, school email senders, term dates), kept under
+  Admin → School → Schools. Each family member optionally belongs to one (Admin → Family). A
+  nursery can be a school too, with its own dates.
+  - Term dates (10.6) belong to a school, not to the whole family. Overlap checks are within one
+    school.
+  - The "School days" repeat option (10.4) follows **the task owner's** school. A task for a
+    parent or a child without a school follows **the family's school day** (any child's school
+    is open), so a parent's "Pack lunches" still skips half term. *Changed from the proposal*
+    (Mon–Fri minus bank holidays), which would have shown it through every holiday.
   - A widget's "school days only" (10.3) shows when **any** child with a school has school that
-    day.
-  - The school email check reads each school's allowlist, and the inbox pre-fills the child from
-    the sender's school.
-  - One migration moves today's term dates and senders onto a Gresham school record and links the
-    Year 4 child to it; nothing else changes for the family until a second school is added.
+    day. With nobody linked to a school yet, every school counts; with no schools at all, school
+    days are Mon–Fri minus bank holidays.
+  - The school email check reads every school's senders in one search. An email's school is the
+    one whose senders list its sender (the oldest, if two do). Claude is offered only that
+    school's children, so a one-child school pre-fills the child, and a term-dates letter goes to
+    that school's dates (the inbox can change it once there are two schools).
+  - With two or more schools, the calendar bars, "no school" banners and countdowns name the
+    school ("Gresham: Half term"); with one, nothing reads differently.
+  - Migration 10 moved the term dates and senders onto a Gresham record and linked every family
+    member with a year group to it. **Check Admin → Family after deploying:** the Year 4 child
+    should show Gresham, and the younger child "No school" until they start.
+  - "Whether it has Classroom" was left out: nothing reads it yet.
 
 ### 11.3 Arbor and ParentMail (changes 4.8 and assistant A1)
 - **Decided:** the school sends through **Arbor**, **ParentMail** and ordinary email.

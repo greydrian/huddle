@@ -507,9 +507,10 @@ Setup, once:
    permissions. Until then Calendar and Tasks keep working as before, and
    the School email panel says "Reconnect Google to enable school email
    import".
-5. In Admin → **School email**, check the senders (defaults:
-   `office@greshamprimary.school` and `*@gresham.croydon.sch.uk`), pick
-   **School events go to calendar**, and press **Check now** once. The
+5. In Admin → School → **Schools**, check each school's senders (Gresham's
+   defaults: `office@greshamprimary.school` and `*@gresham.croydon.sch.uk`).
+   Then in **School email** pick **School events go to calendar**, and press
+   **Check now** once. The
    first check looks back 14 days. After that it runs on the schedule set
    there: daily at a time you choose, twice daily, weekly on Friday, or off.
 

@@ -158,15 +158,21 @@ async def _school_periods(db, first: date, last: date) -> tuple[list[dict], dict
     """(school "events" touching [first, last], {ISO date: "Term starts" /
     "Term ends"}) from the term dates. Shaped like _format_event's output,
     plus "school": the period's kind."""
-    events, markers = [], {}
+    events: list[dict] = []
+    markers: dict[str, str] = {}
     for period in await term_dates.periods_between(db, first, last):
         if period["kind"] == "term":
-            markers[period["start_date"]] = "Term starts"
-            markers.setdefault(period["end_date"], "Term ends")
+            starts = term_dates.with_school(period, "Term starts")
+            # Two schools starting the same day both show; a start wins over an end.
+            if period["start_date"] in markers and markers[period["start_date"]].endswith("starts"):
+                markers[period["start_date"]] += f" · {starts}"
+            else:
+                markers[period["start_date"]] = starts
+            markers.setdefault(period["end_date"], term_dates.with_school(period, "Term ends"))
         elif period["kind"] in SCHOOL_BAR_KINDS:
             events.append(
                 {
-                    "title": period["label"],
+                    "title": term_dates.with_school(period, period["label"]),
                     "time_label": "All day",
                     "all_day": True,
                     "date": period["start_date"],

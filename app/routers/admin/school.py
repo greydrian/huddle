@@ -1,5 +1,6 @@
-"""School tab: the School inbox (uploads, approvals), term dates and the
-school email import's settings and status."""
+"""School tab: the School inbox (uploads, approvals), the schools (spec
+11.2) with their term dates and senders, and the school email import's
+settings and status."""
 
 import asyncio
 
@@ -16,7 +17,7 @@ from app.database import get_db
 from app.routers.admin import common
 from app.routers.admin.common import ADMIN_ERRORS, admin_error, tab_context
 from app.routers.admin.page import render_admin
-from app.services import extraction, homework, imports, school_events, term_dates
+from app.services import extraction, homework, imports, school_events, schools, term_dates
 from app.templating import templates
 
 router = APIRouter(prefix="/admin")
@@ -31,6 +32,7 @@ async def school_context(db, base: dict, extra: dict) -> dict:
         "inbox_error": extra.get("inbox_error"),
         "school": await school_email.summary(db),
         "event_setup": await _event_setup(db),
+        "schools": await schools.list_schools(db),
         "writable_calendars": [c for c in lists["available_calendars"] if c.get("writable")],
         **await _term_dates_context(db),
         "term_form": extra.get("term_form"),
@@ -120,12 +122,20 @@ async def _source_fragment(request: Request, source_id: int, **extra) -> HTMLRes
             ).fetchall()
         ]
         event_setup = await _event_setup(db)
+        school_list = await schools.list_schools(db)
     if source is None:
         return HTMLResponse("")
     return templates.TemplateResponse(
         request,
         "admin/_inbox_source.html",
-        {"source": source, "profiles": profiles, "event_setup": event_setup, "term_kinds": term_dates.KINDS, **extra},
+        {
+            "source": source,
+            "profiles": profiles,
+            "event_setup": event_setup,
+            "term_kinds": term_dates.KINDS,
+            "schools": school_list,
+            **extra,
+        },
     )
 
 
@@ -218,6 +228,8 @@ async def _approve_term_dates(request: Request, candidate_id: int, source_id: in
     """A term-dates candidate's rows (period_kind/start/end/label, with
     period_include naming the ticked rows) into the term dates."""
     form = await request.form()
+    school_field = str(form.get("school_id") or "")
+    school_id = int(school_field) if school_field.isdigit() else None
     columns = [form.getlist(f"period_{name}")[:MAX_TERM_ROWS] for name in ("kind", "start", "end", "label")]
     included = set(form.getlist("period_include"))
     rows = [
@@ -226,7 +238,9 @@ async def _approve_term_dates(request: Request, candidate_id: int, source_id: in
     ]
     async with get_db() as db:
         try:
-            await imports.approve_term_dates(db, candidate_id, [r for r in rows if r["include"]])
+            if school_id is not None and not await schools.exists(db, school_id):
+                raise term_dates.PeriodError("term-school")
+            await imports.approve_term_dates(db, candidate_id, [r for r in rows if r["include"]], school_id)
         except imports.CandidateError as exc:
             if exc.code != "import-term-none":
                 return await _inbox_done(request, source_id, exc.code)
@@ -235,7 +249,7 @@ async def _approve_term_dates(request: Request, candidate_id: int, source_id: in
             error = _period_error(exc)
         else:
             return await _inbox_done(request, source_id)
-    inbox_form = {"id": candidate_id, "periods": rows}
+    inbox_form = {"id": candidate_id, "periods": rows, "school_id": school_id}
     if _is_htmx(request) and source_id is not None:
         return await _source_fragment(request, source_id, inbox_form=inbox_form, inbox_error=error)
     return await render_admin(request, tab="school", inbox_error=error, inbox_form=inbox_form, status_code=400)
@@ -288,17 +302,26 @@ async def inbox_delete_source(request: Request, source_id: int):
 
 
 async def _term_dates_context(db) -> dict:
-    """The School tab's Term dates panel: periods by school year, the years
-    with none (the warning), and when the bank holidays were last updated."""
+    """The School tab's Term dates panel: each school's periods by school
+    year, the years with none (the warning), and when the bank holidays
+    were last updated."""
     holidays = await bank_holidays.status(db)
     today = await common.family_today(db)
     if holidays["updated_at"]:
         local = holidays["updated_at"].astimezone(await common.family_timezone(db))
         holidays["updated_label"] = f"{local.day} {local:%b %Y}"
+    term_schools = [
+        {
+            "id": school["id"],
+            "name": school["name"],
+            "years": term_dates.group_by_school_year(await term_dates.list_periods(db, school["id"])),
+            "missing_years": await term_dates.missing_years(db, today, school["id"]),
+            "incomplete": await term_dates.incomplete_years(db, today, school["id"]),
+        }
+        for school in await schools.list_schools(db)
+    ]
     return {
-        "term_years": term_dates.group_by_school_year(await term_dates.list_periods(db)),
-        "term_missing_years": await term_dates.missing_years(db, today),
-        "term_incomplete": await term_dates.incomplete_years(db, today),
+        "term_schools": term_schools,
         "term_kinds": term_dates.KINDS,
         "bank_holidays": holidays,
     }
@@ -312,8 +335,17 @@ def _period_error(exc: term_dates.PeriodError) -> str:
     return ADMIN_ERRORS[exc.code][1]
 
 
-def _term_form(period_id: int | None, kind: str, start_date: str, end_date: str, label: str) -> dict:
-    return {"id": period_id, "kind": kind, "start_date": start_date, "end_date": end_date, "label": label}
+def _term_form(
+    period_id: int | None, kind: str, start_date: str, end_date: str, label: str, school_id: str = ""
+) -> dict:
+    return {
+        "id": period_id,
+        "kind": kind,
+        "start_date": start_date,
+        "end_date": end_date,
+        "label": label,
+        "school_id": school_id,
+    }
 
 
 @router.post("/term-dates", dependencies=[Depends(require_admin)])
@@ -323,10 +355,13 @@ async def add_term_period(
     start_date: str = Form(""),
     end_date: str = Form(""),
     label: str = Form(""),
+    school_id: str = Form(""),
 ):
     async with get_db() as db:
         try:
-            await term_dates.add_period(db, kind, start_date, end_date, label)
+            if not await schools.exists(db, school_id):
+                raise term_dates.PeriodError("term-school")
+            await term_dates.add_period(db, kind, start_date, end_date, label, int(school_id))
         except term_dates.PeriodError as exc:
             return await render_admin(
                 request,
@@ -334,7 +369,7 @@ async def add_term_period(
                 error=exc.code,
                 status_code=400,
                 error_message=_period_error(exc),
-                term_form=_term_form(None, kind, start_date, end_date, label),
+                term_form=_term_form(None, kind, start_date, end_date, label, school_id),
             )
     return RedirectResponse(url=admin_url("term-dates"), status_code=303)
 
@@ -386,16 +421,48 @@ async def save_school_email_schedule(mode: str = Form(""), time: str = Form(""))
     return RedirectResponse(url=admin_url("school-email"), status_code=303)
 
 
-@router.post("/school-email/senders", dependencies=[Depends(require_admin)])
-async def save_school_email_senders(senders: str = Form(""), exclusions: str = Form("")):
+@router.post("/school-email/exclusions", dependencies=[Depends(require_admin)])
+async def save_school_email_exclusions(exclusions: str = Form("")):
+    """Addresses never read, whichever school's senders they match. Each
+    school's own senders are under Schools."""
     try:
-        allow = school_email.parse_entries(senders)
         deny = school_email.parse_entries(exclusions)
     except school_email.InvalidEntry:
         return admin_error("school-senders")
     async with get_db() as db:
-        await school_email.set_lists(db, allow, deny)
+        await school_email.set_exclusions(db, deny)
     return RedirectResponse(url=admin_url("school-email"), status_code=303)
+
+
+# --- Schools (app/services/schools.py, spec 11.2) ---
+
+
+@router.post("/schools", dependencies=[Depends(require_admin)])
+async def add_school(name: str = Form("")):
+    async with get_db() as db:
+        try:
+            await schools.add(db, name)
+        except schools.SchoolError as exc:
+            return admin_error(str(exc))
+    return RedirectResponse(url=admin_url("schools"), status_code=303)
+
+
+@router.post("/schools/{school_id}/edit", dependencies=[Depends(require_admin)])
+async def edit_school(school_id: int, name: str = Form(""), senders: str = Form("")):
+    async with get_db() as db:
+        try:
+            await schools.update(db, school_id, name, senders)
+        except schools.SchoolError as exc:
+            return admin_error(str(exc))
+    return RedirectResponse(url=admin_url("schools"), status_code=303)
+
+
+@router.post("/schools/{school_id}/delete", dependencies=[Depends(require_admin)])
+async def delete_school(school_id: int):
+    """Its term dates go with it; its children are left with no school."""
+    async with get_db() as db:
+        await schools.delete(db, school_id)
+    return RedirectResponse(url=admin_url("schools"), status_code=303)
 
 
 @router.post("/school-email/calendar", dependencies=[Depends(require_admin)])

@@ -456,7 +456,6 @@ async def get_reading_history(db, today: date, weeks: int = READING_WEEKS) -> di
     off school are shaded so the school week stands out."""
     start = today - timedelta(days=today.weekday() + 7 * (weeks - 1))
     days = [start + timedelta(days=n) for n in range(7 * weeks)]
-    school = {d: await term_dates.is_school_day(db, d) for d in days}
     read = {
         (r[0], r[1])
         for r in await (
@@ -468,6 +467,8 @@ async def get_reading_history(db, today: date, weeks: int = READING_WEEKS) -> di
     }
     children = await _children(db)
     for child in children:
+        # Their own school's days, else the family's (spec 11.2).
+        school = {d: await term_dates.person_school_day(db, d, child["id"]) for d in days}
         cells = [
             {
                 "date": d.isoformat(),

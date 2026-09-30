@@ -351,7 +351,7 @@ async def _school_banners(db, now: datetime, profiles: list[dict]) -> list[dict]
         )
     for period in await term_dates.periods_between(db, today, today):
         if period["kind"] in SCHOOL_PERIOD_KINDS and period["id"] is not None:
-            label = period["label"] or term_dates.KINDS[period["kind"]]
+            label = term_dates.with_school(period, period["label"] or term_dates.KINDS[period["kind"]])
             banners.append(
                 _banner(
                     "school", f"term:{period['id']}:{today.isoformat()}", f"Today: {label} (no school)", None, day_start

@@ -54,7 +54,7 @@ async def test_next_school_break_counts_down_within_the_horizon(db, monkeypatch)
     await term_dates.add_period(db, "holiday", "2026-12-19", "2027-01-03", "Christmas holidays")
     items = await countdowns.upcoming(db, TODAY)
     assert shown(items) == [("Half term", "in 21 days", None)]
-    assert items[0]["school"] and items[0]["key"] == "break"
+    assert items[0]["school"] and items[0]["key"] == "break1"
 
     # Once half term has started, the next break is Christmas.
     assert shown(await countdowns.upcoming(db, date(2026, 10, 27))) == [("Christmas holidays", "in 53 days", None)]
