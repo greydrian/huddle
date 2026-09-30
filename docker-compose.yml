@@ -25,3 +25,10 @@ services:
       # actual server.
       - ./data/family-display:/data
     restart: unless-stopped
+    # Spec 10.12: cap the container log so a chatty outage can't fill the
+    # G10's disk. About 30 MB in all; `docker compose logs` still works.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

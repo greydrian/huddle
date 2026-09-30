@@ -8,9 +8,16 @@ on:
 permissions:
   contents: read
 
+# A new push to the same branch or PR cancels the run it supersedes, so a
+# quick fix-up commit doesn't queue behind a run whose result nobody needs.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -26,6 +33,7 @@ jobs:
   # Nothing tracked (vendored files included) legitimately has one.
   conflict-markers:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
       - run: |
@@ -33,11 +41,35 @@ jobs:
             echo "::error::Git conflict markers left in the files above"; exit 1
           fi
 
+  # Checks that need no Python. The hand-written JS modules have no build
+  # step or linter, so at least make sure each one parses; and the vendored
+  # libraries must be byte-for-byte the files app/static/vendor/README.md
+  # records (an accidental edit to a minified file is invisible in review).
+  static:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - name: JavaScript syntax
+        run: |
+          for f in app/static/js/*.js; do node --check "$f"; done
+      - name: Vendored libraries match SHA256SUMS
+        working-directory: app/static/vendor
+        run: |
+          sha256sum --check --strict SHA256SUMS
+          # Every vendored file must be listed, not just the ones that are.
+          find . -type f ! -name SHA256SUMS ! -name README.md ! -name 'LICENSE*' ! -name '*.LICENSE.txt' \
+            | sed 's|^\./||' | sort > /tmp/present
+          awk '{print $2}' SHA256SUMS | sort > /tmp/listed
+          diff /tmp/listed /tmp/present \
+            || { echo "::error::app/static/vendor has files not in SHA256SUMS (or listed files missing)"; exit 1; }
+
   # requirements*.txt must be what `uv pip compile` makes from the .in files.
   # uv keeps the versions already pinned in the .txt, so this only fails when
   # someone edited a .in (or a .txt by hand) without recompiling.
   lock:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -52,6 +84,7 @@ jobs:
 
   typecheck:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -64,6 +97,7 @@ jobs:
 
   e2e:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -81,8 +115,33 @@ jobs:
           path: test-results/e2e/
           if-no-files-found: ignore
 
-  docker-build:
+  # Build the production image, then actually start it: a runtime-only fault
+  # (permissions on /data, a missing system library, a migration that only
+  # fails on a fresh database) passes `docker build` but not this.
+  docker:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
       - run: docker build -t huddle-ci .
+      - name: Start the image and wait for /health
+        run: |
+          # A named volume, not a bind mount: Docker seeds it from the image's
+          # /data, so it is owned by the container's non-root user.
+          docker run -d --name huddle -p 8000:8000 -v huddle-ci-data:/data huddle-ci
+          for i in $(seq 1 60); do
+            if curl -sf http://127.0.0.1:8000/health >/dev/null; then
+              echo "/health answered 200 after ${i}s"; exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::/health never answered 200"
+          docker logs huddle
+          exit 1
+      - name: Container log is clean
+        run: |
+          docker logs huddle > container.log 2>&1
+          cat container.log
+          if grep -nE 'MigrationError|Traceback|ERROR' container.log; then
+            echo "::error::The container logged an error while starting"; exit 1
+          fi

@@ -26,8 +26,10 @@ uvicorn app.main:app --reload --host 127.0.0.1 --port 8010   # 8000 is usually t
 
 python -c "import app.main"   # fastest syntax/import check
 
-# Tests, lint, types — CI runs all of these plus a lock-file check and `docker build`
-ruff check app tests          # config in pyproject.toml; DTZ rules flag naive dates on purpose
+# Tests, lint, types — CI runs all of these plus a lock-file check, `node --check` on static/js,
+# a hash check of static/vendor (SHA256SUMS), a `docker build` that boots the image until /health
+# answers, and pip-audit of both lock files (.github/workflows/audit.yml, also weekly)
+ruff check app tests          # config in pyproject.toml; DTZ rules flag naive dates on purpose; S = bandit
 mypy                          # app/ only, lenient; [tool.mypy] in pyproject.toml — keep it at zero errors
 python -m pytest -q           # skips tests/e2e (pytest.ini: -m "not e2e")
 python -m pytest tests/test_task_sync.py::test_outage_keeps_queue_and_does_not_burn_retries

@@ -765,7 +765,7 @@ async def check_now(db, now: datetime | None = None) -> CheckResult:
             logger.error("School email check crashed: %s", type(exc).__name__)
             try:
                 await db.rollback()
-            except Exception:
+            except Exception:  # noqa: S110 (the connection is being dropped anyway)
                 pass
             result = CheckResult("error")
         await _record(db, now, result)

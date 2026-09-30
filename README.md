@@ -81,8 +81,9 @@ cp .env.example .env      # optional: only needed for Google (see below)
 docker compose up --build
 ```
 
-Open `http://localhost:8000/`. The image is built on Python 3.14. CI runs
-`docker build`, the linter and the tests on every PR.
+Open `http://localhost:8000/`. The image is built on Python 3.14. CI builds
+the image and boots it until `/health` answers, and runs the linter, the type
+checker, the tests and a dependency audit on every PR.
 
 The database and secret key live in a **bind-mounted host folder**,
 `./data/family-display`, per spec 9.7. They are plain files you can browse,
@@ -474,7 +475,8 @@ Dockerfile                   Python 3.14 image, non-root user, /health check
 docker-compose.yml           Bind-mounted /data, port 8000, restart policy, .env keys
 docker-compose.override.yml  Dev-only: --reload + bind-mounted app/
 .env.example                 GOOGLE_CLIENT_ID / _SECRET, GOOGLE_PHOTOS_CLIENT_ID / _SECRET, ANTHROPIC_API_KEY
-.github/workflows/ci.yml     ruff + pytest, lock check, mypy, Playwright e2e, docker build
+.github/workflows/ci.yml     ruff + pytest, lock check, mypy, JS syntax + vendor hashes, Playwright e2e, docker build + boot
+.github/workflows/audit.yml  pip-audit of both lock files: every PR, and weekly
 .github/dependabot.yml       Weekly Python, monthly Actions + base-image update PRs
 pyproject.toml, pytest.ini   ruff, mypy and pytest config
 requirements.in              Runtime deps you edit (requirements-dev.in adds test/lint tools)
@@ -516,7 +518,7 @@ app/
     js/idle.js       Idle screen: idle detection, wake-only first tap, dim, slideshow
     fonts/           Self-hosted Figtree (UI) + Playwrite (handwriting), OFL
     icons/           Lucide sprite (ISC) + Meteocons weather icons (MIT)
-    vendor/          Pinned HTMX 2.0.10, Gridstack 13.2.0, simple-keyboard 3.8.192
+    vendor/          Pinned HTMX 2.0.10, Gridstack 13.2.0, simple-keyboard 3.8.192 (sources, SHA256SUMS: vendor/README.md)
 tests/               pytest suite (temp DB per test, Google mocked with respx)
   e2e/               Playwright browser smoke tests (`pytest -m e2e`)
 data/                SQLite DB + secret key + backups/ (local dev; bind-mounted in Docker), gitignored
