@@ -28,7 +28,21 @@ jobs:
       - run: pip install --require-hashes -r requirements-dev.txt
       - run: ruff check app tests
       - run: ruff format --check app tests  # formatting is enforced, not reviewed
-      - run: python -m pytest -q
+      # Coverage is reported, not gated: the per-file table goes to the job
+      # summary and coverage.xml is kept as an artifact. To gate later, add
+      # --cov-fail-under=<a point or two under the observed number>.
+      - run: python -m pytest -q --cov=app --cov-report=xml --cov-report=term-missing:skip-covered
+      - name: Coverage summary
+        if: always()
+        run: |
+          echo "## Coverage (app/)" >> "$GITHUB_STEP_SUMMARY"
+          coverage report --format=markdown --skip-covered --sort=cover >> "$GITHUB_STEP_SUMMARY" || true
+      - if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage
+          path: coverage.xml
+          if-no-files-found: ignore
 
   # A rebase once left a conflict marker in style.css that no test noticed.
   # Nothing tracked (vendored files included) legitimately has one.

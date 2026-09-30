@@ -135,6 +135,29 @@ pending (see "Backups and restore"), so a wrong-but-successful migration can
 always be undone. The checkout is left at the tag (detached HEAD): that is
 what is running, and `git describe --tags` on the G10 says which version it is.
 
+### Releases
+
+What the G10 runs is always a tag, so "which version is live" and "go back
+to the previous one" are concrete. The numbers follow the spec's releases
+(v1.1, v1.2, ...): `vMAJOR.MINOR.PATCH`, with a `-beta.N` suffix while a
+release's features are still landing. Tag from an up-to-date `main`:
+
+```bash
+git checkout main && git pull
+git tag -a v1.2.0-beta.1 -m "v1.2.0-beta.1: avatars, homework extras, calendar views"
+git push origin v1.2.0-beta.1
+```
+
+Then on GitHub: Releases → *Draft a new release* → choose the tag →
+*Generate release notes* (they come from the merged PR titles) → tick
+*Set as a pre-release* for a beta → Publish. Deploy it with
+`scripts/deploy.sh v1.2.0-beta.1` on the G10. A fix on top of a release is a
+PATCH bump (`v1.2.1`); the next spec release is a MINOR bump.
+
+`v1.1.0` is tagged retrospectively at the commit that closed v1.1 (the
+setup checklist, `d47ef44`), so the first `git describe` on the G10 has
+something to say.
+
 ## Backups and restore
 
 The app backs up its database every night at about 03:30 in the family's
@@ -286,6 +309,7 @@ ruff check app tests
 ruff format app tests         # CI checks formatting too (`ruff format --check`)
 mypy                          # type check app/ ([tool.mypy] in pyproject.toml)
 python -m pytest -q           # unit tests; skips the browser tests
+python -m pytest -q --cov=app --cov-report=term-missing:skip-covered   # with the coverage table CI shows
 
 python -m playwright install chromium   # once
 python -m pytest -m e2e       # browser smoke tests (tests/e2e)
@@ -506,6 +530,8 @@ pyproject.toml, pytest.ini   ruff, mypy and pytest config
 requirements.in              Runtime deps you edit (requirements-dev.in adds test/lint tools)
 requirements.txt             Generated: pinned + hashed (and requirements-dev.txt)
 family-display-spec.md       Product spec (source of truth)
+docs/                        Setup guides, the assistant spec, docs/github-settings.md (the repo's manual settings)
+scripts/deploy.sh            Deploy a release tag to the G10 (see "Deploying to the G10")
 app/
   main.py            FastAPI entrypoint: lifespan (DB init + scheduler), same-origin check, static files
   database.py        SQLite schema + idempotent migrations, WAL, seed data, settings, family_today()
