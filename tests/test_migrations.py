@@ -7,13 +7,15 @@ DEFAULT_LAYOUT grows: they prove that a database built by the old init_db()
 """
 
 import asyncio
+import logging
 import sqlite3
+from zoneinfo import ZoneInfo
 
 import aiosqlite
 import legacy_database
 import pytest
 
-from app import database, migrations
+from app import backup, database, migrations
 from app.migrations import Migration, MigrationError
 
 
@@ -304,3 +306,64 @@ async def test_concurrent_runs_in_one_process_apply_once(tmp_path, use_db):
     await asyncio.gather(database.init_db(), database.init_db(), database.init_db())
     assert _versions(path) == {m.version for m in migrations.MIGRATIONS}
     assert len(_data(path)["profiles"]) == len(database.DEFAULT_PROFILES)
+
+
+# --- The snapshot init_db() takes before pending migrations (app/backup.py) ---
+
+
+def _snapshots():
+    return backup.list_backups(ZoneInfo("UTC"))
+
+
+async def test_upgrading_takes_a_verified_snapshot_of_the_old_database_first(legacy_db, use_db, caplog):
+    _populate(legacy_db)
+    schema_before, data_before = _schema(legacy_db), _data(legacy_db)
+    use_db(legacy_db)
+
+    with caplog.at_level(logging.INFO):
+        await database.init_db()
+
+    (snapshot,) = _snapshots()
+    assert snapshot.parent == backup.backup_dir()
+    # The snapshot is the database as it was: old schema, every row, no migration record.
+    assert _schema(snapshot) == schema_before
+    assert _data(snapshot) == data_before
+    with sqlite3.connect(snapshot) as conn:
+        assert conn.execute("SELECT name FROM sqlite_master WHERE name = 'schema_migrations'").fetchone() is None
+        assert conn.execute("PRAGMA integrity_check").fetchall() == [("ok",)]
+    assert _versions(legacy_db) == set(range(1, len(migrations.MIGRATIONS) + 1))
+    assert "taken before migration(s) 0001" in caplog.text
+
+    # Up to date now: another start takes nothing.
+    await database.init_db()
+    assert len(_snapshots()) == 1
+
+
+async def test_a_fresh_database_is_not_snapshotted(tmp_path, use_db):
+    use_db(tmp_path / "fresh.db")
+    await database.init_db()
+    assert not backup.backup_dir().exists()
+
+
+async def test_no_snapshot_means_no_migration(legacy_db, use_db, monkeypatch, caplog):
+    _populate(legacy_db)
+    before = _schema(legacy_db), _data(legacy_db)
+    use_db(legacy_db)
+
+    def disk_full(src, dest):
+        raise sqlite3.OperationalError("database or disk is full")
+
+    real_snapshot = backup._snapshot
+    monkeypatch.setattr(backup, "_snapshot", disk_full)
+    with pytest.raises(MigrationError, match="no snapshot could be taken before migration\\(s\\) 0001"):
+        await database.init_db()
+
+    assert (_schema(legacy_db), _data(legacy_db)) == before  # still the old database, untouched
+    assert _snapshots() == []
+    assert "Backup failed" in caplog.text
+
+    # Space freed and restarted: the snapshot is taken and the migrations run.
+    monkeypatch.setattr(backup, "_snapshot", real_snapshot)
+    await database.init_db()
+    assert len(_snapshots()) == 1
+    assert _versions(legacy_db) == set(range(1, len(migrations.MIGRATIONS) + 1))

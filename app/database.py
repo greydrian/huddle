@@ -86,6 +86,14 @@ async def init_db():
             await db.execute("PRAGMA journal_mode=WAL;")
             await db.execute("PRAGMA synchronous=NORMAL;")
             await db.execute("PRAGMA foreign_keys=ON;")
+            pending = await migrations.pending_versions(db)
+            if pending and not await migrations.is_empty(db):
+                # A verified backup of the database as it is now, so a
+                # migration that succeeds but is wrong can be undone. A
+                # failure here stops startup like a failed migration would.
+                from app import backup
+
+                await backup.snapshot_before_migrations(db, pending)
             await migrations.run_migrations(db)
             await migrations.run_startup_checks(db)
             await load_onscreen_keyboard(db)

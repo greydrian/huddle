@@ -109,10 +109,13 @@ reset run on an in-process scheduler.
 
 ### Deploying to the G10
 
+First time:
+
 1. Install Docker on Ubuntu/Debian: `curl -fsSL https://get.docker.com | sh`
-2. Copy this project to the G10 (or `git clone` it), and create `.env` from
-   `.env.example`.
-3. `docker compose -f docker-compose.yml up -d --build` (production mode, no hot-reload)
+2. `git clone` this project on the G10 and create `.env` from `.env.example`.
+3. `scripts/deploy.sh --list` shows the newest release tags; deploy one with
+   `scripts/deploy.sh v1.2.0` (or `scripts/deploy.sh main` to run the tip of
+   main before it is tagged).
 4. Point the Galaxy Tab A9+'s Fully Kiosk Browser at `http://<g10-lan-address>:8000/`.
    See "Kiosk browser setup" below.
 5. The spec (9.7) also puts Home Assistant and a Caddy reverse proxy on the
@@ -120,6 +123,17 @@ reset run on an in-process scheduler.
    `docker-compose.yml` owns. Behind a reverse proxy, pass the `Host` header
    through: the app refuses non-GET requests whose `Origin` doesn't match its
    host.
+
+Every update after that is one command, `scripts/deploy.sh <tag>`. It refuses
+to run with local changes in the checkout, checks out the tag, takes a backup
+through the running app (the same as Admin's "Back up now"), rebuilds and
+restarts in production mode (`docker-compose.yml` only, never the override),
+and waits for `/health`. If the app doesn't come up it prints the log and the
+exact command to go back to what was running before. On top of that, the app
+itself takes a verified snapshot at startup whenever database migrations are
+pending (see "Backups and restore"), so a wrong-but-successful migration can
+always be undone. The checkout is left at the tag (detached HEAD): that is
+what is running, and `git describe --tags` on the G10 says which version it is.
 
 ## Backups and restore
 
@@ -144,6 +158,13 @@ Admin → Backups shows the latest one and has a "Back up now" button.
   recent changes or be inconsistent.
 - **Kept**: the 14 newest backups, plus the newest backup of each of the last
   8 weeks.
+- **Before a migration**: when the app starts and finds database migrations
+  pending (an update that changes the schema), it first takes one of these
+  backups of the database as it is, verifies it, and only then migrates. The
+  log says `Snapshot huddle-....db taken before migration(s) 0009`. If that
+  snapshot can't be taken (disk full, backups folder not writable) the app
+  stops instead of migrating, the same way a failed migration stops it (see
+  "If the app won't start after an update"); nothing is changed.
 - **The secret key**: Google tokens in the database are encrypted with
   `data/family-display/.secret_key`, so a copy of that key is kept in the
   backups folder as `.secret_key` (owner-only permissions). If the key ever
@@ -211,10 +232,12 @@ you'll need to reconnect it in Admin.
 ### If the app won't start after an update (a failed migration)
 
 Updates to the database's structure are numbered migrations (`app/migrations.py`)
-that run when the app starts. Before deploying an update, take a snapshot:
-press Admin → Backups → "Back up now".
+that run when the app starts. `scripts/deploy.sh` takes a backup before it
+rebuilds, and the app takes its own verified snapshot before it migrates, so
+there is always a copy of the database from just before an update.
 
-If a migration fails, the app does the following:
+If a migration fails (or the snapshot before it can't be taken), the app does
+the following:
 - It rolls that migration back completely, so the database is left as it was.
 - It logs the error and exits.
 - Docker (`restart: unless-stopped`) starts it again, and it fails the same way.
@@ -227,8 +250,8 @@ docker compose -f docker-compose.yml logs --tail 100 family-display | grep -B2 -
 ```
 
 To recover:
-1. Go back to the previous version of the code: `git checkout <previous commit>`, then
-   `docker compose -f docker-compose.yml up -d --build`. The database needs no restore: a
+1. Go back to the previous version of the code: `scripts/deploy.sh <previous tag>` (the
+   script prints that command when a deploy fails). The database needs no restore: a
    failed migration changes nothing. The older code runs happily on it.
 2. Only if the database itself looks damaged, restore the pre-deploy snapshot with the steps in
    "Restoring a backup" above.
