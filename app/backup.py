@@ -24,11 +24,12 @@ import os
 import re
 import sqlite3
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, tzinfo
 from datetime import time as dtime
 from pathlib import Path
 
 from app import database, security
+from app.migrations import MigrationError
 
 logger = logging.getLogger(__name__)
 
@@ -212,6 +213,36 @@ def prune(tz, keep_daily: int = KEEP_DAILY, keep_weekly: int = KEEP_WEEKLY) -> l
             path.unlink(missing_ok=True)
             deleted.append(path)
     return deleted
+
+
+class SnapshotError(MigrationError):
+    """The snapshot init_db() takes before pending migrations could not be
+    taken. A MigrationError so startup stops the documented way (README, "If
+    the app won't start after an update"): nothing has been changed."""
+
+
+async def snapshot_before_migrations(db, pending: list[int]) -> Path:
+    """A verified backup of the database as it is *before* `pending` runs.
+
+    init_db() calls this with its own connection, open but with nothing
+    changed yet, so a migration that succeeds and is wrong can still be
+    undone by restoring this file. Unlike the nightly job it never swallows
+    a failure: no verified snapshot, no migration."""
+    tz: tzinfo
+    try:
+        tz = await database.family_timezone(db)
+    except sqlite3.Error:  # a database with no app_settings yet
+        tz = timezone.utc
+    stamp = datetime.now(tz).strftime(STAMP_FORMAT)
+    async with _lock:
+        path = await asyncio.to_thread(_create_backup_sync, stamp)
+    if path is None:
+        raise SnapshotError(
+            "no snapshot could be taken before migration(s) "
+            f"{', '.join(f'{v:04d}' for v in pending)} (see the warning above); nothing was changed"
+        )
+    logger.info("Snapshot %s taken before migration(s) %s", path.name, ", ".join(f"{v:04d}" for v in pending))
+    return path
 
 
 async def create_backup() -> Path | None:

@@ -187,7 +187,9 @@ PIN rules and protection:
   - Admin shows the latest backup and has "Back up now"
   - the restore guide is in the README
 - **Touch-first and legible** from 1–3 m (see 4.5).
-- **Updates without reflashing:** `git pull` then `docker compose up -d --build`. Static files are
+- **Updates without reflashing:** `scripts/deploy.sh <tag>` on the G10 (backup through the
+  running app, check out the release, rebuild in production mode, wait for `/health`). The app
+  also takes a verified snapshot at startup whenever migrations are pending. Static files are
   revalidated on every load, so the tablet picks up new CSS/JS without clearing its cache.
 
 ## 6. Out of scope (for now)
@@ -625,6 +627,11 @@ Home Assistant already runs on the G10.
 - Ask the school about Classroom (8.1).
 - Do the tablet checks (8.4).
 - **Check Fully PLUS** (Settings → About, or the licence page), and **buy it if missing**.
+- *Open:* **pull a CI-built image instead of building on the G10.** A release workflow would
+  push the image to GHCR on each tag and `scripts/deploy.sh` would `docker compose pull` it, so
+  the G10 runs exactly the image CI tested and needs no PyPI or Docker Hub access. Decided 30 Sep
+  2026 to keep building on the G10 for now; the pull stays manual either way, because a deploy
+  runs migrations.
 
 ### 10.13 Cross-cutting requirements for v1.1/v1.2
 - **Offline behaviour, per feature:**

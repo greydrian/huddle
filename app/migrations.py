@@ -664,6 +664,28 @@ async def applied_versions(db) -> set[int]:
     return {row[0] for row in rows}
 
 
+async def _has_table(db, name: str) -> bool:
+    row = await (await db.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", (name,))).fetchone()
+    return row is not None
+
+
+async def is_empty(db) -> bool:
+    """A database with no tables at all: a first start, nothing to snapshot."""
+    row = await (await db.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' LIMIT 1")).fetchone()
+    return row is None
+
+
+async def pending_versions(db, migrations: list[Migration] | None = None) -> list[int]:
+    """The versions run_migrations() would apply now; empty when up to date.
+    A database from before numbered migrations has no schema_migrations
+    table, so everything is pending (the baseline then records itself)."""
+    migrations = MIGRATIONS if migrations is None else migrations
+    if not await _has_table(db, "schema_migrations"):
+        return [m.version for m in migrations]
+    latest = max(await applied_versions(db), default=0)
+    return [m.version for m in migrations if m.version > latest]
+
+
 async def run_migrations(db, migrations: list[Migration] | None = None) -> list[int]:
     """Apply every migration newer than the latest recorded one, in order.
 
