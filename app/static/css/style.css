@@ -256,6 +256,27 @@ input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-
   cursor: pointer;
 }
 
+/* --- "Next up" strip (templates/_next_up.html, app/services/next_up.py) ---
+   Quiet lines under the banners: each person's next event today. Read at a
+   glance from across the room, so no cards and no buttons. It wraps rather
+   than scrolling sideways (nobody scrolls a wall display); its height only
+   changes when a re-fetch lands, which fresh.js holds while the wall is in use. */
+.next-up {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 18px;
+  padding: 4px 24px 2px;
+  flex-shrink: 0;
+}
+.next-up.is-empty { display: none; }
+.next-up-label { color: var(--ink-soft); font-size: 0.9rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; }
+.next-up-item { display: inline-flex; align-items: center; gap: 8px; min-width: 0; white-space: nowrap; }
+.next-up-item .person-pill { flex-shrink: 0; }
+.next-up-text { display: inline-flex; align-items: baseline; gap: 8px; font-size: 1.05rem; }
+.next-up-title { font-weight: 600; max-width: 22ch; overflow: hidden; text-overflow: ellipsis; }
+.next-up-when { color: var(--ink-soft); font-size: 1rem; }
+
 /* The page stays locked (above); the area under the top bar scrolls.
    Gridstack gives #dashboard-grid an inline height as tall as its rows,
    so the scrolling happens on this wrapper instead of the grid itself. */
@@ -263,7 +284,7 @@ body:has(> .dashboard-scroll) {
   display: flex;
   flex-direction: column;
 }
-body:has(> .dashboard-scroll) > .topbar, body:has(> .dashboard-scroll) > .banner-bar { flex-shrink: 0; }
+body:has(> .dashboard-scroll) > .topbar, body:has(> .dashboard-scroll) > .banner-bar, body:has(> .dashboard-scroll) > .next-up { flex-shrink: 0; }
 .dashboard-scroll {
   flex: 1;
   min-height: 0;

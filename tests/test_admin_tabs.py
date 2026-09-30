@@ -130,6 +130,7 @@ ROUTES: dict[tuple[str, str], tuple[str, dict | str]] = {
     ("POST", "/admin/photos/remove"): (TAB, {}),
     ("POST", "/admin/photos/sign-out"): (TAB, {}),
     ("POST", "/admin/banners"): (TAB, {"lead_minutes": "3", "quiet_start": "21:00", "quiet_end": "07:00"}),
+    ("POST", "/admin/next-up"): (TAB, {"enabled": "true"}),
     ("POST", "/admin/change-pin"): (TAB, {"new_pin": "2580", "confirm_pin": "2580"}),
     ("POST", "/admin/backups/run"): (TAB, {}),
     ("POST", "/admin/sync"): (TAB, {}),

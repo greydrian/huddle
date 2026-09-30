@@ -13,7 +13,7 @@ from app.database import get_db, set_onscreen_keyboard
 from app.routers import photos as photos_admin
 from app.routers.admin import common
 from app.routers.admin.common import admin_error, tab_context
-from app.services import banners, layout, term_dates, weather
+from app.services import banners, layout, next_up, term_dates, weather
 from app.widgets import WIDGETS
 
 router = APIRouter(prefix="/admin")
@@ -29,6 +29,7 @@ async def display_context(db, base: dict, extra: dict) -> dict:
         "widget_settings": await layout.admin_widgets(db),
         "school_day_today": await term_dates.is_school_day(db, await common.family_today(db)),
         "banner_settings": await banners.get_settings(db),
+        "next_up_enabled": await next_up.is_enabled(db),
         "banner_triggers": banners.TRIGGERS,
         "banner_lead_range": (banners.MIN_LEAD, banners.MAX_LEAD),
         "idle_settings": await idle.get_settings(db),
@@ -56,6 +57,14 @@ async def save_weather_location(place: str = Form(...)):
 
 
 # --- Display ---
+
+
+@router.post("/next-up", dependencies=[Depends(require_admin)])
+async def save_next_up(enabled: bool = Form(False)):
+    """The "next up" strip under the banners, on or off."""
+    async with get_db() as db:
+        await next_up.set_enabled(db, enabled)
+    return RedirectResponse(url=admin_url("banners"), status_code=303)
 
 
 @router.post("/onscreen-keyboard", dependencies=[Depends(require_admin)])

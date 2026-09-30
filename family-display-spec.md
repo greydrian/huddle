@@ -773,6 +773,15 @@ answer; they're decided in outline and settled in detail when built.
   child's calendar is setup, not code, and banners, the agenda and the week view pick them up.
 - **Build order** after v1.2: not decided yet.
 
+### 11.8 Small features added from the review
+- **"Next up" strip** (built). Under the banner bar, one item per person with something still to
+  come today: their pill, the event, its time and "in 25 min"; events for no one in particular
+  show as Everyone. Read from `calendar_cache` only, so it works offline. Whose event it is follows
+  the calendar's person filter (10.5): a calendar linked to the person, else their name in the
+  title. All-day events and term-date bars are left to the calendar and banners. It wraps onto a
+  second line rather than scrolling, and like the banner bar its refresh waits while the wall is
+  in use. Admin → Display → Banners has an on/off switch (default on).
+
 ---
 
 ## Sources
