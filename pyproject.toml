@@ -43,3 +43,15 @@ disable_error_code = ["annotation-unchecked"]  # just the "bodies aren't checked
 [[tool.mypy.overrides]]
 module = ["apscheduler.*"]  # ships no type information
 ignore_missing_imports = true
+
+# Coverage (pytest-cov, CI's test job): reported, not gated. Run locally with
+# `python -m pytest -q --cov=app --cov-report=term-missing:skip-covered`.
+[tool.coverage.run]
+source = ["app"]
+branch = true
+
+[tool.coverage.report]
+skip_covered = true
+show_missing = true
+precision = 1
+exclude_also = ["if TYPE_CHECKING:", "raise NotImplementedError"]

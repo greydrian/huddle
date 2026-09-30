@@ -13,6 +13,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 # with no --reload and no bind-mounted ./app. Deploy a release tag with the script (it backs up
 # through the running app, checks out the tag, rebuilds, waits for /health, prints the rollback):
 scripts/deploy.sh v1.2.0                   # scripts/deploy.sh --list shows the newest tags
+# Releases are annotated tags (vMAJOR.MINOR.PATCH, -beta.N while a spec release is still landing)
+# on main, published as GitHub Releases with generated notes: README "Releases". Never move a tag.
 docker compose -f docker-compose.yml up -d --build   # what the script runs underneath
 docker compose -f docker-compose.yml logs --tail 50 family-display
 docker compose -f docker-compose.yml exec family-display python -c "..."   # poke the live DB (read-only!)
@@ -35,6 +37,7 @@ ruff check app tests          # config in pyproject.toml; DTZ rules flag naive d
 ruff format app tests         # CI runs `ruff format --check`: never hand-format, run this before committing
 mypy                          # app/ only, lenient; [tool.mypy] in pyproject.toml — keep it at zero errors
 python -m pytest -q           # skips tests/e2e (pytest.ini: -m "not e2e")
+python -m pytest -q --cov=app --cov-report=term-missing:skip-covered   # CI's coverage table (reported, not gated)
 python -m pytest tests/test_task_sync.py::test_outage_keeps_queue_and_does_not_burn_retries
 python -m pytest -m e2e       # Playwright smoke tests: own uvicorn + temp DATA_DIR, 1280x800
 

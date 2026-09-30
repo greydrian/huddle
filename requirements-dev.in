@@ -5,6 +5,7 @@
 -c requirements.txt
 pytest==9.1.1
 pytest-asyncio==1.4.0
+pytest-cov==7.1.0  # coverage report in CI's test job (report only, no threshold yet)
 respx==0.23.1
 ruff==0.16.9
 # Browser smoke tests: tests/e2e, run with `pytest -m e2e`.
