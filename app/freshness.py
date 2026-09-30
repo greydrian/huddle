@@ -26,7 +26,7 @@ from datetime import datetime, time, timedelta
 
 from fastapi import APIRouter
 
-from app import database
+from app import build_info, database
 from app.database import family_timezone, get_db
 from app.services import banners, layout
 from app.widgets import WIDGETS
@@ -80,15 +80,17 @@ async def today_info(db, now: datetime | None = None) -> dict:
 @router.get("/api/rev")
 async def revisions():
     """`shown`: the widgets the wall should show now; `layout`: the layout
-    generation (services/layout.generation). fresh.js reloads the page when
-    that differs from the page's (a widget hidden or shown in Admin, or a
-    new day)."""
+    generation (services/layout.generation); `build`: the running build
+    (app/build_info.py). fresh.js reloads the page when either `layout` or
+    `build` differs from the page's (a widget hidden or shown in Admin, a new
+    day, or a deploy)."""
     async with get_db() as db:
         shown = await layout.shown_ids(db)
         return {
             "today": (await today_info(db))["date"],
             "shown": shown,
             "layout": await layout.generation(db, shown),
+            "build": build_info.build_id(),
             "widgets": await shown_revisions(db, shown),
         }
 

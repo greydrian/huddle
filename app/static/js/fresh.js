@@ -21,7 +21,9 @@
  * Which widgets, where: /api/rev also gives the layout generation
  * (`layout`). When that differs from the page's (#dashboard-grid
  * data-layout), e.g. a widget hidden or shown in Admin or a new day, the
- * page reloads as soon as nobody is using it.
+ * page reloads as soon as nobody is using it. The same goes for `build`
+ * (#dashboard-grid data-build): a deploy changes it, so the wall picks up a
+ * new page shell and scripts without anyone touching the tablet.
  *
  * Date: the top bar shows the family's date (#today-date). The server says
  * how many seconds until it next changes and only elapsed time is measured
@@ -108,6 +110,9 @@
   // using it.
 
   var layoutGen = (grid && grid.dataset.layout) || '';
+  // The build that served this page (app/build_info.py). A deploy changes
+  // it, and the page shell (this script included) only updates on a reload.
+  var buildId = (grid && grid.dataset.build) || '';
   var reloadWanted = false;
 
   // busy()'s rules for every self-refreshing widget (an open fold touched
@@ -151,7 +156,9 @@
     fetch('/api/rev', fetchOptions())
       .then(function (r) { if (!r.ok) throw r; return r.json(); })
       .then(function (data) {
-        if (typeof data.layout === 'string' && data.layout !== layoutGen) {
+        var newLayout = typeof data.layout === 'string' && data.layout !== layoutGen;
+        var newBuild = typeof data.build === 'string' && buildId !== '' && data.build !== buildId;
+        if (newLayout || newBuild) {
           reloadWanted = true;
           reloadIfWanted();
           return;
