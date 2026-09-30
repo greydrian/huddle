@@ -2,7 +2,9 @@
 
 **Status:** v1.0 as built + v1.1/v1.2 plan, reviewed 28 Sep 2026. Sections 1–9 describe the app
 as it stands and the decisions behind it. **Section 10 is the v1.1/v1.2 plan** (next iterations).
-It was checked against external sources on 28 Sep 2026; they're listed at the end.
+It was checked against external sources on 28 Sep 2026 and again on 30 Sep 2026; they're listed
+at the end. **Section 11 records the decisions of the 30 Sep 2026 review**; where it changes an
+earlier section, that section says so.
 **Target hardware:** GMKtec G10 (Ryzen 5 3500U) as the local Docker server, and a Samsung Galaxy
 Tab A9+ wall-mounted in the kitchen as the display, connected over Wi-Fi.
 
@@ -115,7 +117,7 @@ in the box. It replaces the Tab A9+.
 ### 4.5 Appearance
 - The "Calm modern" design. **Night mode switches on automatically from 19:00 to 07:00** in the
   family's timezone, with no reload needed. Admin → Appearance can set Auto, Always light or
-  Always dark.
+  Always dark. *Changing to sunset-based, with 19:00–07:00 as the fallback: see 11.4.*
 - All text meets WCAG AA contrast in both modes. Minimum text size is 1 rem, and 0.8 rem for
   secondary text.
 - Fonts (Figtree, Playwrite GB) and icons (Lucide, Meteocons) are bundled with the app. Nothing
@@ -152,6 +154,8 @@ PIN rules and protection:
   only mail from the school senders on the Admin allowlist:
   - `office@greshamprimary.school`: the weekly newsletter PDF, Half Term on a Page, letters
   - `*@gresham.croydon.sch.uk`: class teachers
+  - The school also uses **Arbor** and **ParentMail**; see 11.3 for how their messages get in.
+  - *One school today; becoming per-child: see 11.2.*
 - **Claude extracts** spelling lists, homework and key dates into the **School inbox**. Nothing
   reaches the wall or the calendar until a parent approves it. Approved dates are added to a
   chosen Google calendar.
@@ -226,9 +230,12 @@ PIN rules and protection:
     homework, children's first names and year groups, and **allergies and dislikes** (health data,
     for meal ideas)
 
-  **Anthropic keeps API data for 30 days by default**, or up to 2 years if it's flagged by safety
-  systems, and **doesn't train on it**. Zero data retention needs an enterprise contract, so it
-  doesn't apply here. What each capability sends is in the assistant spec's data table
+  **Anthropic does not retain API prompts or outputs by default** for the models Huddle uses
+  (Sonnet and Haiku), and **doesn't train on them**. Content flagged by its automated safety
+  systems may be kept for **up to 2 years**. A 30-day retention requirement applies only to the
+  Claude Fable and Mythos models, which Huddle does not use. Zero data retention is a contract
+  arrangement and doesn't apply here. (Corrected 30 Sep 2026; the earlier text said 30 days by
+  default.) What each capability sends is in the assistant spec's data table
   (`docs/assistant-spec.md`, section 4).
 - **OAuth app set to "Internal"** (Workspace), so the restricted Gmail scope needs no Google
   verification and there's no 7-day token expiry.
@@ -282,7 +289,8 @@ Polling, not WebSockets:
 - day/night and date switch timers set from the server
 
 ### 9.5 Google OAuth (decided)
-- One account, one OAuth client, Internal consent screen.
+- One account, one OAuth client, Internal consent screen. *Extending to several accounts for
+  calendars: see 11.1.*
 - Scopes: `calendar.readonly`, `tasks`, `gmail.readonly`, `calendar.events`, `openid email`.
 - Features check the scopes actually granted, so an older connection keeps working until it's
   reconnected.
@@ -494,7 +502,8 @@ alone doesn't close the gap or skip their data (see below).
   **"+ Add"** for quick one-offs. The task syncs if that person has a linked list, and is
   local-only otherwise.
 - **Time of day.** Each task can be set to **Morning**, **After school** or **Evening** (default:
-  no group). This is stored locally, like repeat days, because Google Tasks can't hold it.
+  no group). This is stored locally, like repeat days, because Google Tasks can't hold it: the
+  Tasks API's `due` field is date-only, and it discards any time of day on write.
   - The widget shows all groups, with **the current group first and highlighted**. Earlier groups'
     unfinished tasks stay visible.
   - Group boundaries are an Admin setting (proposed: Morning until 12:00, After school
@@ -649,15 +658,120 @@ Home Assistant already runs on the G10.
 - **Migrations** go through 9.8's numbered migrations.
 
 ### Things to know up front
-- **Cost:** about £3–5 a month is typical for the assistant. The £10 default cap is approximate,
-  because billing is in USD. Fully PLUS is €7.90 one-off.
-- **Reconnects:** a Workspace reconnect is needed for Gmail send (assistant A4) only. **Photos use
-  their own separate sign-in.**
+- **Cost:** about $3–6 a month is typical for the assistant. The cap is set and enforced in US
+  dollars, the currency Anthropic bills in (11.6). Fully PLUS is about US$10–11 one-off per
+  device, depending on region.
+- **Reconnects:** none planned. A4's digest email (which needed Gmail send and a reconnect) is
+  deferred (11.6). **Photos use their own separate sign-in.**
+- **Not bought yet (30 Sep 2026):** the Lenovo tablet and Fully PLUS. Home Assistant is not set up
+  yet either; it is a separate project (11.5).
 - **Privacy:** see 7.
 - **Hardware:** a new Lenovo Idea Tab Plus 12.1" with pen, under £350 all-in. Run the 5 checks in 3
   within the Argos return period. A screen Fully has turned off won't wake on a tap.
 - **Workspace admin:** keep Huddle trusted under Security → API controls ("Trust internal apps").
 - **Term dates** come from PDFs; check them once a year.
+
+---
+
+## 11. Decisions from the 30 Sep 2026 review
+
+A spec review against the code and external sources on 30 Sep 2026 asked 15 questions. These are
+the answers and what they change. Items marked *proposed* are the design that follows from an
+answer; they're decided in outline and settled in detail when built.
+
+### 11.1 More than one Google account (changes 9.5 and 10.5)
+- **Decided:** Huddle can read calendars from **more than one Google account**, for when a
+  parent's or child's calendars live in another account.
+- **Decided:** each child gets **their own Google calendar**, plus a general **Family** calendar.
+  Calendar-to-person linking (10.5) then does the work; the name-in-title fallback stays for
+  events in the Family calendar.
+- *Proposed design:*
+  - The existing connection stays the **primary account**. Tasks, shopping, school email, the
+    Family calendar that "+" adds to, and approved school events all stay on it.
+  - **Extra accounts are calendar-read-only** (`calendar.readonly` only). Admin lists them, each
+    with its own Connect/Disconnect and calendar picker. Their calendars join the same
+    selection, colours, person links, cache and offline rules as the primary account's.
+  - Each account's token is its own `auth_tokens` row; sync status and the top-bar dot report
+    per account.
+  - **An account outside the Workspace** (e.g. a personal gmail.com) can't use the Internal
+    OAuth client. It needs a second, External client, like Photos (10.2), whose Testing-mode
+    refresh tokens expire after 7 days — too short for a calendar that must stay connected. So
+    the recommended setup for a non-Workspace account is to **share its calendars into the
+    primary account**, which needs no code and no second client. Extra-account connections are
+    for Workspace accounts.
+  - *Open:* are the other accounts inside the Workspace? That decides whether the extra-account
+    code is needed at all, or calendar sharing covers it.
+
+### 11.2 Two children, one school, a second later (changes 4.3, 4.8 and 10.6)
+- **Decided:** support several children properly. Today: two children, one in Year 4 at
+  Gresham, one not yet at school.
+- *Proposed design:* a **school** is its own record (name, sender allowlist, term dates, whether
+  it has Classroom). Each child optionally belongs to one school; a child with no school has no
+  "school days" and gets no school import. A nursery can be a school too, with its own dates.
+  - Term dates (10.6) belong to a school, not to the whole family.
+  - The "School days" repeat option (10.4) follows **the task owner's** school; a task for a
+    parent or a child without a school falls back to Mon–Fri minus bank holidays.
+  - A widget's "school days only" (10.3) shows when **any** child with a school has school that
+    day.
+  - The school email check reads each school's allowlist, and the inbox pre-fills the child from
+    the sender's school.
+  - One migration moves today's term dates and senders onto a Gresham school record and links the
+    Year 4 child to it; nothing else changes for the family until a second school is added.
+
+### 11.3 Arbor and ParentMail (changes 4.8 and assistant A1)
+- **Decided:** the school sends through **Arbor**, **ParentMail** and ordinary email.
+- *Proposed design:*
+  - Both apps send email notifications. Whether a notification carries the letter itself (text or
+    PDF) or only a link to the app decides the route. *Open:* forward one real example of each to
+    check.
+  - If the email carries the content, add the app's sender to the school's allowlist, and the
+    existing email check reads it.
+  - If it carries only a link, the route is a **screenshot or PDF** uploaded through Admin now, and
+    the phone upload page (assistant A1) later. Huddle will not log in to Arbor or ParentMail on
+    the family's behalf: no public API for either was found, and storing a parent's password
+    there would be a new and larger risk.
+
+### 11.4 Sunset-based night mode (changes 4.5)
+- **Decided:** Auto appearance follows **sunset and sunrise** for the weather location, with
+  **19:00–07:00 as the fallback**.
+- *Proposed design:*
+  - Sunrise and sunset come from Open-Meteo's daily forecast for the weather location, fetched with
+    the forecast Huddle already makes, and cached with it.
+  - Night starts at sunset and ends at sunrise. The fallback applies when there is no weather
+    location, no cached times for today, or the times are unusable (missing, or sunset before
+    sunrise).
+  - **Every fallback is logged once per day with its reason**, as a code: `no_location`,
+    `no_forecast`, `stale_forecast`, `bad_times`. Admin → Appearance shows today's source
+    ("Sunset 18:42 from the forecast" or "Fixed 19:00–07:00: no forecast yet") and the most recent
+    fallback reason.
+  - The existing timers switch day and night without a reload, so nothing on the tablet changes.
+  - Quiet hours for banners (10.1) stay a separate fixed setting.
+
+### 11.5 Home Assistant is a later, separate project (changes 10.11)
+- **Decided:** notifications to parents' phones through Home Assistant's companion app are
+  wanted, for Huddle being unreachable, sync needing attention, and a stale backup.
+- Home Assistant is **not set up yet** and is its own project. 10.11 stays as specified; its
+  status feed (`GET /api/ha/status`) is what those phone notifications will read. Presence-based
+  screen wake using Fully's REST API also waits for it.
+
+### 11.6 Assistant: dollars, no digest email yet, no voice (changes the assistant spec)
+- **Decided:** the monthly assistant cap is **set and enforced in US dollars**, the currency
+  Anthropic bills in. No exchange-rate setting. (Assistant spec 4 and decision 2 there.)
+- **Decided:** the digest's **email is deferred** (assistant A4). The digest ships as the
+  on-display card first; email or phone delivery is decided later. No Gmail send scope and no
+  Google reconnect for now.
+- **Decided:** **voice stays out of scope** for the next two releases.
+
+### 11.7 Deferred, with no change now
+- **HTTPS and a hostname** (8.3) stay deferred; reconnecting Google keeps using `localhost` on the
+  G10 or an SSH tunnel. When it's built, `docs/https-setup.md` gives the step-by-step setup
+  (domain, DNS-01 certificate, Caddy, the new OAuth redirect URI).
+- **Off-box backups** (README, "Keep a copy off the box") stay a manual job for now.
+- **Tablet and Fully PLUS** aren't bought yet. The five checks in 3 still apply before relying on
+  the pen (10.10), and 10.2 downloads photos at the Tab A9+ size until the new tablet arrives.
+- **Clubs and activities** aren't in Google Calendar yet. Adding them as recurring events in each
+  child's calendar is setup, not code, and banners, the agenda and the week view pick them up.
+- **Build order** after v1.2: not decided yet.
 
 ---
 
@@ -680,3 +794,19 @@ Checked in the external-sources review, 28 Sep 2026.
   <https://platform.claude.com/docs/en/manage-claude/api-and-data-retention>
 - Term dates: <https://www.gresham.croydon.sch.uk/parent-info/term-dates/>;
   <https://www.gov.uk/bank-holidays.json>
+
+Added in the review of 30 Sep 2026 (section 11). Google's and Fully's own pages were blocked from
+the environment that review ran in, so those facts were confirmed through search summaries and the
+secondary pages listed.
+- Anthropic data retention (read in full):
+  <https://platform.claude.com/docs/en/manage-claude/api-and-data-retention>
+- Google Tasks `due` is date-only: <https://issuetracker.google.com/issues/129591245>;
+  <https://wadih.systemesmw.com/2026/07/07/google-tasks-api-creating-tasks-works-due-times-do-not/>
+- Google Photos Library API changes:
+  <https://developers.googleblog.com/en/google-photos-picker-api-launch-and-library-api-updates/>;
+  Picker `baseUrl` expiry: <https://github.com/NicoPietrusco/HicPicNunc/issues/23>
+- Google Classroom third-party access: <https://support.google.com/edu/classroom/answer/6250906>
+- Fully Kiosk PLUS price and REST API: <https://license.fully-kiosk.com/license/single>;
+  <https://kleypot.com/fully-kiosk-rest-api-integration-in-home-assistant/>
+- Lenovo Idea Tab pen: <https://mynexttablet.com/lenovo-idea-tab-review/>
+- Open-Meteo daily sunrise and sunset: <https://open-meteo.com/en/docs>
