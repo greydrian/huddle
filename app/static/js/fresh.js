@@ -14,7 +14,9 @@
  *     was touched in the last ABANDONED_MS — a fold left open and walked
  *     away from doesn't freeze the widget for good;
  *   - a request of its own is in flight or a tick's 450ms reveal is pending;
- *   - a finger/mouse is down, or a Gridstack drag/resize is in progress.
+ *   - a finger/mouse is down, or a Gridstack drag/resize is in progress;
+ *   - an overlay is open in #wall-overlay (a recipe card) and was opened or
+ *     touched in the last OVERLAY_MS: someone may be cooking from it.
  * The check runs again just before the swap, since the fetch takes time.
  * A re-fetch that fails isn't retried until /api/rev answers again.
  *
@@ -35,6 +37,7 @@
   var POLL_MS = 30000;
   var RETRY_MS = 5000;
   var ABANDONED_MS = 120000;
+  var OVERLAY_MS = 30 * 60000;
   var DATE_RECHECK_MS = 600000;
   var PRESS_TIMEOUT_MS = 60000;  // a lost pointerup must not block refreshes for long
   var FETCH_TIMEOUT_MS = 10000;
@@ -57,6 +60,16 @@
   function noteUse(evt) {
     var card = evt.target && evt.target.closest && evt.target.closest('[data-rev-key]');
     if (card) lastTouch[card.dataset.revKey] = Date.now();
+    if (evt.target && evt.target.closest && evt.target.closest('#wall-overlay')) overlayTouch = Date.now();
+  }
+  // A recipe card: open (and swapped in) counts as touched.
+  var overlayTouch = 0;
+  document.addEventListener('htmx:afterSwap', function (evt) {
+    if (evt.target && evt.target.id === 'wall-overlay') overlayTouch = Date.now();
+  });
+  function overlayInUse() {
+    var overlay = document.getElementById('wall-overlay');
+    return !!(overlay && overlay.firstElementChild && Date.now() - overlayTouch < OVERLAY_MS);
   }
   document.addEventListener('pointerdown', function (evt) { pressedAt = Date.now(); noteUse(evt); }, true);
   document.addEventListener('pointerup', function () { pressedAt = 0; }, true);
@@ -113,6 +126,7 @@
   // busy()'s rules for every self-refreshing widget (an open fold touched
   // recently included), plus the same checks for the rest (calendar, weather).
   function pageBusy() {
+    if (overlayInUse()) return true;
     var cards = document.querySelectorAll('[data-rev-key]');
     for (var i = 0; i < cards.length; i++) if (busy(cards[i])) return true;
     if (pressedAt && Date.now() - pressedAt < PRESS_TIMEOUT_MS) return true;
@@ -126,6 +140,7 @@
   // pageBusy's rules minus in-flight requests, since widgets refresh
   // themselves (the calendar every 3 minutes) and that isn't anyone there.
   window.huddleBusy = function () {
+    if (overlayInUse()) return true;
     if (pressedAt && Date.now() - pressedAt < PRESS_TIMEOUT_MS) return true;
     if (root.classList.contains('osk-open') || document.querySelector('.osk--open')) return true;
     var active = document.activeElement;
