@@ -186,6 +186,7 @@ ADMIN_ERRORS = {
     ),
     "school-missing": ("schools", "That school no longer exists. It may have just been deleted."),
     "profile-school": ("family", "That school no longer exists. Nothing was changed."),
+    "shopping-view": ("shopping", "Pick Simple list or Grouped by aisle."),
     "countdown-title": (
         "countdowns",
         f"Give the countdown a name of up to {countdowns.MAX_TITLE} characters. Nothing was saved.",

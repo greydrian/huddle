@@ -744,6 +744,18 @@ async def m0010_schools(db):
     await db.execute("DELETE FROM app_settings WHERE key = 'school_email_senders'")
 
 
+async def m0011_shopping_categories(db):
+    """Spec 10.8: the aisle a family corrected an item to, remembered by its
+    name (services/shopping.item_key) so next week's "Bananas" lands there
+    too. Items themselves are unchanged: their quantity lives in the title."""
+    await db.execute(
+        """CREATE TABLE IF NOT EXISTS shopping_categories (
+               item_key TEXT PRIMARY KEY,
+               category TEXT NOT NULL
+           )"""
+    )
+
+
 # Append only: see the module docstring.
 MIGRATIONS: list[Migration] = [
     Migration(1, "baseline", m0001_baseline),
@@ -756,6 +768,7 @@ MIGRATIONS: list[Migration] = [
     Migration(8, "avatars", m0008_avatars),
     Migration(9, "countdowns", m0009_countdowns),
     Migration(10, "schools", m0010_schools),
+    Migration(11, "shopping_categories", m0011_shopping_categories),
 ]
 
 

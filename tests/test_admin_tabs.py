@@ -137,6 +137,8 @@ ROUTES: dict[tuple[str, str], tuple[str, dict | str]] = {
     ("POST", "/admin/countdowns"): (TAB, {"title": "", "target_date": ""}),
     ("POST", "/admin/countdowns/{countdown_id}/delete"): (TAB, {}),
     ("POST", "/admin/countdowns/school-breaks"): (TAB, {"enabled": "true"}),
+    ("POST", "/admin/shopping/view"): (TAB, {"view": "nope"}),
+    ("POST", "/admin/shopping/order"): (TAB, {"category": "dairy", "step": "-1"}),
     ("POST", "/admin/change-pin"): (TAB, {"new_pin": "2580", "confirm_pin": "2580"}),
     ("POST", "/admin/backups/run"): (TAB, {}),
     ("POST", "/admin/sync"): (TAB, {}),

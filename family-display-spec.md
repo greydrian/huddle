@@ -560,16 +560,25 @@ alone doesn't close the gap or skip their data (see below).
     another page (X-Frame-Options/CSP), and navigating the kiosk away to the site would be a kiosk
     escape.
 
-### 10.8 Shopping list
+### 10.8 Shopping list (built)
 - **Quantities**, e.g. "Milk ×2". **Stored in the Google Tasks title as a suffix**, so phones see
   it too. Google Tasks notes only show as a truncated preview, so notes weren't chosen. Huddle
-  parses `x2`, `×2` and `2x`.
-- **Admin display options.** Choose between a **simple list** (today's) and a **grouped by
-  category/aisle** layout, e.g. fruit & veg, dairy, bakery, frozen, household.
-  - Categories are assigned automatically from a built-in word list, can be corrected per item,
-    and are remembered for next time.
-  - **The order of the groups is set in Admin**: drag the categories into the order of your usual
-    supermarket.
+  parses `x2`, `×2` and `2x` at either end ("2x milk", "Milk x 2", "Milk 2x"); the wall shows the
+  quantity as a small "×2" badge. Items added on the wall are written as "Milk ×2"; titles typed
+  on a phone are read as they are, never rewritten. Adding something already on the list adds to
+  its quantity instead of a second row ("Milk" twice is "Milk ×2"); a ticked one comes back
+  unticked.
+- **Admin display options** (Admin → Display → Shopping list). Choose between a **simple list**
+  (today's) and a **grouped by category/aisle** layout: fruit & veg, bakery, dairy & eggs, meat &
+  fish, chilled, frozen, cupboard, drinks, snacks & sweets, household, health & beauty, baby,
+  other. Ticked items sit together at the end ("In the basket").
+  - Categories are assigned automatically from a built-in word list (the phrase that ends the
+    name wins, so "orange juice" is a drink), can be corrected per item, and are remembered for
+    next time by the item's name. On the wall, tapping an item's name in the grouped view opens
+    the tablet's own list of aisles.
+  - **The order of the groups is set in Admin** with up and down buttons, into the order of your
+    usual supermarket. *Changed from "drag"*: Huddle has no drag-to-sort library, and buttons are
+    easier to hit on a touch screen.
 
 ### 10.9 Family members and avatars
 - Each person's avatar can be **a coloured initial** (today's), **an emoji**, or **a photo**,

@@ -560,6 +560,25 @@ body:has(> .dashboard-scroll) > .topbar, body:has(> .dashboard-scroll) > .banner
   background: none; border: none; border-radius: 50%;
   color: var(--ink-soft); cursor: pointer;
 }
+/* Spec 10.8: quantities and the grouped-by-aisle view. */
+.shopping-qty {
+  display: inline-block; margin-left: 4px; padding: 0 7px; border-radius: 999px;
+  background: var(--sunken); color: var(--ink); font-size: 0.9rem; font-weight: 700; text-decoration: none;
+}
+.shopping-group-name {
+  margin: 14px 0 2px; color: var(--ink-soft);
+  font-size: 0.8rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em;
+}
+.shopping-group:first-child .shopping-group-name { margin-top: 0; }
+/* The name is the aisle picker: a native select laid over the row between
+   the tick and delete buttons' hit areas, invisible and the row's full 48px,
+   so a tap on the name opens the tablet's own list. */
+.shopping-row:has(.shopping-aisle-select) { position: relative; }
+.shopping-aisle { cursor: pointer; }
+.shopping-aisle-select {
+  position: absolute; top: 0; bottom: 0; left: 42px; right: 42px; width: auto; opacity: 0; cursor: pointer;
+  font-size: 16px; appearance: none; border: 0;
+}
 .shopping-add-form { display: flex; gap: 8px; margin-top: 12px; }
 .shopping-add-form input {
   flex: 1; min-width: 0; min-height: 48px; padding: 10px 8px;
@@ -1163,6 +1182,9 @@ html:has(.admin-shell), html:has(.admin-shell) body { height: auto; overflow-y: 
 .admin-item:last-child { border-bottom: none; }
 .admin-item-label { flex: 1; min-width: 0; }
 .countdown-past .admin-item-label { color: var(--ink-soft); }
+.shopping-order { list-style: none; margin: 0; padding: 0; }
+.shopping-order-row form { display: flex; gap: 6px; }
+.shopping-order-row .btn { min-width: 48px; min-height: 48px; }
 .school-senders { display: block; overflow-wrap: anywhere; }
 .task-edit summary {
   list-style: none; display: inline-flex; min-height: 48px; padding: 8px 14px;

@@ -13,7 +13,7 @@ from app.database import get_db, set_onscreen_keyboard
 from app.routers import photos as photos_admin
 from app.routers.admin import common
 from app.routers.admin.common import admin_error, tab_context
-from app.services import banners, countdowns, layout, next_up, term_dates, weather
+from app.services import banners, countdowns, layout, next_up, shopping, term_dates, weather
 from app.widgets import WIDGETS
 
 router = APIRouter(prefix="/admin")
@@ -37,6 +37,9 @@ async def display_context(db, base: dict, extra: dict) -> dict:
         "countdown_shown": countdowns.SHOWN,
         "countdown_max_title": countdowns.MAX_TITLE,
         "countdown_break_horizon": countdowns.BREAK_HORIZON,
+        "shopping_view": await shopping.get_view(db),
+        "shopping_views": shopping.VIEWS,
+        "shopping_order": [(key, shopping.CATEGORIES[key]) for key in await shopping.get_order(db)],
         "banner_triggers": banners.TRIGGERS,
         "banner_lead_range": (banners.MIN_LEAD, banners.MAX_LEAD),
         "idle_settings": await idle.get_settings(db),
@@ -97,6 +100,25 @@ async def save_countdown_breaks(enabled: bool = Form(False)):
     async with get_db() as db:
         await countdowns.set_breaks_enabled(db, enabled)
     return RedirectResponse(url=admin_url("countdowns"), status_code=303)
+
+
+@router.post("/shopping/view", dependencies=[Depends(require_admin)])
+async def save_shopping_view(view: str = Form("")):
+    """Spec 10.8: the Shopping widget as a simple list or grouped by aisle."""
+    async with get_db() as db:
+        try:
+            await shopping.set_view(db, view)
+        except ValueError:
+            return admin_error("shopping-view")
+    return RedirectResponse(url=admin_url("shopping"), status_code=303)
+
+
+@router.post("/shopping/order", dependencies=[Depends(require_admin)])
+async def move_shopping_category(category: str = Form(""), step: int = Form(0)):
+    """One aisle up (-1) or down (+1) in the grouped view's order."""
+    async with get_db() as db:
+        await shopping.move_category(db, category, step)
+    return RedirectResponse(url=admin_url("shopping"), status_code=303)
 
 
 @router.post("/onscreen-keyboard", dependencies=[Depends(require_admin)])
