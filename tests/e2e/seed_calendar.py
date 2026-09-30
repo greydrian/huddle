@@ -30,11 +30,12 @@ CALENDARS = [
 def event(calendar, title, day, start=None, end=None, last_day=None):
     raw = {"id": "e2e" + str(abs(hash((title, day)))), "summary": title}
     if start is None:
-        raw.update(start={"date": day.isoformat()},
-                   end={"date": ((last_day or day) + timedelta(days=1)).isoformat()})
+        raw.update(start={"date": day.isoformat()}, end={"date": ((last_day or day) + timedelta(days=1)).isoformat()})
     else:
-        raw.update(start={"dateTime": f"{day.isoformat()}T{start}:00+01:00"},
-                   end={"dateTime": f"{day.isoformat()}T{end}:00+01:00"})
+        raw.update(
+            start={"dateTime": f"{day.isoformat()}T{start}:00+01:00"},
+            end={"dateTime": f"{day.isoformat()}T{end}:00+01:00"},
+        )
     formatted = google_calendar._format_event(raw)
     formatted.update(color=calendar["color"], calendar_id=calendar["id"])
     return formatted
@@ -42,28 +43,41 @@ def event(calendar, title, day, start=None, end=None, last_day=None):
 
 async def main():
     async with database.get_db() as db:
-        await google_oauth.store_tokens(db, {
-            "access_token": "tok", "refresh_token": "r", "expires_at": time.time() + 86400,
-            "scope": f"{google_oauth.CALENDAR_READ_SCOPE} {google_oauth.CALENDAR_EVENTS_SCOPE}",
-        }, ACCOUNT)
+        await google_oauth.store_tokens(
+            db,
+            {
+                "access_token": "tok",
+                "refresh_token": "r",
+                "expires_at": time.time() + 86400,
+                "scope": f"{google_oauth.CALENDAR_READ_SCOPE} {google_oauth.CALENDAR_EVENTS_SCOPE}",
+            },
+            ACCOUNT,
+        )
         await google_oauth.set_selected_calendars(db, CALENDARS)
         await calendar_prefs.set_family_calendar(db, CALENDARS[0])
         riley = (await (await db.execute("SELECT id FROM profiles WHERE name = 'Riley'")).fetchone())[0]
-        await calendar_prefs.set_people_links(db, {CALENDARS[1]["id"]: riley,
-                                                   CALENDARS[0]["id"]: calendar_prefs.EVERYONE})
+        await calendar_prefs.set_people_links(
+            db, {CALENDARS[1]["id"]: riley, CALENDARS[0]["id"]: calendar_prefs.EVERYONE}
+        )
         now = datetime.now(await database.family_timezone(db))
         today, tomorrow = now.date(), now.date() + timedelta(days=1)
         family, riley_cal = CALENDARS
         start, end = google_calendar._refresh_span(now)
-        await calendar_cache.store(db, calendar_cache.selection_key(ACCOUNT, CALENDARS), start, end, {
-            family["id"]: [
-                event(family, "Jamie: Dentist", today, "15:00", "16:00"),
-                event(family, "Bins out", today),
-                event(family, "Trip to Gran", today + timedelta(days=2), last_day=today + timedelta(days=3)),
-                *[event(family, f"Club {h}", tomorrow, f"{h:02d}:00", f"{h:02d}:45") for h in range(9, 14)],
-            ],
-            riley_cal["id"]: [event(riley_cal, "Swimming", today, "17:00", "18:00")],
-        })
+        await calendar_cache.store(
+            db,
+            calendar_cache.selection_key(ACCOUNT, CALENDARS),
+            start,
+            end,
+            {
+                family["id"]: [
+                    event(family, "Jamie: Dentist", today, "15:00", "16:00"),
+                    event(family, "Bins out", today),
+                    event(family, "Trip to Gran", today + timedelta(days=2), last_day=today + timedelta(days=3)),
+                    *[event(family, f"Club {h}", tomorrow, f"{h:02d}:00", f"{h:02d}:45") for h in range(9, 14)],
+                ],
+                riley_cal["id"]: [event(riley_cal, "Swimming", today, "17:00", "18:00")],
+            },
+        )
 
 
 if __name__ == "__main__":

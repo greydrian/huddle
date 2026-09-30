@@ -32,7 +32,8 @@ async def test_a_period_added_in_admin_shows_on_the_calendar(start_server, page)
     await form.locator("button[type=submit]").click()
     await page.wait_for_selector("#term-dates >> text=Test half term")
     assert server.query("SELECT kind, start_date, end_date, source FROM school_periods") == [
-        ("half_term", start.isoformat(), end.isoformat(), "manual")]
+        ("half_term", start.isoformat(), end.isoformat(), "manual")
+    ]
 
     await page.goto(server.url + "/")
     bar = page.locator("#widget-calendar .cal-bar.cal-school-half_term")

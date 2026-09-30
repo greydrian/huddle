@@ -20,9 +20,9 @@ def admin_client(client):
 
 
 async def _raw_token_row(db):
-    return await (await db.execute(
-        "SELECT account_email, encrypted_token_json FROM auth_tokens WHERE service_name = 'google'"
-    )).fetchone()
+    return await (
+        await db.execute("SELECT account_email, encrypted_token_json FROM auth_tokens WHERE service_name = 'google'")
+    ).fetchone()
 
 
 def _assert_bounced_to_admin(resp):
@@ -44,9 +44,14 @@ async def test_connect_sets_a_state_cookie_matching_the_auth_url(admin_client):
 
 
 async def test_success_exchanges_code_and_stores_encrypted_tokens(admin_client, db, google):
-    token_route = google.post(TOKEN_URL).respond(200, json={
-        "access_token": "fresh-access", "refresh_token": "fresh-refresh", "expires_in": 3599,
-    })
+    token_route = google.post(TOKEN_URL).respond(
+        200,
+        json={
+            "access_token": "fresh-access",
+            "refresh_token": "fresh-refresh",
+            "expires_in": 3599,
+        },
+    )
     google.get(USERINFO_URL).respond(200, json={"email": "family@example.com"})
     admin_client.cookies.set(calendar.STATE_COOKIE, "the-state")
 
@@ -69,13 +74,16 @@ async def test_success_exchanges_code_and_stores_encrypted_tokens(admin_client, 
     assert await google_oauth.get_valid_access_token(db) == "fresh-access"
 
 
-@pytest.mark.parametrize("params, state_cookie", [
-    ({"code": "auth-code", "state": "attacker-state"}, "the-state"),  # mismatched
-    ({"code": "auth-code"}, "the-state"),                             # missing state param
-    ({"code": "auth-code", "state": "the-state"}, None),              # no state cookie
-    ({"state": "the-state"}, "the-state"),                            # missing code
-    ({"error": "access_denied", "state": "the-state"}, "the-state"),  # consent denied
-])
+@pytest.mark.parametrize(
+    "params, state_cookie",
+    [
+        ({"code": "auth-code", "state": "attacker-state"}, "the-state"),  # mismatched
+        ({"code": "auth-code"}, "the-state"),  # missing state param
+        ({"code": "auth-code", "state": "the-state"}, None),  # no state cookie
+        ({"state": "the-state"}, "the-state"),  # missing code
+        ({"error": "access_denied", "state": "the-state"}, "the-state"),  # consent denied
+    ],
+)
 async def test_bad_callbacks_are_refused_without_calling_google(admin_client, db, google, params, state_cookie):
     token_route = google.post(TOKEN_URL).respond(200, json={"access_token": "x"})
     if state_cookie:
@@ -88,11 +96,14 @@ async def test_bad_callbacks_are_refused_without_calling_google(admin_client, db
     assert await _raw_token_row(db) is None
 
 
-@pytest.mark.parametrize("token_response", [
-    httpx.Response(400, json={"error": "invalid_grant"}),
-    httpx.Response(500),
-    httpx.ConnectError("offline"),
-])
+@pytest.mark.parametrize(
+    "token_response",
+    [
+        httpx.Response(400, json={"error": "invalid_grant"}),
+        httpx.Response(500),
+        httpx.ConnectError("offline"),
+    ],
+)
 async def test_token_endpoint_failure_does_not_500(admin_client, db, google, token_response):
     route = google.post(TOKEN_URL)
     if isinstance(token_response, Exception):

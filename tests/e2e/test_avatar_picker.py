@@ -22,8 +22,12 @@ async def test_set_an_emoji_and_a_photo_and_see_them_on_the_wall(start_server, p
     await riley.locator(".avatar-edit summary").click()
     await riley.locator("button.emoji-choice", has_text="🦖").click()
     # Back on Admin (the Avatar panel closed again), with the dinosaur picked.
-    await page.wait_for_selector(".family-row:has-text('Riley') button.emoji-choice[aria-pressed=true]", state="attached")
-    assert await page.locator(".family-row", has_text="Riley").locator(".admin-person .avatar-emoji").inner_text() == "🦖"
+    await page.wait_for_selector(
+        ".family-row:has-text('Riley') button.emoji-choice[aria-pressed=true]", state="attached"
+    )
+    assert (
+        await page.locator(".family-row", has_text="Riley").locator(".admin-person .avatar-emoji").inner_text() == "🦖"
+    )
 
     mum = page.locator(".family-row", has_text="Mum")
     await mum.locator(".avatar-edit summary").click()

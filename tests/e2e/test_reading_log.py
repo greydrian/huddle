@@ -23,10 +23,14 @@ def _readers(server):
 async def test_tick_reading_by_touch(start_server, page, mode):
     server = start_server()
     _readers(server)
-    server.query("INSERT INTO homework (profile_id, subject, subject_key, title) "
-                 "VALUES (3, 'Spellings', 'english', 'Week 4')")
-    server.query("INSERT INTO app_settings (key, value) VALUES ('appearance', ?) "
-                 "ON CONFLICT(key) DO UPDATE SET value = excluded.value", ("light" if mode == "day" else "dark",))
+    server.query(
+        "INSERT INTO homework (profile_id, subject, subject_key, title) VALUES (3, 'Spellings', 'english', 'Week 4')"
+    )
+    server.query(
+        "INSERT INTO app_settings (key, value) VALUES ('appearance', ?) "
+        "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        ("light" if mode == "day" else "dark",),
+    )
     layout = _layout(server)
     await page.goto(server.url + "/")
     assert await page.get_attribute("html", "data-mode") == mode
@@ -51,7 +55,9 @@ async def test_homework_shows_below_the_reading_row_at_the_default_size(start_se
     server = start_server()
     _readers(server)
     server.query("INSERT INTO homework (profile_id, subject, subject_key, title) VALUES (3, 'Maths', 'maths', 'Sheet')")
-    server.query("INSERT INTO homework (profile_id, subject, subject_key, title) VALUES (4, 'Topic', 'topic', 'Poster')")
+    server.query(
+        "INSERT INTO homework (profile_id, subject, subject_key, title) VALUES (4, 'Topic', 'topic', 'Poster')"
+    )
     await page.goto(server.url + "/")
     await page.wait_for_selector("#widget-homework .rd-tick")
     await page.locator("#widget-homework").scroll_into_view_if_needed()

@@ -38,6 +38,7 @@ class ValidationError(ValueError):
 
 # --- Validation helpers (used by the Admin routes) ---
 
+
 def clean_text(value: str | None, field: str, max_length: int, required: bool = False) -> str:
     value = (value or "").strip()
     if required and not value:
@@ -60,7 +61,7 @@ def parse_optional_date(value: str | None, field: str) -> str | None:
 async def parse_profile_id(db, value) -> int:
     try:
         profile_id = int(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         raise ValidationError("Choose a family member.") from None
     if not await (await db.execute("SELECT 1 FROM profiles WHERE id = ?", (profile_id,))).fetchone():
         raise ValidationError("That family member no longer exists.")
@@ -142,17 +143,54 @@ OTHER = "other"
 LANGUAGE_WORDS = ("french", "spanish", "german", "mfl", "languages", "modern foreign languages")
 SUBJECT_SYNONYMS = {
     "maths": (
-        "maths", "math", "mathematics", "numeracy", "number", "numbers", "number bonds", "times tables",
-        "times table", "arithmetic", "mental maths", "fractions", "sumdog", "mathletics",
-        "numbots", "tt rockstars", "ttrockstars", "ttrs", "times tables rock stars",
+        "maths",
+        "math",
+        "mathematics",
+        "numeracy",
+        "number",
+        "numbers",
+        "number bonds",
+        "times tables",
+        "times table",
+        "arithmetic",
+        "mental maths",
+        "fractions",
+        "sumdog",
+        "mathletics",
+        "numbots",
+        "tt rockstars",
+        "ttrockstars",
+        "ttrs",
+        "times tables rock stars",
     ),
     "english": (
-        "english", "spelling", "spellings", "phonics", "grammar", "spag", "gps", "punctuation",
-        "writing", "handwriting", "literacy", "vocabulary", "creative writing", "read write inc", "rwi",
+        "english",
+        "spelling",
+        "spellings",
+        "phonics",
+        "grammar",
+        "spag",
+        "gps",
+        "punctuation",
+        "writing",
+        "handwriting",
+        "literacy",
+        "vocabulary",
+        "creative writing",
+        "read write inc",
+        "rwi",
     ),
     "reading": (
-        "reading", "reader", "library", "reading book", "reading record",
-        "guided reading", "comprehension", "reading comprehension", "bug club", "oxford owl",
+        "reading",
+        "reader",
+        "library",
+        "reading book",
+        "reading record",
+        "guided reading",
+        "comprehension",
+        "reading comprehension",
+        "bug club",
+        "oxford owl",
     ),
     "science": ("science", "biology", "chemistry", "physics", "experiment", "investigation"),
     "topic": ("topic", "project", "history", "geography", "humanities", "topic work"),
@@ -200,6 +238,7 @@ def subject_info(key: str | None, subject: str | None = None) -> dict:
 
 # --- Homework ---
 
+
 def due_label(due: date | None, today: date) -> str | None:
     if due is None:
         return None
@@ -232,13 +271,18 @@ def is_visible(item: dict, today: date) -> bool:
 
 async def get_homework_groups(db) -> list[dict]:
     today = await family_today(db)
-    profiles = [avatars.attach(dict(r)) for r in await (await db.execute(
-        f"SELECT id, name, colour_hex, {avatars.COLUMNS} FROM profiles ORDER BY sort_order"
-    )).fetchall()]
-    rows = await (await db.execute(
-        """SELECT * FROM homework WHERE archived = 0
+    profiles = [
+        avatars.attach(dict(r))
+        for r in await (
+            await db.execute(f"SELECT id, name, colour_hex, {avatars.COLUMNS} FROM profiles ORDER BY sort_order")
+        ).fetchall()
+    ]
+    rows = await (
+        await db.execute(
+            """SELECT * FROM homework WHERE archived = 0
            ORDER BY due_date IS NULL, due_date, created_at, id"""
-    )).fetchall()
+        )
+    ).fetchall()
     items = []
     for row in rows:
         item = dict(row)
@@ -267,13 +311,15 @@ async def toggle_homework(db, homework_id: int) -> bool:
     now = datetime.now(await family_timezone(db)).isoformat(timespec="seconds")
     # Flip in one statement and record what it became, so two racing taps
     # each log the state they actually left (never two "done"s).
-    flipped = await (await db.execute(
-        """UPDATE homework SET done = 1 - done,
+    flipped = await (
+        await db.execute(
+            """UPDATE homework SET done = 1 - done,
                done_at = CASE WHEN done = 0 THEN ? END,
                updated_at = datetime('now')
            WHERE id = ? RETURNING done""",
-        (now, homework_id),
-    )).fetchone()
+            (now, homework_id),
+        )
+    ).fetchone()
     if flipped is None:  # deleted in between
         await db.rollback()
         return False
@@ -286,7 +332,7 @@ async def toggle_homework(db, homework_id: int) -> bool:
 
 
 def event_time_label(at: str | None) -> str:
-    """"Tue 16:40" for a family-tz ISO timestamp. Its own offset is kept (no
+    """ "Tue 16:40" for a family-tz ISO timestamp. Its own offset is kept (no
     astimezone), so it reads in the family's time whatever the container's."""
     if not at:
         return ""
@@ -300,14 +346,16 @@ def event_time_label(at: str | None) -> str:
 async def get_recent_homework_events(db, limit: int = 20) -> list[dict]:
     """Admin's "Recently ticked" list, newest first. A deleted homework's
     events go with it (ON DELETE CASCADE)."""
-    rows = await (await db.execute(
-        """SELECT e.done, e.at, h.subject, h.subject_key, h.title, p.name AS profile_name
+    rows = await (
+        await db.execute(
+            """SELECT e.done, e.at, h.subject, h.subject_key, h.title, p.name AS profile_name
            FROM homework_events e
            JOIN homework h ON h.id = e.homework_id
            JOIN profiles p ON p.id = h.profile_id
            ORDER BY e.id DESC LIMIT ?  -- insertion order: ISO text with mixed offsets (DST) sorts wrong""",
-        (limit,),
-    )).fetchall()
+            (limit,),
+        )
+    ).fetchall()
     events = []
     for row in rows:
         event = dict(row)
@@ -323,11 +371,13 @@ async def get_admin_homework(db, today: date) -> tuple[list[dict], list[dict]]:
     grow all term."""
     homework_items: list[dict] = []
     finished_homework: list[dict] = []
-    for row in await (await db.execute(
-        "SELECT homework.*, profiles.name AS profile_name FROM homework "
-        "JOIN profiles ON profiles.id = homework.profile_id "
-        "ORDER BY homework.done, homework.due_date IS NULL, homework.due_date, homework.id"
-    )).fetchall():
+    for row in await (
+        await db.execute(
+            "SELECT homework.*, profiles.name AS profile_name FROM homework "
+            "JOIN profiles ON profiles.id = homework.profile_id "
+            "ORDER BY homework.done, homework.due_date IS NULL, homework.due_date, homework.id"
+        )
+    ).fetchall():
         item = dict(row)
         item["subj"] = subject_info(item["subject_key"], item["subject"])
         # The edit form's subject select shows "Match the subject" unless the
@@ -362,16 +412,22 @@ _READER = "is_parent = 0 AND TRIM(COALESCE(school_year, '')) != ''"
 
 
 async def _children(db) -> list[dict]:
-    return [avatars.attach(dict(r)) for r in await (await db.execute(
-        f"SELECT id, name, colour_hex, {avatars.COLUMNS} FROM profiles WHERE {_READER} ORDER BY sort_order, id"
-    )).fetchall()]
+    return [
+        avatars.attach(dict(r))
+        for r in await (
+            await db.execute(
+                f"SELECT id, name, colour_hex, {avatars.COLUMNS} FROM profiles WHERE {_READER} ORDER BY sort_order, id"
+            )
+        ).fetchall()
+    ]
 
 
 async def get_reading_today(db) -> list[dict]:
     today = (await family_today(db)).isoformat()
-    read = {r[0] for r in await (await db.execute(
-        "SELECT profile_id FROM reading_log WHERE read_on = ?", (today,)
-    )).fetchall()}
+    read = {
+        r[0]
+        for r in await (await db.execute("SELECT profile_id FROM reading_log WHERE read_on = ?", (today,))).fetchall()
+    }
     children = await _children(db)
     for child in children:
         child["read_today"] = child["id"] in read
@@ -401,47 +457,60 @@ async def get_reading_history(db, today: date, weeks: int = READING_WEEKS) -> di
     start = today - timedelta(days=today.weekday() + 7 * (weeks - 1))
     days = [start + timedelta(days=n) for n in range(7 * weeks)]
     school = {d: await term_dates.is_school_day(db, d) for d in days}
-    read = {(r[0], r[1]) for r in await (await db.execute(
-        "SELECT profile_id, read_on FROM reading_log WHERE read_on BETWEEN ? AND ?",
-        (days[0].isoformat(), days[-1].isoformat()),
-    )).fetchall()}
+    read = {
+        (r[0], r[1])
+        for r in await (
+            await db.execute(
+                "SELECT profile_id, read_on FROM reading_log WHERE read_on BETWEEN ? AND ?",
+                (days[0].isoformat(), days[-1].isoformat()),
+            )
+        ).fetchall()
+    }
     children = await _children(db)
     for child in children:
-        cells = [{
-            "date": d.isoformat(),
-            "day": d.day,
-            "label": f"{d.strftime('%a')} {d.day} {d.strftime('%b')}",
-            "read": (child["id"], d.isoformat()) in read,
-            "future": d > today,
-            "today": d == today,
-            "school_day": school[d],
-        } for d in days]
-        child["weeks"] = [cells[i:i + 7] for i in range(0, len(cells), 7)]
+        cells = [
+            {
+                "date": d.isoformat(),
+                "day": d.day,
+                "label": f"{d.strftime('%a')} {d.day} {d.strftime('%b')}",
+                "read": (child["id"], d.isoformat()) in read,
+                "future": d > today,
+                "today": d == today,
+                "school_day": school[d],
+            }
+            for d in days
+        ]
+        child["weeks"] = [cells[i : i + 7] for i in range(0, len(cells), 7)]
     return {"weekdays": WEEKDAY_NAMES, "children": children}
 
 
 # --- Practice words ---
 
+
 def is_active(word_list: dict, today: date) -> bool:
     """Whether a word list belongs on the widget: not archived, and today
     within its (optionally open-ended) date range."""
     day = today.isoformat()
-    return not word_list["archived"] and (not word_list["starts_on"] or word_list["starts_on"] <= day) and (
-        not word_list["ends_on"] or day <= word_list["ends_on"]
+    return (
+        not word_list["archived"]
+        and (not word_list["starts_on"] or word_list["starts_on"] <= day)
+        and (not word_list["ends_on"] or day <= word_list["ends_on"])
     )
 
 
 async def get_practice_lists(db) -> list[dict]:
     today = await family_today(db)
-    rows = await (await db.execute(
-        f"""SELECT l.*, p.name AS profile_name, p.colour_hex, {avatars.columns("p")},
+    rows = await (
+        await db.execute(
+            f"""SELECT l.*, p.name AS profile_name, p.colour_hex, {avatars.columns("p")},
                   EXISTS (SELECT 1 FROM practice_log g WHERE g.list_id = l.id AND g.practised_on = ?)
                       AS practised_today
            FROM practice_word_lists l JOIN profiles p ON p.id = l.profile_id
            WHERE l.archived = 0
            ORDER BY p.sort_order, l.created_at, l.id""",
-        (today.isoformat(),),
-    )).fetchall()
+            (today.isoformat(),),
+        )
+    ).fetchall()
     lists = []
     for row in rows:
         word_list = dict(row)
@@ -468,20 +537,21 @@ async def toggle_practised(db, list_id: int) -> bool:
     if row is None or not is_active(dict(row), today):
         return False
     today_iso = today.isoformat()
-    deleted = await db.execute(
-        "DELETE FROM practice_log WHERE list_id = ? AND practised_on = ?", (list_id, today_iso)
-    )
+    deleted = await db.execute("DELETE FROM practice_log WHERE list_id = ? AND practised_on = ?", (list_id, today_iso))
     if deleted.rowcount == 0:
-        await db.execute(
-            "INSERT INTO practice_log (list_id, practised_on) VALUES (?, ?)", (list_id, today_iso)
-        )
+        await db.execute("INSERT INTO practice_log (list_id, practised_on) VALUES (?, ?)", (list_id, today_iso))
     await db.commit()
     return True
 
 
 async def get_admin_word_lists(db) -> list[dict]:
-    return [dict(r) for r in await (await db.execute(
-        "SELECT practice_word_lists.*, profiles.name AS profile_name FROM practice_word_lists "
-        "JOIN profiles ON profiles.id = practice_word_lists.profile_id "
-        "ORDER BY practice_word_lists.archived, profiles.sort_order, practice_word_lists.id"
-    )).fetchall()]
+    return [
+        dict(r)
+        for r in await (
+            await db.execute(
+                "SELECT practice_word_lists.*, profiles.name AS profile_name FROM practice_word_lists "
+                "JOIN profiles ON profiles.id = practice_word_lists.profile_id "
+                "ORDER BY practice_word_lists.archived, profiles.sort_order, practice_word_lists.id"
+            )
+        ).fetchall()
+    ]

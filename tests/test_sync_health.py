@@ -52,6 +52,7 @@ def _warnings(caplog):
 
 # --- Recording ---------------------------------------------------------------
 
+
 async def test_a_clean_cycle_records_success(db, connected, google):
     await _queue_delete(db)
     google.delete(f"{TASKS_API}/shop/tasks/g1").respond(204)
@@ -113,9 +114,11 @@ async def test_a_revoked_grant_shows_as_disconnected(db, google):
 
 # --- Failures that aren't Google's ---------------------------------------------
 
+
 async def test_an_unexpected_error_in_a_cycle_is_recorded_not_raised(db, connected, monkeypatch, caplog):
     async def broken_reconcile(db, token):
         raise KeyError("updated")
+
     monkeypatch.setattr(task_sync, "reconcile_shopping", broken_reconcile)
 
     with caplog.at_level(logging.WARNING, logger="app.task_sync"):
@@ -136,6 +139,7 @@ async def test_an_unexpected_error_in_a_cycle_is_recorded_not_raised(db, connect
 async def test_a_failing_status_write_does_not_fail_the_cycle(client, db, connected, google, monkeypatch, caplog):
     async def locked(*args, **kwargs):
         raise sqlite3.OperationalError("database is locked")
+
     monkeypatch.setattr(sync_status, "record_success", locked)
     monkeypatch.setattr(sync_status, "record_failure", locked)
     _mock_admin_pickers(google)
@@ -156,6 +160,7 @@ async def test_a_failing_status_write_does_not_fail_the_cycle(client, db, connec
 async def test_the_lock_is_released_when_a_cycle_is_cancelled(db, connected, monkeypatch):
     async def cancelled(db):
         raise asyncio.CancelledError
+
     monkeypatch.setattr(google_oauth, "get_valid_access_token", cancelled)
 
     with pytest.raises(asyncio.CancelledError):
@@ -166,15 +171,23 @@ async def test_the_lock_is_released_when_a_cycle_is_cancelled(db, connected, mon
 
 # --- 403 reasons ------------------------------------------------------------------
 
-RATE_LIMIT_403 = {"error": {
-    "code": 403, "status": "PERMISSION_DENIED", "message": "Rate Limit Exceeded",
-    "errors": [{"reason": "userRateLimitExceeded", "domain": "usageLimits"}],
-}}
-SCOPE_403 = {"error": {
-    "code": 403, "status": "PERMISSION_DENIED", "message": "Request had insufficient authentication scopes.",
-    "errors": [{"reason": "insufficientPermissions"}],
-    "details": [{"reason": "ACCESS_TOKEN_SCOPE_INSUFFICIENT"}],
-}}
+RATE_LIMIT_403 = {
+    "error": {
+        "code": 403,
+        "status": "PERMISSION_DENIED",
+        "message": "Rate Limit Exceeded",
+        "errors": [{"reason": "userRateLimitExceeded", "domain": "usageLimits"}],
+    }
+}
+SCOPE_403 = {
+    "error": {
+        "code": 403,
+        "status": "PERMISSION_DENIED",
+        "message": "Request had insufficient authentication scopes.",
+        "errors": [{"reason": "insufficientPermissions"}],
+        "details": [{"reason": "ACCESS_TOKEN_SCOPE_INSUFFICIENT"}],
+    }
+}
 
 
 def _status_error(status, body=None):
@@ -219,6 +232,7 @@ async def test_scope_403s_need_attention(db, connected, google):
 
 # --- Reconnect / disconnect ---------------------------------------------------------
 
+
 async def _needs_attention(db):
     for _ in range(sync_status.ATTENTION_AFTER):
         await sync_status.record_failure(db, _status_error(403))
@@ -227,9 +241,14 @@ async def _needs_attention(db):
 
 async def test_reconnecting_clears_needs_attention(client, db, connected, google):
     await _needs_attention(db)
-    google.post(google_oauth.TOKEN_ENDPOINT).respond(200, json={
-        "access_token": "fresh-access", "refresh_token": "fresh-refresh", "expires_in": 3599,
-    })
+    google.post(google_oauth.TOKEN_ENDPOINT).respond(
+        200,
+        json={
+            "access_token": "fresh-access",
+            "refresh_token": "fresh-refresh",
+            "expires_in": 3599,
+        },
+    )
     google.get(google_oauth.USERINFO_ENDPOINT).respond(200, json={"email": "family@example.com"})
     await _login(client)
     client.cookies.set(calendar.STATE_COOKIE, "the-state")
@@ -270,9 +289,7 @@ async def test_stored_status_never_holds_tokens_or_urls(db, google):
         db, {"access_token": ACCESS, "refresh_token": REFRESH, "expires_at": time.time() + 3600}, "f@example.com"
     )
     await _queue_delete(db)
-    google.delete(f"{TASKS_API}/shop/tasks/g1").respond(
-        403, json={"error": {"message": f"bad token {ACCESS}"}}
-    )
+    google.delete(f"{TASKS_API}/shop/tasks/g1").respond(403, json={"error": {"message": f"bad token {ACCESS}"}})
 
     await task_sync.run_sync(db)
 
@@ -286,6 +303,7 @@ async def test_stored_status_never_holds_tokens_or_urls(db, google):
 
 
 # --- Persistent 401/403 -> needs attention -------------------------------------
+
 
 async def test_a_persistent_403_needs_attention_after_n_cycles_and_recovers(db, connected, google, caplog):
     await _queue_delete(db)
@@ -360,6 +378,7 @@ async def test_a_429_is_never_needs_attention(db, connected, google):
 
 # --- Summary states --------------------------------------------------------------
 
+
 async def test_long_failure_turns_amber_after_the_grace_period(db, connected):
     start = datetime.now(timezone.utc) - timedelta(minutes=7)
     await sync_status.record_success(db, now=start - timedelta(minutes=1))
@@ -409,10 +428,11 @@ async def test_ago_wording():
 
 # --- Dashboard dot -----------------------------------------------------------------
 
+
 async def test_dashboard_loads_the_dot_in_the_top_bar_outside_any_widget(client):
     html = (await client.get("/")).text
-    topbar = html[html.index('class="topbar"'):html.index('id="dashboard-scroll"')]
-    actions = topbar[topbar.index('class="topbar-actions"'):]
+    topbar = html[html.index('class="topbar"') : html.index('id="dashboard-scroll"')]
+    actions = topbar[topbar.index('class="topbar-actions"') :]
     assert 'id="sync-dot"' in actions and 'hx-get="/sync-status"' in actions and 'href="/admin"' in actions
     assert html.count('id="sync-dot"') == 1
 
@@ -441,8 +461,12 @@ async def test_dot_is_amber_when_failing_for_a_while(client, db, connected):
 
 async def test_dot_is_red_when_needing_attention(client, db, connected):
     for _ in range(sync_status.ATTENTION_AFTER):
-        await sync_status.record_failure(db, httpx.HTTPStatusError(
-            "x", request=httpx.Request("GET", "https://example.test"), response=httpx.Response(403)))
+        await sync_status.record_failure(
+            db,
+            httpx.HTTPStatusError(
+                "x", request=httpx.Request("GET", "https://example.test"), response=httpx.Response(403)
+            ),
+        )
     html = (await client.get("/sync-status")).text
     assert "sync-dot-red" in html and "Needs attention" in html and 'href="/admin?tab=google#sync"' in html
 
@@ -467,13 +491,14 @@ async def test_dot_is_hidden_when_google_is_not_set_up(client, monkeypatch):
 
 # --- Admin panel + Sync now ---------------------------------------------------------
 
+
 async def test_admin_sync_panel_renders_in_family_time(client, db, connected, google):
     _mock_admin_pickers(google)
     # 11:05 UTC is 12:05 in Europe/London (BST), the test family's timezone.
     await sync_status.record_success(db, now=datetime(2026, 9, 28, 11, 5, tzinfo=timezone.utc))
     await _login(client)
     html = (await client.get("/admin?tab=google")).text
-    panel = html[html.index('id="sync"'):html.index("<!-- end of tab -->")]
+    panel = html[html.index('id="sync"') : html.index("<!-- end of tab -->")]
     assert "<h2>Sync</h2>" in panel
     assert "Last successful sync" in panel and "12:05" in panel
     assert "Waiting to sync" in panel and "0 changes" in panel
@@ -522,6 +547,7 @@ async def test_admin_ignores_unknown_sync_messages(client, db):
 
 # --- /health ------------------------------------------------------------------------
 
+
 async def test_health_stays_200_with_google_down(client, db, connected, google):
     await _queue_delete(db)
     google.delete(f"{TASKS_API}/shop/tasks/g1").mock(side_effect=httpx.ConnectError("offline"))
@@ -541,8 +567,12 @@ async def test_health_stays_200_with_google_down(client, db, connected, google):
 
 async def test_health_stays_200_when_sync_needs_attention(client, db, connected):
     for _ in range(sync_status.ATTENTION_AFTER):
-        await sync_status.record_failure(db, httpx.HTTPStatusError(
-            "x", request=httpx.Request("GET", "https://example.test"), response=httpx.Response(403)))
+        await sync_status.record_failure(
+            db,
+            httpx.HTTPStatusError(
+                "x", request=httpx.Request("GET", "https://example.test"), response=httpx.Response(403)
+            ),
+        )
     resp = await client.get("/health")
     assert resp.status_code == 200 and resp.json()["sync"]["state"] == "attention"
 
@@ -555,6 +585,7 @@ async def test_health_is_503_when_the_database_cannot_be_opened(client, monkeypa
 
 
 # --- Migration ------------------------------------------------------------------------
+
 
 async def test_migration_is_idempotent_and_keeps_status(db, connected):
     await sync_status.record_success(db)

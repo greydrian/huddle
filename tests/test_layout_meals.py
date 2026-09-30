@@ -7,9 +7,11 @@ from app import database
 
 
 async def _layout(db):
-    rows = await (await db.execute(
-        "SELECT widget_id, grid_x, grid_y, grid_w, grid_h, is_visible FROM layout_state ORDER BY widget_id"
-    )).fetchall()
+    rows = await (
+        await db.execute(
+            "SELECT widget_id, grid_x, grid_y, grid_w, grid_h, is_visible FROM layout_state ORDER BY widget_id"
+        )
+    ).fetchall()
     return [tuple(row) for row in rows]
 
 
@@ -29,7 +31,12 @@ async def test_layout_save_round_trip(client, db):
     assert resp.json() == {"status": "ok", "saved": 2, "skipped": 0}
 
     rows = {r["widget_id"]: r for r in await (await db.execute("SELECT * FROM layout_state")).fetchall()}
-    assert (rows["tasks"]["grid_x"], rows["tasks"]["grid_y"], rows["tasks"]["grid_w"], rows["tasks"]["grid_h"]) == (1, 9, 5, 3)
+    assert (rows["tasks"]["grid_x"], rows["tasks"]["grid_y"], rows["tasks"]["grid_w"], rows["tasks"]["grid_h"]) == (
+        1,
+        9,
+        5,
+        3,
+    )
     assert (rows["meals"]["grid_x"], rows["meals"]["grid_w"]) == (10, 2)
 
 
@@ -38,8 +45,14 @@ async def test_layout_accepts_real_seeded_rows(client, db):
     drag would silently fail to save."""
     rows = await (await db.execute("SELECT * FROM layout_state WHERE is_visible = 1")).fetchall()
     items = [
-        {"id": r["widget_id"], "x": r["grid_x"], "y": r["grid_y"], "w": r["grid_w"], "h": r["grid_h"],
-         "extra": "ignored"}
+        {
+            "id": r["widget_id"],
+            "x": r["grid_x"],
+            "y": r["grid_y"],
+            "w": r["grid_w"],
+            "h": r["grid_h"],
+            "extra": "ignored",
+        }
         for r in rows
     ]
     before = await _layout(db)

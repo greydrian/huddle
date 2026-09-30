@@ -35,8 +35,10 @@ def admin_client(client):
 
 def freeze(monkeypatch, day: date, at: time = time(9, 0)):
     """The family's date and wall clock."""
+
     async def fake_today(_db):
         return day
+
     monkeypatch.setattr(tasks, "family_today", fake_today)
     monkeypatch.setattr(tasks, "_clock", lambda tz: datetime.combine(day, at, tzinfo=tz))
 
@@ -66,8 +68,9 @@ async def _queue(db):
 
 
 def _row(html, title):
-    return re.search(r'<div class="task-row[^"]*">(?:(?!<div class="task-row).)*?' + re.escape(title) + r".*?</div>",
-                     html, re.S).group(0)
+    return re.search(
+        r'<div class="task-row[^"]*">(?:(?!<div class="task-row).)*?' + re.escape(title) + r".*?</div>", html, re.S
+    ).group(0)
 
 
 def _add_form_tag(html):
@@ -76,11 +79,14 @@ def _add_form_tag(html):
 
 def _sections(html):
     """[(data-group, is-current)] in page order."""
-    return [(m.group(2), "is-current" in m.group(1))
-            for m in re.finditer(r'<section class="task-section([^"]*)"\s+data-group="([^"]+)"', html)]
+    return [
+        (m.group(2), "is-current" in m.group(1))
+        for m in re.finditer(r'<section class="task-section([^"]*)"\s+data-group="([^"]+)"', html)
+    ]
 
 
 # --- 1. Local-only marker ---
+
 
 async def test_local_only_marker_only_on_unlinked_people(db, client):
     linked, local = await _pid(db, 0), await _pid(db, 1)
@@ -95,6 +101,7 @@ async def test_local_only_marker_only_on_unlinked_people(db, client):
 
 
 # --- 2. Quick add ---
+
 
 async def test_quick_add_for_a_linked_person_queues_one_sync(db, client):
     pid = await _pid(db)
@@ -121,15 +128,18 @@ async def test_quick_add_for_an_unlinked_person_stays_local(db, client):
     assert 'aria-label="On this display only"' in _row(resp.text, "Feed fish")
 
 
-@pytest.mark.parametrize(("data", "message"), [
-    ({"title": ""}, "Give the task a name"),
-    ({"title": "   "}, "Give the task a name"),
-    ({"title": "x" * 201}, "Give the task a name"),
-    ({"title": "Ok", "profile_id": "999"}, "Choose who the task is for"),
-    ({"title": "Ok", "profile_id": "abc"}, "Choose who the task is for"),
-    ({"title": "Ok", "profile_id": ""}, "Choose who the task is for"),
-    ({"title": "Ok", "time_of_day": "midnight"}, "Choose a time of day"),
-])
+@pytest.mark.parametrize(
+    ("data", "message"),
+    [
+        ({"title": ""}, "Give the task a name"),
+        ({"title": "   "}, "Give the task a name"),
+        ({"title": "x" * 201}, "Give the task a name"),
+        ({"title": "Ok", "profile_id": "999"}, "Choose who the task is for"),
+        ({"title": "Ok", "profile_id": "abc"}, "Choose who the task is for"),
+        ({"title": "Ok", "profile_id": ""}, "Choose who the task is for"),
+        ({"title": "Ok", "time_of_day": "midnight"}, "Choose a time of day"),
+    ],
+)
 async def test_quick_add_validation(db, client, data, message):
     pid = await _pid(db)
     resp = await client.post("/api/tasks", data={"profile_id": pid, **data})
@@ -188,6 +198,7 @@ async def test_failed_insert_gives_the_rate_limit_slot_back(db, monkeypatch):
 
     async def broken_today(_db):
         raise RuntimeError("boom")
+
     monkeypatch.setattr(tasks, "family_today", broken_today)
     with pytest.raises(RuntimeError):
         await tasks.quick_add(db, pid, "Nope")
@@ -195,8 +206,9 @@ async def test_failed_insert_gives_the_rate_limit_slot_back(db, monkeypatch):
 
 
 async def test_quick_add_refuses_a_foreign_origin(db, client):
-    resp = await client.post("/api/tasks", data={"profile_id": await _pid(db), "title": "X"},
-                             headers={"Origin": "https://evil.example"})
+    resp = await client.post(
+        "/api/tasks", data={"profile_id": await _pid(db), "title": "X"}, headers={"Origin": "https://evil.example"}
+    )
     assert resp.status_code == 403
     assert (await (await db.execute("SELECT COUNT(*) FROM tasks")).fetchone())[0] == 0
 
@@ -205,9 +217,14 @@ async def test_quick_added_task_syncs_exactly_once(db, connected, client, google
     pid = await _pid(db)
     await _link(db, pid)
     insert = google.post(f"{TASKS_API}/kids/tasks").respond(200, json={"id": "g-plants"})
-    google.get(f"{TASKS_API}/kids/tasks").respond(200, json={"items": [
-        {"id": "g-plants", "title": "Water plants", "status": "needsAction", "updated": "2020-01-01T00:00:00Z"},
-    ]})
+    google.get(f"{TASKS_API}/kids/tasks").respond(
+        200,
+        json={
+            "items": [
+                {"id": "g-plants", "title": "Water plants", "status": "needsAction", "updated": "2020-01-01T00:00:00Z"},
+            ]
+        },
+    )
 
     await client.post("/api/tasks", data={"profile_id": pid, "title": "Water plants", "time_of_day": "morning"})
     await task_sync.run_sync(db)
@@ -222,11 +239,18 @@ async def test_quick_added_task_syncs_exactly_once(db, connected, client, google
 
 # --- 3. Time-of-day groups ---
 
-@pytest.mark.parametrize(("at", "group"), [
-    (time(0, 0), "morning"), (time(11, 59), "morning"),
-    (time(12, 0), "after_school"), (time(17, 59), "after_school"),
-    (time(18, 0), "evening"), (time(23, 59), "evening"),
-])
+
+@pytest.mark.parametrize(
+    ("at", "group"),
+    [
+        (time(0, 0), "morning"),
+        (time(11, 59), "morning"),
+        (time(12, 0), "after_school"),
+        (time(17, 59), "after_school"),
+        (time(18, 0), "evening"),
+        (time(23, 59), "evening"),
+    ],
+)
 def test_group_boundaries_default(at, group):
     assert tasks.group_at(at, ("12:00", "18:00")) == group
 
@@ -239,11 +263,14 @@ async def _grouped(db):
     await _add(db, other, "Tidy room")
 
 
-@pytest.mark.parametrize(("at", "order"), [
-    (time(7, 0), ["morning", "any", "after_school", "evening"]),
-    (time(12, 0), ["after_school", "morning", "any", "evening"]),
-    (time(18, 0), ["evening", "morning", "after_school", "any"]),
-])
+@pytest.mark.parametrize(
+    ("at", "order"),
+    [
+        (time(7, 0), ["morning", "any", "after_school", "evening"]),
+        (time(12, 0), ["after_school", "morning", "any", "evening"]),
+        (time(18, 0), ["evening", "morning", "after_school", "any"]),
+    ],
+)
 async def test_current_group_first_and_highlighted(db, client, monkeypatch, at, order):
     await _grouped(db)
     freeze(monkeypatch, date(2026, 9, 29), at)
@@ -267,17 +294,20 @@ async def test_highlight_moves_at_the_boundary_via_the_rev_hash(db, client, monk
     assert _sections((await client.get("/widgets/tasks")).text)[0] == ("after_school", True)
 
 
-@pytest.mark.parametrize(("utc", "group"), [
-    # Last Sunday of October 2026: London is back on GMT (UTC+0) from 01:00 UTC.
-    (datetime(2026, 10, 25, 11, 59, tzinfo=UTC), "morning"),
-    (datetime(2026, 10, 25, 12, 0, tzinfo=UTC), "after_school"),
-    (datetime(2026, 10, 25, 18, 0, tzinfo=UTC), "evening"),
-    # Last Sunday of March 2026: London is on BST (UTC+1) from 01:00 UTC.
-    (datetime(2026, 3, 29, 10, 59, tzinfo=UTC), "morning"),
-    (datetime(2026, 3, 29, 11, 0, tzinfo=UTC), "after_school"),
-    (datetime(2026, 3, 29, 16, 59, tzinfo=UTC), "after_school"),
-    (datetime(2026, 3, 29, 17, 0, tzinfo=UTC), "evening"),
-])
+@pytest.mark.parametrize(
+    ("utc", "group"),
+    [
+        # Last Sunday of October 2026: London is back on GMT (UTC+0) from 01:00 UTC.
+        (datetime(2026, 10, 25, 11, 59, tzinfo=UTC), "morning"),
+        (datetime(2026, 10, 25, 12, 0, tzinfo=UTC), "after_school"),
+        (datetime(2026, 10, 25, 18, 0, tzinfo=UTC), "evening"),
+        # Last Sunday of March 2026: London is on BST (UTC+1) from 01:00 UTC.
+        (datetime(2026, 3, 29, 10, 59, tzinfo=UTC), "morning"),
+        (datetime(2026, 3, 29, 11, 0, tzinfo=UTC), "after_school"),
+        (datetime(2026, 3, 29, 16, 59, tzinfo=UTC), "after_school"),
+        (datetime(2026, 3, 29, 17, 0, tzinfo=UTC), "evening"),
+    ],
+)
 async def test_groups_follow_the_family_clock_on_dst_days(db, monkeypatch, utc, group):
     """The boundaries are family wall-clock times, whatever the UTC offset that day."""
     monkeypatch.setattr(tasks, "_clock", lambda tz: utc.astimezone(tz))
@@ -296,8 +326,9 @@ async def test_rev_changes_only_through_the_group_component(db, client, monkeypa
     after = (await client.get("/api/rev")).json()["widgets"]
 
     assert (before_ctx["current_group"], after_ctx["current_group"]) == ("after_school", "evening")
-    assert {k: v for k, v in before_ctx.items() if k != "current_group"} == \
-        {k: v for k, v in after_ctx.items() if k != "current_group"}
+    assert {k: v for k, v in before_ctx.items() if k != "current_group"} == {
+        k: v for k, v in after_ctx.items() if k != "current_group"
+    }
     assert after["tasks"] != before["tasks"]
     assert {k: v for k, v in after.items() if k != "tasks"} == {k: v for k, v in before.items() if k != "tasks"}
 
@@ -334,20 +365,30 @@ async def test_custom_boundaries_are_used(db, client, monkeypatch):
     assert _sections((await client.get("/widgets/tasks")).text)[0] == ("after_school", True)
 
 
-@pytest.mark.parametrize(("after_school", "evening"), [
-    ("18:00", "12:00"), ("12:00", "12:00"), ("00:00", "18:00"), ("noon", "18:00"), ("12:00", "25:00"), ("", ""),
-])
+@pytest.mark.parametrize(
+    ("after_school", "evening"),
+    [
+        ("18:00", "12:00"),
+        ("12:00", "12:00"),
+        ("00:00", "18:00"),
+        ("noon", "18:00"),
+        ("12:00", "25:00"),
+        ("", ""),
+    ],
+)
 async def test_admin_group_times_are_validated(db, admin_client, after_school, evening):
-    resp = await admin_client.post("/admin/tasks/groups",
-                                   data={"after_school_start": after_school, "evening_start": evening})
+    resp = await admin_client.post(
+        "/admin/tasks/groups", data={"after_school_start": after_school, "evening_start": evening}
+    )
     assert resp.status_code == 303
     assert resp.headers["location"] == "/admin?tab=family&error=task-group-times#tasks"
     assert await tasks.get_group_boundaries(db) == ("12:00", "18:00")
 
 
 async def test_admin_group_times_save(db, admin_client):
-    resp = await admin_client.post("/admin/tasks/groups",
-                                   data={"after_school_start": "15:15", "evening_start": "18:30"})
+    resp = await admin_client.post(
+        "/admin/tasks/groups", data={"after_school_start": "15:15", "evening_start": "18:30"}
+    )
     assert resp.headers["location"] == "/admin?tab=family#tasks"
     assert await tasks.get_group_boundaries(db) == ("15:15", "18:30")
     page = (await admin_client.get("/admin?tab=family")).text
@@ -382,11 +423,19 @@ async def test_admin_rejects_an_unknown_group(db, admin_client):
 
 # --- 4. Carry-over ---
 
-@pytest.mark.parametrize(("due", "label"), [
-    ("2026-09-29", None), ("2026-09-30", None), (None, None),
-    ("2026-09-28", "from yesterday"), ("2026-09-26", "from Sat"), ("2026-09-23", "from Wed"),
-    ("2026-09-22", "from 22 Sep"),
-])
+
+@pytest.mark.parametrize(
+    ("due", "label"),
+    [
+        ("2026-09-29", None),
+        ("2026-09-30", None),
+        (None, None),
+        ("2026-09-28", "from yesterday"),
+        ("2026-09-26", "from Sat"),
+        ("2026-09-23", "from Wed"),
+        ("2026-09-22", "from 22 Sep"),
+    ],
+)
 def test_late_labels(due, label):
     assert tasks.late_label(due, date(2026, 9, 29)) == label
 
@@ -395,9 +444,14 @@ async def test_missed_one_off_carries_over_across_midnight_and_the_reset(db, con
     pid = await _pid(db)
     await _link(db, pid)
     insert = google.post(f"{TASKS_API}/kids/tasks").respond(200, json={"id": "g-letter"})
-    google.get(f"{TASKS_API}/kids/tasks").respond(200, json={"items": [
-        {"id": "g-letter", "title": "Sign letter", "status": "needsAction", "updated": "2020-01-01T00:00:00Z"},
-    ]})
+    google.get(f"{TASKS_API}/kids/tasks").respond(
+        200,
+        json={
+            "items": [
+                {"id": "g-letter", "title": "Sign letter", "status": "needsAction", "updated": "2020-01-01T00:00:00Z"},
+            ]
+        },
+    )
     freeze(monkeypatch, date(2026, 9, 28))
     await client.post("/api/tasks", data={"profile_id": pid, "title": "Sign letter"})
     await task_sync.run_sync(db)
@@ -432,6 +486,7 @@ async def test_recurring_tasks_are_never_late(db, client, monkeypatch):
 def _sync_today(monkeypatch, day):
     async def fake_today(_db):
         return day
+
     monkeypatch.setattr(task_sync, "family_today", fake_today)
 
 
@@ -440,11 +495,21 @@ async def test_imported_task_is_due_from_today_or_its_later_google_due(db, conne
     pid = await _pid(db)
     await _link(db, pid)
     _sync_today(monkeypatch, date(2026, 9, 29))
-    google.get(f"{TASKS_API}/kids/tasks").respond(200, json={"items": [
-        {"id": "g1", "title": "From phone", "updated": "2020-01-01T00:00:00Z"},
-        {"id": "g2", "title": "Old due", "due": "2026-09-20T00:00:00.000Z", "updated": "2020-01-01T00:00:00Z"},
-        {"id": "g3", "title": "Due Friday", "due": "2026-10-02T00:00:00.000Z", "updated": "2020-01-01T00:00:00Z"},
-    ]})
+    google.get(f"{TASKS_API}/kids/tasks").respond(
+        200,
+        json={
+            "items": [
+                {"id": "g1", "title": "From phone", "updated": "2020-01-01T00:00:00Z"},
+                {"id": "g2", "title": "Old due", "due": "2026-09-20T00:00:00.000Z", "updated": "2020-01-01T00:00:00Z"},
+                {
+                    "id": "g3",
+                    "title": "Due Friday",
+                    "due": "2026-10-02T00:00:00.000Z",
+                    "updated": "2020-01-01T00:00:00Z",
+                },
+            ]
+        },
+    )
     profile = await (await db.execute("SELECT * FROM profiles WHERE id = ?", (pid,))).fetchone()
 
     await task_sync.reconcile_profile_tasks(db, "tok", profile)
@@ -461,9 +526,19 @@ async def test_due_date_changed_in_google_moves_due_on(db, connected, google, mo
     await _link(db, pid)
     _sync_today(monkeypatch, date(2026, 9, 29))
     task_id = await _add(db, pid, "Sign letter", google_task_id="g1", due_on="2026-09-28")
-    google.get(f"{TASKS_API}/kids/tasks").respond(200, json={"items": [
-        {"id": "g1", "title": "Sign letter", "due": "2026-10-02T00:00:00.000Z", "updated": "2026-09-29T08:00:00Z"},
-    ]})
+    google.get(f"{TASKS_API}/kids/tasks").respond(
+        200,
+        json={
+            "items": [
+                {
+                    "id": "g1",
+                    "title": "Sign letter",
+                    "due": "2026-10-02T00:00:00.000Z",
+                    "updated": "2026-09-29T08:00:00Z",
+                },
+            ]
+        },
+    )
     profile = await (await db.execute("SELECT * FROM profiles WHERE id = ?", (pid,))).fetchone()
 
     await task_sync.reconcile_profile_tasks(db, "tok", profile)
@@ -477,9 +552,14 @@ async def test_google_update_without_a_due_keeps_due_on(db, connected, google, m
     pid = await _pid(db)
     await _link(db, pid)
     task_id = await _add(db, pid, "Sign letter", google_task_id="g1", due_on="2026-09-28")
-    google.get(f"{TASKS_API}/kids/tasks").respond(200, json={"items": [
-        {"id": "g1", "title": "Sign the letter", "updated": "2026-09-29T08:00:00Z"},
-    ]})
+    google.get(f"{TASKS_API}/kids/tasks").respond(
+        200,
+        json={
+            "items": [
+                {"id": "g1", "title": "Sign the letter", "updated": "2026-09-29T08:00:00Z"},
+            ]
+        },
+    )
     profile = await (await db.execute("SELECT * FROM profiles WHERE id = ?", (pid,))).fetchone()
 
     await task_sync.reconcile_profile_tasks(db, "tok", profile)
@@ -514,6 +594,7 @@ async def _today(day):
 
 # --- 5. School days ---
 
+
 def test_school_days_rule():
     assert recurrence.normalize_rule(["school"]) == "school"
     assert recurrence.normalize_rule(["Mon", "school"]) == "school"
@@ -537,10 +618,10 @@ async def test_school_days_follow_term_dates(db, monkeypatch):
     await term_dates.add_period(db, "half_term", "2026-10-26", "2026-10-30")
     await term_dates.add_period(db, "term", "2026-11-02", "2026-12-18")
 
-    assert await _school_task_shown(db, monkeypatch, date(2026, 9, 29)) is True    # term, Tuesday
-    assert await _school_task_shown(db, monkeypatch, date(2026, 10, 2)) is False   # INSET day
+    assert await _school_task_shown(db, monkeypatch, date(2026, 9, 29)) is True  # term, Tuesday
+    assert await _school_task_shown(db, monkeypatch, date(2026, 10, 2)) is False  # INSET day
     assert await _school_task_shown(db, monkeypatch, date(2026, 10, 27)) is False  # half term
-    assert await _school_task_shown(db, monkeypatch, date(2026, 10, 3)) is False   # weekend
+    assert await _school_task_shown(db, monkeypatch, date(2026, 10, 3)) is False  # weekend
 
 
 async def test_school_days_fall_back_to_weekdays_minus_bank_holidays(db, monkeypatch):
@@ -548,17 +629,18 @@ async def test_school_days_fall_back_to_weekdays_minus_bank_holidays(db, monkeyp
     await db.execute("INSERT INTO bank_holidays (date, title) VALUES ('2027-05-03', 'Early May bank holiday')")
     await db.commit()
     # No term dates for 2026-27.
-    assert await _school_task_shown(db, monkeypatch, date(2027, 5, 4)) is True     # Tuesday
-    assert await _school_task_shown(db, monkeypatch, date(2027, 5, 3)) is False    # bank holiday Monday
-    assert await _school_task_shown(db, monkeypatch, date(2027, 5, 8)) is False    # Saturday
+    assert await _school_task_shown(db, monkeypatch, date(2027, 5, 4)) is True  # Tuesday
+    assert await _school_task_shown(db, monkeypatch, date(2027, 5, 3)) is False  # bank holiday Monday
+    assert await _school_task_shown(db, monkeypatch, date(2027, 5, 8)) is False  # Saturday
 
 
 async def test_admin_school_days_option(db, admin_client):
     pid = await _pid(db)
     task_id = await _add(db, pid, "Pack bag")
 
-    await admin_client.post(f"/admin/tasks/{task_id}/edit",
-                            data={"profile_id": pid, "school_days": "true", "days": ["Sat"]})
+    await admin_client.post(
+        f"/admin/tasks/{task_id}/edit", data={"profile_id": pid, "school_days": "true", "days": ["Sat"]}
+    )
 
     row = await (await db.execute("SELECT is_recurring, recurrence_rule, updated_at FROM tasks")).fetchone()
     assert (row["is_recurring"], row["recurrence_rule"]) == (1, "school")
@@ -572,11 +654,20 @@ async def test_admin_school_days_option(db, admin_client):
 
 # --- 6. Sync safety ---
 
+
 async def test_local_fields_are_never_pushed(db, connected, google):
     pid = await _pid(db)
     await _link(db, pid)
-    task_id = await _add(db, pid, "Bins", google_task_id="g-bins", is_recurring=1, recurrence_rule="school",
-                         time_of_day="evening", due_on="2026-09-01")
+    task_id = await _add(
+        db,
+        pid,
+        "Bins",
+        google_task_id="g-bins",
+        is_recurring=1,
+        recurrence_rule="school",
+        time_of_day="evening",
+        due_on="2026-09-01",
+    )
     await task_sync.queue_sync(db, "tasks", {"task_id": task_id})
     new_id = await _add(db, pid, "New", time_of_day="morning", due_on="2026-09-01")
     await task_sync.queue_sync(db, "tasks", {"task_id": new_id})
@@ -598,8 +689,9 @@ async def test_reassign_still_uses_the_tombstone(db, admin_client):
     await _link(db, p2, "list-b")
     task_id = await _add(db, p1, "Feed cat", google_task_id="g-cat", time_of_day="morning")
 
-    await admin_client.post(f"/admin/tasks/{task_id}/edit",
-                            data={"profile_id": p2, "time_of_day": "morning", "school_days": "true"})
+    await admin_client.post(
+        f"/admin/tasks/{task_id}/edit", data={"profile_id": p2, "time_of_day": "morning", "school_days": "true"}
+    )
 
     rows = await (await db.execute("SELECT * FROM tasks ORDER BY id")).fetchall()
     moved, tomb = rows[0], rows[1]
@@ -609,6 +701,7 @@ async def test_reassign_still_uses_the_tombstone(db, admin_client):
 
 
 # --- Migration ---
+
 
 async def test_migration_4_is_a_no_op_for_existing_data(tmp_path, monkeypatch):
     path = tmp_path / "upgrade.db"
@@ -624,8 +717,9 @@ async def test_migration_4_is_a_no_op_for_existing_data(tmp_path, monkeypatch):
         conn.execute("INSERT INTO tasks (profile_id, title) VALUES (2, 'Tidy room')")
         conn.execute("INSERT INTO sync_queue (service, payload_json) VALUES ('tasks', '{\"task_id\": 1}')")
         tables = [r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")]
-        before = {t: conn.execute(f"SELECT * FROM {t} ORDER BY rowid").fetchall()
-                  for t in tables if t != "schema_migrations"}
+        before = {
+            t: conn.execute(f"SELECT * FROM {t} ORDER BY rowid").fetchall() for t in tables if t != "schema_migrations"
+        }
 
     monkeypatch.setattr(migrations, "MIGRATIONS", every[:4])
     await database.init_db()

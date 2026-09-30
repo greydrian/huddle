@@ -31,9 +31,9 @@ async def avatar_photo(key: str = PathParam(max_length=32)):
         raise HTTPException(status_code=404)
     profile_id, wanted = int(match.group(1)), match.group(2)
     async with get_db() as db:
-        row = await (await db.execute(
-            "SELECT avatar_photo, avatar_hash FROM profiles WHERE id = ?", (profile_id,)
-        )).fetchone()
+        row = await (
+            await db.execute("SELECT avatar_photo, avatar_hash FROM profiles WHERE id = ?", (profile_id,))
+        ).fetchone()
     if row is None or not row["avatar_photo"] or row["avatar_hash"] != wanted:
         raise HTTPException(status_code=404)
     photo = bytes(row["avatar_photo"])

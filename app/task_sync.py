@@ -76,7 +76,7 @@ async def get_shopping_tasklist(db) -> dict | None:
         return None
     try:
         return json.loads(raw)
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         return None
 
 
@@ -92,9 +92,7 @@ async def queue_sync(db, service: str, payload: dict) -> None:
     ("item_id" / "task_id"). A hard-deleted shopping item's payload must also
     carry {"action": "delete", "google_task_id": ...}, since its row is gone
     by the time the queue drains. The caller commits."""
-    await db.execute(
-        "INSERT INTO sync_queue (service, payload_json) VALUES (?, ?)", (service, json.dumps(payload))
-    )
+    await db.execute("INSERT INTO sync_queue (service, payload_json) VALUES (?, ?)", (service, json.dumps(payload)))
 
 
 async def relink_shopping(db):
@@ -110,9 +108,9 @@ async def relink_shopping(db):
 async def relink_profile(db, profile_id: int):
     """Same as relink_shopping, for one family member's task list."""
     await db.execute("UPDATE tasks SET google_task_id = NULL WHERE profile_id = ?", (profile_id,))
-    rows = await (await db.execute(
-        "SELECT id FROM tasks WHERE profile_id = ? AND archived = 0", (profile_id,)
-    )).fetchall()
+    rows = await (
+        await db.execute("SELECT id FROM tasks WHERE profile_id = ? AND archived = 0", (profile_id,))
+    ).fetchall()
     for row in rows:
         await queue_sync(db, "tasks", {"task_id": row["id"]})
     await db.commit()
@@ -139,6 +137,7 @@ async def detach_from_profile_list(db, task_id: int):
 
 # --- Push: local mutation -> Google -------------------------------------
 
+
 async def _push_shopping_change(db, access_token: str, payload: dict):
     tasklist = await get_shopping_tasklist(db)
     if not tasklist:
@@ -157,12 +156,18 @@ async def _push_shopping_change(db, access_token: str, payload: dict):
 
     if item["google_task_id"]:
         await google_tasks.update_task(
-            access_token, tasklist["id"], item["google_task_id"],
-            title=item["title"], completed=bool(item["is_checked"]),
+            access_token,
+            tasklist["id"],
+            item["google_task_id"],
+            title=item["title"],
+            completed=bool(item["is_checked"]),
         )
     else:
         remote = await google_tasks.insert_task(
-            access_token, tasklist["id"], item["title"], completed=bool(item["is_checked"]),
+            access_token,
+            tasklist["id"],
+            item["title"],
+            completed=bool(item["is_checked"]),
         )
         await db.execute("UPDATE shopping_items SET google_task_id = ? WHERE id = ?", (remote["id"], item_id))
 
@@ -173,9 +178,9 @@ async def _push_task_change(db, access_token: str, payload: dict):
     if task is None:
         return
 
-    profile = await (await db.execute(
-        "SELECT google_tasklist_id FROM profiles WHERE id = ?", (task["profile_id"],)
-    )).fetchone()
+    profile = await (
+        await db.execute("SELECT google_tasklist_id FROM profiles WHERE id = ?", (task["profile_id"],))
+    ).fetchone()
     tasklist_id = profile["google_tasklist_id"] if profile else None
     if not tasklist_id:
         return  # not linked — relink_profile backfills on link
@@ -187,12 +192,18 @@ async def _push_task_change(db, access_token: str, payload: dict):
 
     if task["google_task_id"]:
         await google_tasks.update_task(
-            access_token, tasklist_id, task["google_task_id"],
-            title=task["title"], completed=bool(task["is_completed"]),
+            access_token,
+            tasklist_id,
+            task["google_task_id"],
+            title=task["title"],
+            completed=bool(task["is_completed"]),
         )
     else:
         remote = await google_tasks.insert_task(
-            access_token, tasklist_id, task["title"], completed=bool(task["is_completed"]),
+            access_token,
+            tasklist_id,
+            task["title"],
+            completed=bool(task["is_completed"]),
         )
         await db.execute("UPDATE tasks SET google_task_id = ? WHERE id = ?", (remote["id"], task_id))
 
@@ -228,18 +239,19 @@ async def push_pending_changes(db, access_token: str):
                 # will re-align the two sides from Google's current state.
                 logger.warning(
                     "Dropping queued %s sync change %s (%s): %s",
-                    row["service"], row["id"], "rejected" if status in (400, 404, 410) else "out of retries",
+                    row["service"],
+                    row["id"],
+                    "rejected" if status in (400, 404, 410) else "out of retries",
                     http_client.describe(exc),
                 )
                 await db.execute("DELETE FROM sync_queue WHERE id = ?", (row["id"],))
             else:
-                await db.execute(
-                    "UPDATE sync_queue SET retry_count = ? WHERE id = ?", (new_count, row["id"])
-                )
+                await db.execute("UPDATE sync_queue SET retry_count = ? WHERE id = ?", (new_count, row["id"]))
         await db.commit()
 
 
 # --- Reconcile: Google -> local -------------------------------------------
+
 
 async def reconcile_shopping(db, access_token: str):
     tasklist = await get_shopping_tasklist(db)
@@ -287,9 +299,7 @@ async def reconcile_profile_tasks(db, access_token: str, profile):
 
     # Archived rows included: otherwise an archived task whose Google copy
     # still exists looks brand new and gets re-inserted as a duplicate.
-    local_rows = await (await db.execute(
-        "SELECT * FROM tasks WHERE profile_id = ?", (profile["id"],)
-    )).fetchall()
+    local_rows = await (await db.execute("SELECT * FROM tasks WHERE profile_id = ?", (profile["id"],))).fetchall()
     local_by_gid = {r["google_task_id"]: r for r in local_rows if r["google_task_id"]}
     today = (await family_today(db)).isoformat()
 
@@ -304,9 +314,9 @@ async def reconcile_profile_tasks(db, access_token: str, profile):
             # Removed here but still on Google (its delete push was dropped):
             # re-queue the delete rather than resurrecting it.
             payload = json.dumps({"task_id": local["id"]})
-            already = await (await db.execute(
-                "SELECT 1 FROM sync_queue WHERE service = 'tasks' AND payload_json = ?", (payload,)
-            )).fetchone()
+            already = await (
+                await db.execute("SELECT 1 FROM sync_queue WHERE service = 'tasks' AND payload_json = ?", (payload,))
+            ).fetchone()
             if not already:
                 await queue_sync(db, "tasks", {"task_id": local["id"]})
         elif local is not None:
@@ -316,8 +326,14 @@ async def reconcile_profile_tasks(db, access_token: str, profile):
                     """UPDATE tasks SET title = ?, is_completed = ?, completed_at = ?, updated_at = ?,
                            due_on = COALESCE(?, due_on)
                        WHERE id = ?""",
-                    (remote_title, int(remote_completed), completed_at, _to_local_ts(remote_updated),
-                     _google_due(rtask), local["id"]),
+                    (
+                        remote_title,
+                        int(remote_completed),
+                        completed_at,
+                        _to_local_ts(remote_updated),
+                        _google_due(rtask),
+                        local["id"],
+                    ),
                 )
         elif rtask.get("title"):
             # due_on (local, for carry-over labels) is the day it arrived here,
@@ -328,8 +344,15 @@ async def reconcile_profile_tasks(db, access_token: str, profile):
                 """INSERT INTO tasks (profile_id, google_task_id, title, is_completed, completed_at, updated_at,
                                       due_on)
                    VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                (profile["id"], gid, remote_title, int(remote_completed), completed_at, _to_local_ts(remote_updated),
-                 max(google_due, today) if google_due else today),
+                (
+                    profile["id"],
+                    gid,
+                    remote_title,
+                    int(remote_completed),
+                    completed_at,
+                    _to_local_ts(remote_updated),
+                    max(google_due, today) if google_due else today,
+                ),
             )
 
     for gid, local in local_by_gid.items():
@@ -389,9 +412,9 @@ async def _run_cycle(db):
             await push_pending_changes(db, access_token)
 
             await reconcile_shopping(db, access_token)
-            profiles = await (await db.execute(
-                "SELECT id, google_tasklist_id FROM profiles WHERE google_tasklist_id IS NOT NULL"
-            )).fetchall()
+            profiles = await (
+                await db.execute("SELECT id, google_tasklist_id FROM profiles WHERE google_tasklist_id IS NOT NULL")
+            ).fetchall()
             for profile in profiles:
                 await reconcile_profile_tasks(db, access_token, profile)
     except (_StopCycle, httpx.HTTPError) as exc:
@@ -400,7 +423,9 @@ async def _run_cycle(db):
         # per outage, not once a minute.
         cause = exc.__cause__ if isinstance(exc, _StopCycle) and exc.__cause__ else exc
         http_client.report_failure(
-            logger, SYNC_OUTAGE_KEY, "Google Tasks sync failing; retrying every cycle: %s",
+            logger,
+            SYNC_OUTAGE_KEY,
+            "Google Tasks sync failing; retrying every cycle: %s",
             http_client.describe(cause),
         )
         await _rollback(db)
@@ -408,10 +433,12 @@ async def _run_cycle(db):
             # The same 401/403 for ATTENTION_AFTER cycles: not a blip any
             # more. Still never drops queue rows — they push once reconnected.
             http_client.report_failure(
-                logger, SYNC_ATTENTION_KEY,
+                logger,
+                SYNC_ATTENTION_KEY,
                 "Google Tasks sync needs attention: Google refused access (%s) for %d cycles "
                 "in a row; reconnect in Admin",
-                http_client.describe(cause), sync_status.ATTENTION_AFTER,
+                http_client.describe(cause),
+                sync_status.ATTENTION_AFTER,
             )
     except Exception as exc:
         # Not Google: a bug (e.g. a KeyError on an odd task) or SQLite
@@ -421,8 +448,11 @@ async def _run_cycle(db):
         # Traceback logged once per outage; it's not an httpx error, so it
         # carries no request URL.
         http_client.report_failure(
-            logger, SYNC_ERROR_KEY, "Google Tasks sync failing with an unexpected error: %s",
-            type(exc).__name__, exc_info=exc,
+            logger,
+            SYNC_ERROR_KEY,
+            "Google Tasks sync failing with an unexpected error: %s",
+            type(exc).__name__,
+            exc_info=exc,
         )
         await _rollback(db)
         await _record_status(sync_status.record_failure, db, exc)

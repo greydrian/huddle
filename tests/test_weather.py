@@ -44,20 +44,41 @@ async def _set_cache(db, fetched_at, location=READING, temperature=12.0, daily=N
         "current": {"temperature": temperature, "weather_code": 3},
         "daily": daily or [{"date": _day(0).isoformat(), "weather_code": 3, "max": 14.0, "min": 6.0}],
     }
-    await database.set_setting(db, weather.CACHE_SETTING, json.dumps({
-        "fetched_at": fetched_at.isoformat(),
-        "latitude": location["latitude"],
-        "longitude": location["longitude"],
-        "forecast": forecast,
-    }))
+    await database.set_setting(
+        db,
+        weather.CACHE_SETTING,
+        json.dumps(
+            {
+                "fetched_at": fetched_at.isoformat(),
+                "latitude": location["latitude"],
+                "longitude": location["longitude"],
+                "forecast": forecast,
+            }
+        ),
+    )
     await db.commit()
 
 
-@pytest.mark.parametrize(("code", "category"), [
-    (0, "clear"), (1, "partly"), (2, "partly"), (3, "cloudy"), (45, "fog"), (48, "fog"),
-    (51, "rain"), (65, "rain"), (80, "rain"), (71, "snow"), (77, "snow"), (86, "snow"),
-    (95, "thunder"), (99, "thunder"), (None, "cloudy"),
-])
+@pytest.mark.parametrize(
+    ("code", "category"),
+    [
+        (0, "clear"),
+        (1, "partly"),
+        (2, "partly"),
+        (3, "cloudy"),
+        (45, "fog"),
+        (48, "fog"),
+        (51, "rain"),
+        (65, "rain"),
+        (80, "rain"),
+        (71, "snow"),
+        (77, "snow"),
+        (86, "snow"),
+        (95, "thunder"),
+        (99, "thunder"),
+        (None, "cloudy"),
+    ],
+)
 def test_weather_code_categories(code, category):
     assert weather.weather_category(code) == category
 
@@ -153,13 +174,22 @@ async def test_failed_fetch_backs_off_before_retrying(db, client, google):
     assert route.call_count == 2
 
 
-@pytest.mark.parametrize("raw", [
-    "not json",
-    "[]",
-    json.dumps({"fetched_at": "yesterday", "latitude": 51.45, "longitude": -0.97, "forecast": {}}),
-    json.dumps({"fetched_at": datetime.now(timezone.utc).isoformat(), "latitude": 51.45, "longitude": -0.97,
-                "forecast": {"utc_offset_seconds": 0, "daily": "nope"}}),
-])
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "not json",
+        "[]",
+        json.dumps({"fetched_at": "yesterday", "latitude": 51.45, "longitude": -0.97, "forecast": {}}),
+        json.dumps(
+            {
+                "fetched_at": datetime.now(timezone.utc).isoformat(),
+                "latitude": 51.45,
+                "longitude": -0.97,
+                "forecast": {"utc_offset_seconds": 0, "daily": "nope"},
+            }
+        ),
+    ],
+)
 async def test_corrupt_cache_is_treated_as_no_cache(db, client, google, raw):
     await _set_location(db)
     await database.set_setting(db, weather.CACHE_SETTING, raw)
@@ -213,12 +243,29 @@ async def test_dashboard_renders_when_open_meteo_is_down(db, client, google):
 
 async def test_admin_saves_geocoded_location(db, client, google):
     client.cookies.set(admin.SESSION_COOKIE, create_session_token())
-    google.get(weather.GEOCODING_URL).respond(200, json={"results": [
-        {"name": "Reading", "country": "United States", "country_code": "US", "admin1": "Pennsylvania",
-         "latitude": 40.33, "longitude": -75.92},
-        {"name": "Reading", "country": "United Kingdom", "country_code": "GB", "admin1": "England",
-         "latitude": 51.45, "longitude": -0.97},
-    ]})
+    google.get(weather.GEOCODING_URL).respond(
+        200,
+        json={
+            "results": [
+                {
+                    "name": "Reading",
+                    "country": "United States",
+                    "country_code": "US",
+                    "admin1": "Pennsylvania",
+                    "latitude": 40.33,
+                    "longitude": -75.92,
+                },
+                {
+                    "name": "Reading",
+                    "country": "United Kingdom",
+                    "country_code": "GB",
+                    "admin1": "England",
+                    "latitude": 51.45,
+                    "longitude": -0.97,
+                },
+            ]
+        },
+    )
 
     resp = await client.post("/admin/weather-location", data={"place": "Reading, United Kingdom"})
 
@@ -240,11 +287,14 @@ async def test_admin_location_not_found_keeps_previous(db, client, google):
     assert json.loads(await database.get_setting(db, weather.LOCATION_SETTING)) == READING
 
 
-@pytest.mark.parametrize("body", [
-    [{"name": "Reading", "latitude": 51.45, "longitude": -0.97}],
-    {"results": {"name": "Reading", "latitude": 51.45, "longitude": -0.97}},
-    {"results": ["Reading"]},
-])
+@pytest.mark.parametrize(
+    "body",
+    [
+        [{"name": "Reading", "latitude": 51.45, "longitude": -0.97}],
+        {"results": {"name": "Reading", "latitude": 51.45, "longitude": -0.97}},
+        {"results": ["Reading"]},
+    ],
+)
 async def test_admin_malformed_geocoder_response_is_not_500(db, client, google, body):
     client.cookies.set(admin.SESSION_COOKIE, create_session_token())
     google.get(weather.GEOCODING_URL).respond(200, json=body)

@@ -97,7 +97,7 @@ def verify_session_token(token: str | None, generation: int = 0) -> bool:
     serializer = URLSafeTimedSerializer(_get_secret_key())
     try:
         data = serializer.loads(token, max_age=SESSION_MAX_AGE_SECONDS)
-    except (BadSignature, SignatureExpired):
+    except BadSignature, SignatureExpired:
         return False
     # Tokens issued before generations existed carry none: treat as 0.
     return bool(data.get("admin")) and data.get("gen", 0) == generation
@@ -120,5 +120,5 @@ def decrypt_token_json(encrypted: str) -> dict | None:
     'not connected', not crash the dashboard."""
     try:
         return json.loads(_get_fernet().decrypt(encrypted.encode()))
-    except (InvalidToken, ValueError):
+    except InvalidToken, ValueError:
         return None

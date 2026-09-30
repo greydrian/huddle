@@ -27,6 +27,7 @@ jobs:
           cache-dependency-path: requirements*.txt
       - run: pip install --require-hashes -r requirements-dev.txt
       - run: ruff check app tests
+      - run: ruff format --check app tests  # formatting is enforced, not reviewed
       - run: python -m pytest -q
 
   # A rebase once left a conflict marker in style.css that no test noticed.

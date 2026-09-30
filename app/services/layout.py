@@ -45,8 +45,11 @@ def _overlaps(a: tuple[int, int, int, int], b: tuple[int, int, int, int]) -> boo
 
 
 def _fits(box: tuple[int, int, int, int], others: list[dict]) -> bool:
-    return box[0] >= 0 and box[1] >= 0 and box[0] + box[2] <= GRID_COLUMNS and not any(
-        _overlaps(box, _box(o)) for o in others
+    return (
+        box[0] >= 0
+        and box[1] >= 0
+        and box[0] + box[2] <= GRID_COLUMNS
+        and not any(_overlaps(box, _box(o)) for o in others)
     )
 
 
@@ -72,8 +75,11 @@ def close_gap(rows: list[dict], gone: dict) -> list[dict]:
         x, y, w, _h = _box(row)
         limits = []
         for column in range(x, x + w):
-            above = [o for o in everything if o is not row and o["grid_x"] <= column < o["grid_x"] + o["grid_w"]
-                     and o["grid_y"] + o["grid_h"] <= y]
+            above = [
+                o
+                for o in everything
+                if o is not row and o["grid_x"] <= column < o["grid_x"] + o["grid_w"] and o["grid_y"] + o["grid_h"] <= y
+            ]
             if not above:
                 limits.append(0)  # the top of the grid
                 break
@@ -111,10 +117,11 @@ def free_spot(rows: list[dict], want: dict) -> tuple[int, int]:
 
 
 def _no_overlaps(rows: list[dict]) -> bool:
-    return all(_fits(_box(r), rows[i + 1:]) for i, r in enumerate(rows))
+    return all(_fits(_box(r), rows[i + 1 :]) for i, r in enumerate(rows))
 
 
 # --- Hiding and showing (pure) -------------------------------------------------------------
+
 
 def hide(rows: list[dict], gone: dict) -> tuple[list[dict], dict[str, list[int]]]:
     """`rows` (the widgets on the grid) after `gone` is hidden, and what
@@ -122,8 +129,11 @@ def hide(rows: list[dict], gone: dict) -> tuple[list[dict], dict[str, list[int]]
     row so showing it can put them back."""
     after = close_gap(rows, gone)
     before = {r["widget_id"]: r["grid_y"] for r in rows}
-    moves = {r["widget_id"]: [r["grid_x"], before[r["widget_id"]], r["grid_y"], r["grid_w"], r["grid_h"]]
-             for r in after if r["grid_y"] != before[r["widget_id"]]}
+    moves = {
+        r["widget_id"]: [r["grid_x"], before[r["widget_id"]], r["grid_y"], r["grid_w"], r["grid_h"]]
+        for r in after
+        if r["grid_y"] != before[r["widget_id"]]
+    }
     return after, moves
 
 
@@ -154,6 +164,7 @@ def show(rows: list[dict], widget: dict, moves: dict[str, list[int]] | None) -> 
 
 # --- Saving a drag (pure) -----------------------------------------------------------------
 
+
 def apply_drag(saved: list[dict], shown: list[dict], posted: dict[str, tuple[int, int, int, int]]) -> list[dict]:
     """The saved layout (`saved`: every visible widget's saved row) after the
     page posts its grid (`posted`: {widget_id: box} for the widgets it shows,
@@ -182,6 +193,7 @@ def apply_drag(saved: list[dict], shown: list[dict], posted: dict[str, tuple[int
 
 
 # --- What the wall shows on a day (pure) --------------------------------------------------
+
 
 def day_layout(rows: list[dict], school_day: bool) -> list[dict]:
     """The visible `rows` as the wall shows them on a school day or not.
@@ -265,6 +277,7 @@ async def _bump_generation(db) -> None:
 
 
 # --- Writing ------------------------------------------------------------------------------
+
 
 async def _write_positions(db, before: list[dict], after: list[dict]) -> None:
     old = {r["widget_id"]: _box(r) for r in before}

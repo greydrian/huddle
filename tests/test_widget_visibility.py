@@ -48,11 +48,14 @@ async def _set_layout(db, boxes):
 
 
 async def _saved(db, visible_only=False):
-    rows = await (await db.execute(
-        "SELECT widget_id, grid_x, grid_y, grid_w, grid_h, is_visible FROM layout_state"
-    )).fetchall()
-    return {r["widget_id"]: (r["grid_x"], r["grid_y"], r["grid_w"], r["grid_h"])
-            for r in rows if r["is_visible"] or not visible_only}
+    rows = await (
+        await db.execute("SELECT widget_id, grid_x, grid_y, grid_w, grid_h, is_visible FROM layout_state")
+    ).fetchall()
+    return {
+        r["widget_id"]: (r["grid_x"], r["grid_y"], r["grid_w"], r["grid_h"])
+        for r in rows
+        if r["is_visible"] or not visible_only
+    }
 
 
 @pytest.fixture
@@ -62,6 +65,7 @@ def admin_client(client):
 
 
 # --- close_gap / free_spot ---
+
 
 def test_close_gap_moves_only_the_widgets_below_in_its_columns():
     rows = [_row(w, *b) for w, b in CUSTOM.items()]
@@ -85,10 +89,10 @@ def test_close_gap_of_a_wide_widget_moves_everything_below_it():
 def test_close_gap_never_uses_space_the_gone_widget_didnt_leave():
     rows = [
         _row("gone", 0, 4, 4, 2),
-        _row("below", 0, 6, 6, 2),   # spans columns 4-5 too, under "blocker" (ends at 5, a 1-row gap)
+        _row("below", 0, 6, 6, 2),  # spans columns 4-5 too, under "blocker" (ends at 5, a 1-row gap)
         _row("blocker", 4, 0, 4, 5),
         _row("elsewhere", 8, 9, 4, 2),  # not in gone's columns: never moves
-        _row("above", 0, 0, 4, 3),   # above the gone widget: never moves
+        _row("above", 0, 0, 4, 3),  # above the gone widget: never moves
     ]
     after = _boxes(layout.close_gap(rows, rows[0]))
     assert after["below"] == (0, 6, 6, 2)  # "blocker" didn't move, so neither does it
@@ -114,6 +118,7 @@ def test_free_spot_prefers_the_saved_place_then_the_nearest_same_columns():
 
 
 # --- Hide / show through Admin ---
+
 
 async def test_hide_then_show_changes_nothing_but_the_widgets_that_moved_up(admin_client, db):
     await _set_layout(db, CUSTOM)
@@ -189,12 +194,16 @@ async def test_hide_and_show_twice_are_no_ops(admin_client, db):
 
 async def test_widget_switches_need_admin(client, db):
     before = await _saved(db)
-    for url, data in (("/admin/widgets/tasks/visibility", {"visible": "false"}),
-                      ("/admin/widgets/tasks/school-days", {"enabled": "true"})):
+    for url, data in (
+        ("/admin/widgets/tasks/visibility", {"visible": "false"}),
+        ("/admin/widgets/tasks/school-days", {"enabled": "true"}),
+    ):
         resp = await client.post(url, data=data)
         assert resp.status_code == 303 and resp.headers["location"] == "/admin/login"
     assert await _saved(db) == before
-    row = await (await db.execute("SELECT is_visible, school_days_only FROM layout_state WHERE widget_id = 'tasks'")).fetchone()
+    row = await (
+        await db.execute("SELECT is_visible, school_days_only FROM layout_state WHERE widget_id = 'tasks'")
+    ).fetchone()
     assert tuple(row) == (1, 0)
 
 
@@ -227,13 +236,16 @@ async def test_admin_lists_every_widget_with_both_switches(admin_client, db):
 
 # --- The dashboard and /api/rev skip hidden widgets ---
 
+
 @pytest.fixture
 def load_counts(monkeypatch):
     counts = {w: 0 for w in widgets.WIDGETS}
     for widget_id, widget in list(widgets.WIDGETS.items()):
+
         def counted(db, _load=widget.load, _id=widget_id):
             counts[_id] += 1
             return _load(db)
+
         monkeypatch.setitem(widgets.WIDGETS, widget_id, widget._replace(load=counted))
     return counts
 
@@ -295,15 +307,20 @@ def on_day(monkeypatch):
     def set_day(day: date):
         async def today(db):
             return day
+
         monkeypatch.setattr(layout, "family_today", today)
+
     return set_day
 
 
-@pytest.mark.parametrize(("day", "shown"), [
-    pytest.param(date(2026, 10, 1), True, id="term-thursday"),
-    pytest.param(date(2026, 10, 27), False, id="half-term-tuesday"),
-    pytest.param(date(2026, 10, 3), False, id="saturday"),
-])
+@pytest.mark.parametrize(
+    ("day", "shown"),
+    [
+        pytest.param(date(2026, 10, 1), True, id="term-thursday"),
+        pytest.param(date(2026, 10, 27), False, id="half-term-tuesday"),
+        pytest.param(date(2026, 10, 3), False, id="saturday"),
+    ],
+)
 async def test_school_days_only_widget_follows_the_term_dates(
     admin_client, db, school_year, on_day, load_counts, day, shown
 ):
@@ -359,7 +376,7 @@ async def test_school_day_widget_whose_space_was_taken_shows_in_the_nearest_spac
 
 def _overlaps(boxes):
     ids = sorted(boxes)
-    return [(a, b) for i, a in enumerate(ids) for b in ids[i + 1:] if layout._overlaps(boxes[a], boxes[b])]
+    return [(a, b) for i, a in enumerate(ids) for b in ids[i + 1 :] if layout._overlaps(boxes[a], boxes[b])]
 
 
 async def test_a_drag_into_space_only_free_today_never_overlaps_on_monday(client, db, school_year, on_day):
@@ -384,6 +401,7 @@ async def test_a_drag_into_space_only_free_today_never_overlaps_on_monday(client
 
 
 # --- Stale pages (layout generation) ---
+
 
 async def _generation(client):
     html = (await client.get("/")).text
@@ -442,9 +460,11 @@ async def test_a_page_from_yesterday_is_stale(client, db, on_day):
 
 # --- Photos removal (migration 5) ---
 
+
 @pytest.fixture
 def before_migration_5(tmp_path, monkeypatch):
     """A database as it was before migration 5 (with its Photos row)."""
+
     async def build(update_sql=()):
         path = tmp_path / "upgrade.db"
         monkeypatch.setattr(database, "DB_PATH", path)
@@ -457,26 +477,35 @@ def before_migration_5(tmp_path, monkeypatch):
         monkeypatch.undo()
         monkeypatch.setattr(database, "DB_PATH", path)
         return path
+
     return build
 
 
 def _file_layout(path):
     with sqlite3.connect(path) as conn:
-        return {r[0]: r[1:] for r in conn.execute(
-            "SELECT widget_id, grid_x, grid_y, grid_w, grid_h, is_visible, school_days_only FROM layout_state")}
+        return {
+            r[0]: r[1:]
+            for r in conn.execute(
+                "SELECT widget_id, grid_x, grid_y, grid_w, grid_h, is_visible, school_days_only FROM layout_state"
+            )
+        }
 
 
 async def test_migration_5_removes_photos_and_closes_its_gap(before_migration_5):
     # A customised layout: a stack under Photos in its columns, a wide widget
     # partly under it (the rest of its columns open: the family's space).
-    path = await before_migration_5([
-        "UPDATE layout_state SET grid_x = 8, grid_y = 11, grid_w = 2, grid_h = 3 WHERE widget_id = 'homework'",
-        "UPDATE layout_state SET grid_x = 8, grid_y = 15, grid_w = 2, grid_h = 2 WHERE widget_id = 'practice_words'",
-        "UPDATE layout_state SET grid_x = 0, grid_y = 11, grid_w = 4, grid_h = 4 WHERE widget_id = 'tasks'",
-        "UPDATE layout_state SET grid_x = 10, grid_y = 11, grid_w = 2, grid_h = 2 WHERE widget_id = 'shopping'",
-    ])
+    path = await before_migration_5(
+        [
+            "UPDATE layout_state SET grid_x = 8, grid_y = 11, grid_w = 2, grid_h = 3 WHERE widget_id = 'homework'",
+            "UPDATE layout_state SET grid_x = 8, grid_y = 15, grid_w = 2, grid_h = 2 WHERE widget_id = 'practice_words'",
+            "UPDATE layout_state SET grid_x = 0, grid_y = 11, grid_w = 4, grid_h = 4 WHERE widget_id = 'tasks'",
+            "UPDATE layout_state SET grid_x = 10, grid_y = 11, grid_w = 2, grid_h = 2 WHERE widget_id = 'shopping'",
+        ]
+    )
     with sqlite3.connect(path) as conn:
-        before = {r[0]: r[1:] for r in conn.execute("SELECT widget_id, grid_x, grid_y, grid_w, grid_h FROM layout_state")}
+        before = {
+            r[0]: r[1:] for r in conn.execute("SELECT widget_id, grid_x, grid_y, grid_w, grid_h FROM layout_state")
+        }
     assert before["photos"] == (8, 9, 2, 2)
 
     await database.init_db()
@@ -494,13 +523,19 @@ async def test_migration_5_removes_photos_and_closes_its_gap(before_migration_5)
 
 
 async def test_migration_5_leaves_the_layout_alone_when_photos_was_hidden(before_migration_5):
-    path = await before_migration_5([
-        "UPDATE layout_state SET is_visible = 0 WHERE widget_id = 'photos'",
-        "UPDATE layout_state SET grid_x = 8, grid_y = 11, grid_w = 4, grid_h = 3 WHERE widget_id = 'homework'",
-    ])
+    path = await before_migration_5(
+        [
+            "UPDATE layout_state SET is_visible = 0 WHERE widget_id = 'photos'",
+            "UPDATE layout_state SET grid_x = 8, grid_y = 11, grid_w = 4, grid_h = 3 WHERE widget_id = 'homework'",
+        ]
+    )
     with sqlite3.connect(path) as conn:
-        before = {r[0]: r[1:] for r in conn.execute(
-            "SELECT widget_id, grid_x, grid_y, grid_w, grid_h FROM layout_state WHERE widget_id != 'photos'")}
+        before = {
+            r[0]: r[1:]
+            for r in conn.execute(
+                "SELECT widget_id, grid_x, grid_y, grid_w, grid_h FROM layout_state WHERE widget_id != 'photos'"
+            )
+        }
     await database.init_db()
     after = _file_layout(path)
     assert "photos" not in after

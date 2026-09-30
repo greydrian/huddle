@@ -47,12 +47,20 @@ UNEXPECTED = "error"  # anything that isn't an HTTP/network failure (a bug, a lo
 # error.details[].reason), lower-cased. Rate limits come back as 403 too and
 # are transient; only a permission/scope refusal needs a person to reconnect.
 PERMISSION_REASONS = {
-    "insufficientpermissions", "forbidden", "permission_denied", "access_token_scope_insufficient",
-    "autherror", "accessnotconfigured",
+    "insufficientpermissions",
+    "forbidden",
+    "permission_denied",
+    "access_token_scope_insufficient",
+    "autherror",
+    "accessnotconfigured",
 }
 RATE_LIMIT_REASONS = {
-    "ratelimitexceeded", "userratelimitexceeded", "quotaexceeded", "dailylimitexceeded",
-    "resource_exhausted", "rate_limit_exceeded",
+    "ratelimitexceeded",
+    "userratelimitexceeded",
+    "quotaexceeded",
+    "dailylimitexceeded",
+    "resource_exhausted",
+    "rate_limit_exceeded",
 }
 
 # "stalled" is measured from the later of the last cycle and this: after
@@ -62,9 +70,15 @@ PROCESS_STARTED_AT = datetime.now(timezone.utc)
 
 # The dashboard dot's colour for each state; None = nothing shown.
 LEVELS = {
-    "off": None, "unlinked": None, "ok": None, "waiting": None, "retrying": None,
-    "failing": "amber", "stalled": "amber",
-    "attention": "red", "disconnected": "red",
+    "off": None,
+    "unlinked": None,
+    "ok": None,
+    "waiting": None,
+    "retrying": None,
+    "failing": "amber",
+    "stalled": "amber",
+    "attention": "red",
+    "disconnected": "red",
 }
 
 
@@ -137,6 +151,7 @@ async def _row(db):
 
 # --- Recording (called by task_sync.run_sync once per cycle) ----------------
 
+
 async def reset(db) -> None:
     """Forget all sync history: on a new Google grant (the old one's failures
     are over) and on a deliberate Disconnect (not a fault)."""
@@ -192,6 +207,7 @@ async def record_failure(db, exc: BaseException, now: datetime | None = None) ->
 
 # --- Reading ---------------------------------------------------------------
 
+
 def ago(then: datetime | None, now: datetime) -> str | None:
     """'just now', '3 minutes ago', '2 hours ago', '4 days ago'."""
     if then is None:
@@ -216,15 +232,19 @@ def _describe(state: str, row, failing_for: str | None, stalled_for: str | None)
     if state == "off":
         return "Not set up", "Google isn't configured on this display, so nothing syncs."
     if state == "disconnected":
-        return ("Google disconnected",
-                "Google ended the connection (access was revoked or expired). Reconnect under Google Account; "
-                "changes made here are kept and will sync once it's reconnected.")
+        return (
+            "Google disconnected",
+            "Google ended the connection (access was revoked or expired). Reconnect under Google Account; "
+            "changes made here are kept and will sync once it's reconnected.",
+        )
     if state == "unlinked":
         return "Google not connected", "Connect a Google account under Google Account to sync tasks and shopping."
     if state == "attention":
-        return ("Needs attention",
-                "Google refused access — reconnect in Admin (Disconnect, then Connect Google Account). "
-                "Changes made here are kept and will sync once it's reconnected.")
+        return (
+            "Needs attention",
+            "Google refused access — reconnect in Admin (Disconnect, then Connect Google Account). "
+            "Changes made here are kept and will sync once it's reconnected.",
+        )
     if state == "failing":
         if error == "offline":
             reason = "Can't reach Google"
@@ -232,9 +252,10 @@ def _describe(state: str, row, failing_for: str | None, stalled_for: str | None)
             reason = "Sync keeps hitting an unexpected error (details are in the server log)"
         else:
             reason = f"Google keeps failing ({error})"
-        return ("Sync delayed",
-                f"{reason} — failing for {failing_for}. Changes made here are kept and will sync "
-                "when it's back.")
+        return (
+            "Sync delayed",
+            f"{reason} — failing for {failing_for}. Changes made here are kept and will sync when it's back.",
+        )
     if state == "stalled":
         return "Sync not running", f"No sync has run for {stalled_for}. Try Sync now, or restart the display server."
     if state == "retrying":
@@ -275,8 +296,10 @@ async def summary(db, now: datetime | None = None) -> dict:
         state = "ok"
 
     headline, detail = _describe(
-        state, row,
-        failing_for=_duration(failing_since, now), stalled_for=_duration(last_cycle, now),
+        state,
+        row,
+        failing_for=_duration(failing_since, now),
+        stalled_for=_duration(last_cycle, now),
     )
     tz = await family_timezone(db)
     last_success = _parse(row["last_success_at"])
@@ -302,8 +325,10 @@ async def summary(db, now: datetime | None = None) -> dict:
 def health_summary(s: dict) -> dict:
     """The JSON-safe part of summary() for /health (unauthenticated on the
     LAN): state and counters only — no account email, no error bodies."""
+
     def iso(dt):
         return dt.isoformat() if dt else None
+
     return {
         "state": s["state"],
         "connected": s["connected"],

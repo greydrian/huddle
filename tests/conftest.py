@@ -49,6 +49,7 @@ async def isolated_db(tmp_path, monkeypatch):
 def no_real_anthropic(monkeypatch):
     """The Anthropic SDK is httpx2-based, so respx can't see it: fail any test
     that would build a real client. Tests fake it via extraction.client_factory."""
+
     def refuse(api_key):
         pytest.fail("unmocked Anthropic client (patch extraction.client_factory)")
 

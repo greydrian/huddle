@@ -54,6 +54,7 @@ def _current_tab(html: str) -> str:
 
 # --- Tabs ---
 
+
 async def test_every_tab_renders_only_its_own_sections(admin_client, google_lists):
     for tab in TABS:
         html = (await admin_client.get(f"/admin?tab={tab}")).text
@@ -149,7 +150,8 @@ ROUTES: dict[tuple[str, str], tuple[str, dict | str]] = {
 def _admin_routes() -> set[tuple[str, str]]:
     return {
         (method.upper(), path)
-        for path, operations in app.openapi()["paths"].items() if path.startswith("/admin")
+        for path, operations in app.openapi()["paths"].items()
+        if path.startswith("/admin")
         for method in operations
     }
 
@@ -162,6 +164,7 @@ def test_every_admin_route_is_classified():
 def quiet_side_effects(monkeypatch):
     """What the walk's routes would otherwise start: a backup, a school
     email check, a geocoder call."""
+
     async def backup_done():
         return Path("backup.db")
 
@@ -196,8 +199,11 @@ async def test_every_admin_redirect_opens_the_tab_with_its_anchor(
 ):
     targets = await _walk(admin_client)
     targets += [(f"error {code}", admin_url(section, error=code)) for code, (section, _) in admin.ADMIN_ERRORS.items()]
-    targets += [("status", admin_url("sync", sync="done")), ("status", admin_url("school-email", school_email="started")),
-                ("status", admin_url("weather", weather_error="offline"))]
+    targets += [
+        ("status", admin_url("sync", sync="done")),
+        ("status", admin_url("school-email", school_email="started")),
+        ("status", admin_url("weather", weather_error="offline")),
+    ]
     # Rendered connected, so every Google & Sync anchor (calendar picker, Task Sync) exists.
     await google_oauth.store_tokens(
         db, {"access_token": "tok", "refresh_token": "refresh", "expires_at": time.time() + 3600}, "family@example.com"
@@ -222,13 +228,16 @@ async def test_error_messages_show_on_their_tab(admin_client):
     assert "too easy to guess" in html
 
 
-@pytest.mark.parametrize(("url", "tab"), [
-    ("/admin?error=pin-invalid", "system"),
-    ("/admin?error=import-already", "school"),
-    ("/admin?sync=done", "google"),
-    ("/admin?school_email=busy", "school"),
-    ("/admin?weather_error=notfound", "display"),
-])
+@pytest.mark.parametrize(
+    ("url", "tab"),
+    [
+        ("/admin?error=pin-invalid", "system"),
+        ("/admin?error=import-already", "school"),
+        ("/admin?sync=done", "google"),
+        ("/admin?school_email=busy", "school"),
+        ("/admin?weather_error=notfound", "display"),
+    ],
+)
 async def test_older_links_without_a_tab_still_open_the_right_one(admin_client, url, tab):
     """/admin?error=...#section from before the tabs: the message picks the tab."""
     assert _current_tab((await admin_client.get(url)).text) == tab
@@ -243,6 +252,7 @@ async def test_hash_only_links_are_mapped_by_the_page_script(admin_client):
 
 
 # --- Parents (migration 2) ---
+
 
 def _columns(path):
     with sqlite3.connect(path) as conn:
@@ -270,8 +280,8 @@ async def test_migration_2_adds_parent_fields_without_touching_data(tmp_path, mo
     with sqlite3.connect(path) as conn:
         after = conn.execute("SELECT * FROM profiles ORDER BY id").fetchall()
         versions = {row[0] for row in conn.execute("SELECT version FROM schema_migrations")}
-    assert [row[:len(before[0])] for row in after] == before  # old columns unchanged
-    assert {row[len(before[0]):len(before[0]) + 2] for row in after} == {(0, None)}  # is_parent, email
+    assert [row[: len(before[0])] for row in after] == before  # old columns unchanged
+    assert {row[len(before[0]) : len(before[0]) + 2] for row in after} == {(0, None)}  # is_parent, email
     assert 2 in versions
 
 
@@ -300,12 +310,24 @@ async def test_parent_and_email_save_and_show(db, admin_client):
     assert (saved["is_parent"], saved["email"]) == (0, None)
 
 
-@pytest.mark.parametrize("bad", ["mum", "mum@", "@example.com", "mum@example", "a b@example.com",
-                                 "mum@example.com, dad@example.com", "Mum <mum@example.com>",
-                                 "x" * 250 + "@example.com",
-                                 # control characters, anywhere
-                                 "mu\x00m@example.com", "mum@exa\x01mple.com", "mum@example.com\x7f",
-                                 "mu\x1bm@example.com"])
+@pytest.mark.parametrize(
+    "bad",
+    [
+        "mum",
+        "mum@",
+        "@example.com",
+        "mum@example",
+        "a b@example.com",
+        "mum@example.com, dad@example.com",
+        "Mum <mum@example.com>",
+        "x" * 250 + "@example.com",
+        # control characters, anywhere
+        "mu\x00m@example.com",
+        "mum@exa\x01mple.com",
+        "mum@example.com\x7f",
+        "mu\x1bm@example.com",
+    ],
+)
 async def test_a_bad_email_changes_nothing(db, admin_client, bad):
     mum = await _profile(db, "Mum")
     r = await admin_client.post(
@@ -329,6 +351,7 @@ def test_tab_labels_match_the_spec():
 
 
 # --- Signing in goes back to the tab that asked ---
+
 
 async def test_signed_out_tab_link_comes_back_to_its_tab_and_section(client, db):
     # The sync dot's link, signed out: the tab rides along as ?next= (the
@@ -355,11 +378,23 @@ async def test_plain_admin_needs_no_next(client):
     assert resp.headers["location"] == "/admin?tab=system#backups"  # an old /admin#backups link
 
 
-@pytest.mark.parametrize("next_url", [
-    "https://evil.example/admin", "//evil.example/admin", "/\\evil.example", "/admin/../x", "/adminx",
-    "/admin/login", "/admin?tab=evil", "/admin?tab=google&x=1", "/admin?tab=google&tab=system",
-    "/admin?tab=google#sync", "javascript:alert(1)", "http:/admin",
-])
+@pytest.mark.parametrize(
+    "next_url",
+    [
+        "https://evil.example/admin",
+        "//evil.example/admin",
+        "/\\evil.example",
+        "/admin/../x",
+        "/adminx",
+        "/admin/login",
+        "/admin?tab=evil",
+        "/admin?tab=google&x=1",
+        "/admin?tab=google&tab=system",
+        "/admin?tab=google#sync",
+        "javascript:alert(1)",
+        "http:/admin",
+    ],
+)
 async def test_login_never_redirects_off_admin(client, next_url):
     resp = await client.post("/admin/login", data={"pin": "1234", "next": next_url, "section": "sync"})
     assert resp.headers["location"] == "/admin"
@@ -367,14 +402,17 @@ async def test_login_never_redirects_off_admin(client, next_url):
     assert 'name="next"' not in page
 
 
-@pytest.mark.parametrize(("next_url", "section", "expected"), [
-    ("/admin?tab=google", "", "/admin?tab=google"),
-    ("/admin?tab=google", "backups", "/admin?tab=google"),  # not a section on that tab
-    ("/admin?tab=google", "constructor", "/admin?tab=google"),
-    ("", "__proto__", "/admin"),
-    ("", "sync", "/admin?tab=google#sync"),
-    ("/admin", "pin", "/admin?tab=system#pin"),
-])
+@pytest.mark.parametrize(
+    ("next_url", "section", "expected"),
+    [
+        ("/admin?tab=google", "", "/admin?tab=google"),
+        ("/admin?tab=google", "backups", "/admin?tab=google"),  # not a section on that tab
+        ("/admin?tab=google", "constructor", "/admin?tab=google"),
+        ("", "__proto__", "/admin"),
+        ("", "sync", "/admin?tab=google#sync"),
+        ("/admin", "pin", "/admin?tab=system#pin"),
+    ],
+)
 def test_login_return(next_url, section, expected):
     assert admin_tabs.login_return(next_url, section) == expected
 

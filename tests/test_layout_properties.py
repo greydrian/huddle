@@ -15,8 +15,13 @@ def _random_layout(rng: random.Random, n: int | None = None) -> list[dict]:
     rows: list[dict] = []
     for i in range(n or rng.randint(2, 9)):
         w = rng.choice([1, 2, 2, 3, 4, 4, 6, 8, 12])
-        row = {"widget_id": f"w{i}", "grid_x": rng.randint(0, GRID_COLUMNS - w), "grid_y": rng.randint(0, 14),
-               "grid_w": w, "grid_h": rng.randint(1, 5)}
+        row = {
+            "widget_id": f"w{i}",
+            "grid_x": rng.randint(0, GRID_COLUMNS - w),
+            "grid_y": rng.randint(0, 14),
+            "grid_w": w,
+            "grid_h": rng.randint(1, 5),
+        }
         row["grid_x"], row["grid_y"] = layout.free_spot(rows, row)
         rows.append(row)
     return rows
@@ -29,7 +34,7 @@ def _boxes(rows):
 def _overlapping(rows) -> list[tuple[str, str]]:
     boxes = _boxes(rows)
     ids = sorted(boxes)
-    return [(a, b) for i, a in enumerate(ids) for b in ids[i + 1:] if layout._overlaps(boxes[a], boxes[b])]
+    return [(a, b) for i, a in enumerate(ids) for b in ids[i + 1 :] if layout._overlaps(boxes[a], boxes[b])]
 
 
 def _hide(rows, widget_id):
@@ -90,8 +95,12 @@ def test_a_drag_on_a_day_off_never_leaves_overlaps():
         mover = rng.choice(shown)
         others = [r for r in shown if r is not mover]
         bottom = max((r["grid_y"] + r["grid_h"] for r in shown), default=0)
-        spots = [(x, y) for y in range(bottom + 3) for x in range(GRID_COLUMNS - mover["grid_w"] + 1)
-                 if layout._fits((x, y, mover["grid_w"], mover["grid_h"]), others)]
+        spots = [
+            (x, y)
+            for y in range(bottom + 3)
+            for x in range(GRID_COLUMNS - mover["grid_w"] + 1)
+            if layout._fits((x, y, mover["grid_w"], mover["grid_h"]), others)
+        ]
         x, y = rng.choice(spots)
         posted = _boxes(shown)
         posted[mover["widget_id"]] = (x, y, mover["grid_w"], mover["grid_h"])

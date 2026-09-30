@@ -126,9 +126,11 @@ PARTY = {"summary": "Party", "start": {"date": "2026-08-22"}, "end": {"date": "2
 
 def _per_calendar(family, school):
     """Serve each calendar its own items; None = that calendar 404s."""
+
     def serve(request):
         items = family if "/family/" in str(request.url) else school
         return httpx.Response(404) if items is None else httpx.Response(200, json={"items": items})
+
     return serve
 
 
@@ -304,6 +306,7 @@ async def test_cache_holds_event_data_only_never_tokens(db, events_route):
 
 # --- Invalidation ---
 
+
 async def test_selection_change_clears_the_cache(db, events_route):
     await _prime(db, events_route)
     await google_oauth.set_selected_calendars(db, [{"id": "other", "summary": "Other", "color": "#000000"}])
@@ -345,6 +348,7 @@ async def test_reconnect_clears_but_token_refresh_keeps_the_cache(db, events_rou
 
 
 # --- Migration ---
+
 
 async def test_migration_is_idempotent_and_keeps_cached_rows(db):
     kept = [{"title": "Kept", "date": "2026-08-01", "end_date": "2026-08-01"}]

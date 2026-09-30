@@ -76,8 +76,7 @@ def event_fields(form: dict) -> dict:
     if start and end and end <= start:
         raise homework.ValidationError("The end time must be after the start time.")
     notes = homework.clean_text(form.get("notes"), "Notes", MAX_EVENT_NOTES)
-    return {"title": title, "date": day, "start_time": start, "end_time": end, "all_day": start is None,
-            "notes": notes}
+    return {"title": title, "date": day, "start_time": start, "end_time": end, "all_day": start is None, "notes": notes}
 
 
 def event_id(candidate: dict) -> str:
@@ -130,7 +129,11 @@ async def _release(db, candidate_id: int, forget_calendar: bool = False):
 
 
 def _definitely_not_created(exc: BaseException) -> bool:
-    return isinstance(exc, httpx.HTTPStatusError) and 400 <= exc.response.status_code < 500         and exc.response.status_code not in (408, 409, 429)
+    return (
+        isinstance(exc, httpx.HTTPStatusError)
+        and 400 <= exc.response.status_code < 500
+        and exc.response.status_code not in (408, 409, 429)
+    )
 
 
 async def approve_event(db, candidate_id: int, form: dict) -> str:
@@ -165,9 +168,11 @@ async def approve_event(db, candidate_id: int, form: dict) -> str:
     await db.commit()
     if claimed.rowcount != 1:
         raise CandidateError("import-missing")
-    calendar_id = (await (await db.execute(
-        "SELECT claim_calendar_id FROM import_candidates WHERE id = ?", (candidate_id,)
-    )).fetchone())["claim_calendar_id"]
+    calendar_id = (
+        await (
+            await db.execute("SELECT claim_calendar_id FROM import_candidates WHERE id = ?", (candidate_id,))
+        ).fetchone()
+    )["claim_calendar_id"]
 
     resource = event_resource(candidate, fields, tz)
     try:
@@ -180,8 +185,9 @@ async def approve_event(db, candidate_id: int, form: dict) -> str:
             created_id = resource["id"]
     except httpx.HTTPError as exc:
         code = _failure_code(exc)
-        http_client.report_failure(logger, "Google Calendar (add event)", "Couldn't add a school event: %s",
-                                   http_client.describe(exc))
+        http_client.report_failure(
+            logger, "Google Calendar (add event)", "Couldn't add a school event: %s", http_client.describe(exc)
+        )
         await _release(db, candidate_id, forget_calendar=_definitely_not_created(exc))
         raise CandidateError(code) from None
     except BaseException:

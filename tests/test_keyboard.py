@@ -114,6 +114,4 @@ def test_vendored_files_exist():
     for asset in ASSETS:
         path = STATIC / asset.removeprefix("/static/")
         assert path.is_file() and path.stat().st_size > 0, asset
-    assert "simple-keyboard v3.8.192" in (STATIC / "vendor/simple-keyboard/index.modern.js").read_text(
-        encoding="utf-8"
-    )
+    assert "simple-keyboard v3.8.192" in (STATIC / "vendor/simple-keyboard/index.modern.js").read_text(encoding="utf-8")

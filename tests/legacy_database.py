@@ -234,9 +234,7 @@ async def init_db():
         # upcoming_events' old width and drop it, preserving wherever the
         # widget's actually been dragged to rather than resetting positions.
         # No-op once this has run (upcoming_events row no longer exists).
-        cursor = await db.execute(
-            "SELECT grid_w FROM layout_state WHERE widget_id = 'upcoming_events'"
-        )
+        cursor = await db.execute("SELECT grid_w FROM layout_state WHERE widget_id = 'upcoming_events'")
         row = await cursor.fetchone()
         if row is not None:
             await db.execute(
@@ -355,9 +353,7 @@ async def init_db():
                    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
                )"""
         )
-        await db.execute(
-            "CREATE INDEX IF NOT EXISTS import_candidates_source ON import_candidates (source_id)"
-        )
+        await db.execute("CREATE INDEX IF NOT EXISTS import_candidates_source ON import_candidates (source_id)")
         await db.commit()
 
         # Migration: school email import (app/school_email.py). An approved
@@ -417,7 +413,7 @@ async def family_timezone(db) -> ZoneInfo:
     name = await get_setting(db, CALENDAR_TIMEZONE_SETTING)
     try:
         return ZoneInfo(name or "UTC")
-    except (ZoneInfoNotFoundError, ValueError, OSError):
+    except ZoneInfoNotFoundError, ValueError, OSError:
         # OSError: a tzdata directory name such as "Europe" raises
         # IsADirectoryError/PermissionError rather than NotFound.
         return ZoneInfo("UTC")

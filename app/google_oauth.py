@@ -90,25 +90,31 @@ def expires_at(token_response: dict) -> float:
 
 async def exchange_code_for_tokens(code: str, redirect_uri: str) -> dict:
     async with http_client.client() as client:
-        resp = await client.post(TOKEN_ENDPOINT, data={
-            "code": code,
-            "client_id": GOOGLE_CLIENT_ID,
-            "client_secret": GOOGLE_CLIENT_SECRET,
-            "redirect_uri": redirect_uri,
-            "grant_type": "authorization_code",
-        })
+        resp = await client.post(
+            TOKEN_ENDPOINT,
+            data={
+                "code": code,
+                "client_id": GOOGLE_CLIENT_ID,
+                "client_secret": GOOGLE_CLIENT_SECRET,
+                "redirect_uri": redirect_uri,
+                "grant_type": "authorization_code",
+            },
+        )
         resp.raise_for_status()
         return resp.json()
 
 
 async def refresh_access_token(refresh_token: str) -> dict:
     async with http_client.client() as client:
-        resp = await client.post(TOKEN_ENDPOINT, data={
-            "refresh_token": refresh_token,
-            "client_id": GOOGLE_CLIENT_ID,
-            "client_secret": GOOGLE_CLIENT_SECRET,
-            "grant_type": "refresh_token",
-        })
+        resp = await client.post(
+            TOKEN_ENDPOINT,
+            data={
+                "refresh_token": refresh_token,
+                "client_id": GOOGLE_CLIENT_ID,
+                "client_secret": GOOGLE_CLIENT_SECRET,
+                "grant_type": "refresh_token",
+            },
+        )
         resp.raise_for_status()
         return resp.json()
 
@@ -121,7 +127,11 @@ async def fetch_userinfo(access_token: str) -> dict:
 
 
 async def get_all_pages(
-    url: str, access_token: str, params: dict | None = None, items_key: str = "items", limit: int | None = None,
+    url: str,
+    access_token: str,
+    params: dict | None = None,
+    items_key: str = "items",
+    limit: int | None = None,
     meta: dict | None = None,
 ) -> list[dict]:
     """GET every page of a Google list endpoint (items + nextPageToken).
@@ -170,7 +180,7 @@ async def get_selected_calendars(db) -> list[dict]:
     try:
         parsed = json.loads(raw)
         return parsed or DEFAULT_SELECTED_CALENDARS
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         return DEFAULT_SELECTED_CALENDARS
 
 
@@ -182,9 +192,7 @@ async def set_selected_calendars(db, calendars: list[dict]):
 
 
 async def _load_stored_tokens(db) -> dict | None:
-    cursor = await db.execute(
-        "SELECT encrypted_token_json FROM auth_tokens WHERE service_name = 'google'"
-    )
+    cursor = await db.execute("SELECT encrypted_token_json FROM auth_tokens WHERE service_name = 'google'")
     row = await cursor.fetchone()
     if row is None or not row["encrypted_token_json"]:
         return None
@@ -210,9 +218,7 @@ async def store_tokens(db, tokens: dict, account_email: str | None = None):
 
 async def get_connected_account(db) -> str | None:
     """Email of the connected Google account, or None if not connected."""
-    cursor = await db.execute(
-        "SELECT account_email FROM auth_tokens WHERE service_name = 'google'"
-    )
+    cursor = await db.execute("SELECT account_email FROM auth_tokens WHERE service_name = 'google'")
     row = await cursor.fetchone()
     return row["account_email"] if row else None
 
@@ -298,7 +304,9 @@ async def connect(db) -> tuple[str | None, bool]:
         token = await get_valid_access_token(db)
     except httpx.HTTPError as exc:
         http_client.report_failure(
-            logger, "Google token refresh", "Google token refresh failed; showing offline: %s",
+            logger,
+            "Google token refresh",
+            "Google token refresh failed; showing offline: %s",
             http_client.describe(exc),
         )
         return None, True

@@ -46,7 +46,9 @@ def _skip_quiet_minutes():
 
 
 def _layout(server):
-    return {row[0]: row[1:] for row in server.query("SELECT widget_id, grid_x, grid_y, grid_w, grid_h FROM layout_state")}
+    return {
+        row[0]: row[1:] for row in server.query("SELECT widget_id, grid_x, grid_y, grid_w, grid_h FROM layout_state")
+    }
 
 
 @pytest.mark.parametrize("mode", ["day", "night"])
@@ -55,7 +57,9 @@ async def test_banner_shows_expands_and_dismisses_by_touch(start_server, page, m
     await page.add_init_script(FAKE_AUDIO)  # autoplay allowed
     server = start_server()
     server.seed_banners(sound=True)
-    server.query("INSERT INTO app_settings (key, value) VALUES ('appearance', ?)", ("light" if mode == "day" else "dark",))
+    server.query(
+        "INSERT INTO app_settings (key, value) VALUES ('appearance', ?)", ("light" if mode == "day" else "dark",)
+    )
     before = _layout(server)
 
     await page.goto(server.url + "/")

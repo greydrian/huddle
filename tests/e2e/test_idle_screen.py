@@ -26,15 +26,29 @@ window.fully = {
 
 
 def _settings(server, **values):
-    settings = {"mode": "slideshow", "night_mode": "dim", "delay_minutes": 5, "night_start": "", "night_end": "",
-                "dim_percent": 8, "interval_seconds": 20, **values}
-    server.query("INSERT INTO app_settings (key, value) VALUES ('idle_settings', ?) "
-                 "ON CONFLICT(key) DO UPDATE SET value = excluded.value", (json.dumps(settings),))
+    settings = {
+        "mode": "slideshow",
+        "night_mode": "dim",
+        "delay_minutes": 5,
+        "night_start": "",
+        "night_end": "",
+        "dim_percent": 8,
+        "interval_seconds": 20,
+        **values,
+    }
+    server.query(
+        "INSERT INTO app_settings (key, value) VALUES ('idle_settings', ?) "
+        "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        (json.dumps(settings),),
+    )
 
 
 def _appearance(server, mode):
-    server.query("INSERT INTO app_settings (key, value) VALUES ('appearance', ?) "
-                 "ON CONFLICT(key) DO UPDATE SET value = excluded.value", ("light" if mode == "day" else "dark",))
+    server.query(
+        "INSERT INTO app_settings (key, value) VALUES ('appearance', ?) "
+        "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        ("light" if mode == "day" else "dark",),
+    )
 
 
 def _seed_photos(server, count=3):
@@ -48,8 +62,10 @@ def _seed_photos(server, count=3):
             Image.new("RGB", (320, 200), (60 * i, 120, 200 - 50 * i)).save(out, "JPEG")
             (folder / f"{stem}.jpg").write_bytes(out.getvalue())
             (folder / f"{stem}_t.jpg").write_bytes(out.getvalue())
-            conn.execute("INSERT INTO photos (filename, thumb, width, height, bytes) VALUES (?, ?, 320, 200, ?)",
-                         (f"{stem}.jpg", f"{stem}_t.jpg", len(out.getvalue())))
+            conn.execute(
+                "INSERT INTO photos (filename, thumb, width, height, bytes) VALUES (?, ?, 320, 200, ?)",
+                (f"{stem}.jpg", f"{stem}_t.jpg", len(out.getvalue())),
+            )
 
 
 async def _state(page):
@@ -218,7 +234,9 @@ async def test_dim_turns_fullys_backlight_down_and_back(start_server, page):
     await page.wait_for_selector("#idle-screen.is-dim-backlight", state="visible")
     assert await page.evaluate("window.__brightness") == [26]  # 10% of 255
     # The overlay itself is see-through: the backlight does the dimming.
-    assert await page.locator("#idle-screen").evaluate("el => getComputedStyle(el).backgroundColor") == "rgba(0, 0, 0, 0)"
+    assert (
+        await page.locator("#idle-screen").evaluate("el => getComputedStyle(el).backgroundColor") == "rgba(0, 0, 0, 0)"
+    )
     await page.touchscreen.tap(640, 400)
     await page.wait_for_selector("#idle-screen", state="hidden")
     assert await page.evaluate("window.__brightness") == [26, 180]
@@ -296,13 +314,16 @@ async def test_slideshow_crossfades_with_the_overlay(start_server, page):
     # Banners stay visible above the slideshow.
     banner = page.locator("#banner-bar .banner").first
     box = await banner.bounding_box()
-    on_top = await page.evaluate("([x, y]) => !!document.elementFromPoint(x, y).closest('#banner-bar')",
-                                 [box["x"] + box["width"] / 2, box["y"] + box["height"] / 2])
+    on_top = await page.evaluate(
+        "([x, y]) => !!document.elementFromPoint(x, y).closest('#banner-bar')",
+        [box["x"] + box["width"] / 2, box["y"] + box["height"] / 2],
+    )
     assert on_top
     await page.screenshot(path=str(server.db_path.parent / "idle-slideshow.png"))
 
     await page.clock.run_for("00:21")
-    await page.wait_for_function("(src) => document.querySelector('.idle-photo.is-shown').getAttribute('src') !== src",
-                                 arg=first)
+    await page.wait_for_function(
+        "(src) => document.querySelector('.idle-photo.is-shown').getAttribute('src') !== src", arg=first
+    )
     assert await page.locator(".idle-photo.is-shown").count() == 1
     assert (await _state(page))["index"] == 1

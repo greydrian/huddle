@@ -27,9 +27,7 @@ async def fetch_tasks(access_token: str, tasklist_id: str) -> list[dict]:
     a status change made from the phone still needs to show up here, and a
     task missing from this result is treated as deleted on Google's side."""
     url = TASKS_ENDPOINT_TEMPLATE.format(tasklist_id=quote(tasklist_id, safe=""))
-    return await get_all_pages(
-        url, access_token, {"showCompleted": "true", "showHidden": "true", "maxResults": 100}
-    )
+    return await get_all_pages(url, access_token, {"showCompleted": "true", "showHidden": "true", "maxResults": 100})
 
 
 async def insert_task(access_token: str, tasklist_id: str, title: str, completed: bool = False) -> dict:

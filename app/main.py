@@ -16,7 +16,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 load_dotenv()  # local dev convenience — reads .env if present, before any
-                # GOOGLE_CLIENT_ID/SECRET env reads happen at import time below
+# GOOGLE_CLIENT_ID/SECRET env reads happen at import time below
 
 # One-time app log setup so module loggers (Google offline, sync skips,
 # token revocation) show in `docker compose logs`. uvicorn configures only

@@ -283,6 +283,7 @@ pip install --require-hashes -r requirements-dev.txt   # includes requirements.t
 uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 
 ruff check app tests
+ruff format app tests         # CI checks formatting too (`ruff format --check`)
 mypy                          # type check app/ ([tool.mypy] in pyproject.toml)
 python -m pytest -q           # unit tests; skips the browser tests
 

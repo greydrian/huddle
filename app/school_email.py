@@ -67,7 +67,7 @@ OUTAGE_KEY = "Gmail (school email)"
 SENDERS_SETTING = "school_email_senders"
 EXCLUSIONS_SETTING = "school_email_exclusions"
 SCHEDULE_SETTING = "school_email_schedule"
-CHECKPOINT_SETTING = "school_email_checkpoint"   # epoch seconds
+CHECKPOINT_SETTING = "school_email_checkpoint"  # epoch seconds
 STATUS_SETTING = "school_email_status"
 
 DEFAULT_SENDERS = ("office@greshamprimary.school", "*@gresham.croydon.sch.uk")
@@ -259,8 +259,7 @@ def mentions_excluded(text: str, exclusions: list[str]) -> bool:
     """Whether an excluded address (an exact one, not a *@domain) appears
     anywhere in the text: a forwarded or quoted SENDCo email is dropped
     whole, never sent on."""
-    return any(_mention_pattern(e).search(text or "") for e in _all_exclusions(exclusions)
-               if not e.startswith("*@"))
+    return any(_mention_pattern(e).search(text or "") for e in _all_exclusions(exclusions) if not e.startswith("*@"))
 
 
 def sender_verdict(auth: dict[str, list[str]] | None) -> bool | None:
@@ -323,7 +322,7 @@ async def get_schedule(db) -> Schedule:
     try:
         raw = json.loads(await get_setting(db, SCHEDULE_SETTING) or "{}")
         return parse_schedule(raw.get("mode", DEFAULT_SCHEDULE["mode"]), raw.get("time", DEFAULT_SCHEDULE["time"]))
-    except (ValueError, TypeError, AttributeError):
+    except ValueError, TypeError, AttributeError:
         return parse_schedule(DEFAULT_SCHEDULE["mode"], DEFAULT_SCHEDULE["time"])
 
 
@@ -392,12 +391,13 @@ def is_due(status: dict, schedule: Schedule, now: datetime, tz) -> bool:
 
 # --- Status ---
 
+
 def _parse(value) -> datetime | None:
     if not value:
         return None
     try:
         parsed = datetime.fromisoformat(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
 
@@ -412,8 +412,14 @@ async def get_status(db) -> dict:
 
 async def _record(db, now: datetime, result: "CheckResult"):
     status = await get_status(db)
-    status.update(last_attempt_at=now.isoformat(), result=result.result, emails=result.emails,
-                  items=result.items, skipped=result.skipped, remaining=result.remaining)
+    status.update(
+        last_attempt_at=now.isoformat(),
+        result=result.result,
+        emails=result.emails,
+        items=result.items,
+        skipped=result.skipped,
+        remaining=result.remaining,
+    )
     if result.result == OK:
         status["last_success_at"] = now.isoformat()
     await set_setting(db, STATUS_SETTING, json.dumps(status))
@@ -435,6 +441,7 @@ async def _advance_checkpoint(db, old: int | None, to: int):
 
 
 # --- What's already known about a message ---
+
 
 async def _record_skip(db, message_id: str, code: str, internal_date: int | None):
     """Remember a message that won't be read (id, neutral code, Gmail's
@@ -465,15 +472,17 @@ async def _known(db, message_id: str) -> tuple[str | None, int | None]:
     """("done" | "retry" | None, Gmail timestamp in ms if known). "done" is
     read, being read, given up on, failed for good, or skipped: passed over
     without fetching anything."""
-    skipped = await (await db.execute(
-        "SELECT internal_date FROM gmail_skipped WHERE message_id = ?", (message_id,)
-    )).fetchone()
+    skipped = await (
+        await db.execute("SELECT internal_date FROM gmail_skipped WHERE message_id = ?", (message_id,))
+    ).fetchone()
     if skipped is not None:
         return "done", skipped["internal_date"]
-    row = await (await db.execute(
-        "SELECT status, error_code, attempts, received_at FROM import_sources WHERE kind = 'gmail' AND source_ref = ?",
-        (message_id,),
-    )).fetchone()
+    row = await (
+        await db.execute(
+            "SELECT status, error_code, attempts, received_at FROM import_sources WHERE kind = 'gmail' AND source_ref = ?",
+            (message_id,),
+        )
+    ).fetchone()
     if row is None:
         return None, None
     return ("retry" if _retryable(row) else "done"), _epoch_ms(row["received_at"])
@@ -483,21 +492,27 @@ async def _retry_queue(db) -> list[str]:
     """School emails to read again, oldest first: Claude failed for a
     transient reason (attempts left), hit the daily cap, or Retry was
     pressed. Read by id, whatever the search window."""
-    rows = await (await db.execute(
-        """SELECT source_ref, status, error_code, attempts FROM import_sources
+    rows = await (
+        await db.execute(
+            """SELECT source_ref, status, error_code, attempts FROM import_sources
            WHERE kind = 'gmail' AND status IN ('failed', 'not_configured') ORDER BY received_at, id"""
-    )).fetchall()
+        )
+    ).fetchall()
     return [r["source_ref"] for r in rows if _retryable(r)]
 
 
 # --- Reading one message ---
 
+
 def _ordered_parts(parts: list[google_gmail.AttachmentPart]) -> list[google_gmail.AttachmentPart]:
     """PDFs first (newsletters, letters), then the larger images; logos and
     anything that isn't a PDF or image are dropped."""
     pdfs = [p for p in parts if p.mime_type == extraction.PDF_TYPE or p.filename.lower().endswith(".pdf")]
-    images = [p for p in parts if p.mime_type.startswith("image/") and p not in pdfs
-              and (p.size == 0 or p.size >= MIN_IMAGE_BYTES)]
+    images = [
+        p
+        for p in parts
+        if p.mime_type.startswith("image/") and p not in pdfs and (p.size == 0 or p.size >= MIN_IMAGE_BYTES)
+    ]
     return pdfs + sorted(images, key=lambda p: -p.size)
 
 
@@ -534,16 +549,16 @@ async def _attachments(access_token: str, message: google_gmail.Message) -> list
 @dataclass
 class CheckResult:
     result: str
-    emails: int = 0     # emails sent to Claude this time
-    items: int = 0      # items Claude found in them
-    skipped: int = 0    # not read (not from the school, excluded, unverified)
+    emails: int = 0  # emails sent to Claude this time
+    items: int = 0  # items Claude found in them
+    skipped: int = 0  # not read (not from the school, excluded, unverified)
     remaining: int = 0  # left for the next run (per-run cap)
-    ran: bool = True    # False: another check was already running
+    ran: bool = True  # False: another check was already running
 
 
 @dataclass
 class _Outcome:
-    kind: str                  # "read" / "failed" / "skipped" / "cap"
+    kind: str  # "read" / "failed" / "skipped" / "cap"
     internal_date: int | None = None
     items: int = 0
     retry_later: bool = False
@@ -583,9 +598,9 @@ async def _read_one(db, token: str, message_id: str, senders, exclusions) -> _Ou
     doc = imports.SourceDocument(
         kind="gmail",
         source_ref=message_id,
-        text=message.text[:extraction.MAX_TEXT_CHARS],
+        text=message.text[: extraction.MAX_TEXT_CHARS],
         attachments=tuple(await _attachments(token, message)),
-        subject=message.subject[:imports.MAX_SUBJECT_CHARS] or None,
+        subject=message.subject[: imports.MAX_SUBJECT_CHARS] or None,
         sender=message.sender[:200] or None,
         received_at=message.received_at,
         sender_verified=verified is True,  # no verdict at all: read, but marked unverified
@@ -595,9 +610,9 @@ async def _read_one(db, token: str, message_id: str, senders, exclusions) -> _Ou
         return _Outcome("skipped", when)
     if result.status == "extracted":
         return _Outcome("read", when, items=result.candidate_count)
-    row = await (await db.execute(
-        "SELECT status, error_code, attempts FROM import_sources WHERE id = ?", (result.source_id,)
-    )).fetchone()
+    row = await (
+        await db.execute("SELECT status, error_code, attempts FROM import_sources WHERE id = ?", (result.source_id,))
+    ).fetchone()
     if row["error_code"] == "daily_cap":
         return _Outcome("cap", when)
     if row["status"] == "failed" and row["error_code"] in TRANSIENT_EXTRACT and row["attempts"] >= imports.MAX_ATTEMPTS:
@@ -769,8 +784,14 @@ async def check_now(db, now: datetime | None = None) -> CheckResult:
                 pass
             result = CheckResult("error")
         await _record(db, now, result)
-        logger.info("School email check: %s, %d email(s) read, %d item(s), %d skipped, %d remaining",
-                    result.result, result.emails, result.items, result.skipped, result.remaining)
+        logger.info(
+            "School email check: %s, %d email(s) read, %d item(s), %d skipped, %d remaining",
+            result.result,
+            result.emails,
+            result.items,
+            result.skipped,
+            result.remaining,
+        )
         return result
 
 

@@ -120,7 +120,7 @@ async def test_admin_page_shows_hint_and_unlinked_note(db, admin_client):
     panel = html.split('id="tasks"')[1].split("<!-- Homework")[0]
 
     assert "Add, rename or delete tasks in Google Tasks — they sync here within a minute." in panel
-    assert 'action="/admin/tasks"' not in html and "/delete\"" not in panel
+    assert 'action="/admin/tasks"' not in html and '/delete"' not in panel
     # Only the unlinked person gets the note.
     assert panel.count("Link a Google list under") == len(await _profile_ids(db)) - 1
 
@@ -203,9 +203,14 @@ async def test_google_rename_survives_a_schedule_save(db, admin_client, connecte
     task_id = await _add_task(db, p1, google_task_id="g-1")
     await db.execute("UPDATE tasks SET updated_at = '2026-09-27 10:00:00' WHERE id = ?", (task_id,))
     await db.commit()
-    google.get(url__regex=rf"{TASKS_API}/list-a/tasks(\?.*)?$").respond(200, json={"items": [
-        {"id": "g-1", "title": "Feed the cat", "status": "needsAction", "updated": "2026-09-27T10:00:30Z"},
-    ]})
+    google.get(url__regex=rf"{TASKS_API}/list-a/tasks(\?.*)?$").respond(
+        200,
+        json={
+            "items": [
+                {"id": "g-1", "title": "Feed the cat", "status": "needsAction", "updated": "2026-09-27T10:00:30Z"},
+            ]
+        },
+    )
     patch = google.patch(f"{TASKS_API}/list-a/tasks/g-1").respond(200, json={"id": "g-1"})
 
     await admin_client.post(f"/admin/tasks/{task_id}/edit", data={"profile_id": p1, "days": ["Sat"]})
@@ -286,7 +291,7 @@ class FakeTasks:
 
 
 async def _link_lists(db, names):
-    ids = (await _profile_ids(db))[:len(names)]
+    ids = (await _profile_ids(db))[: len(names)]
     for pid, name in zip(ids, names, strict=True):
         await db.execute("UPDATE profiles SET google_tasklist_id = ? WHERE id = ?", (name, pid))
     await db.commit()
@@ -294,14 +299,14 @@ async def _link_lists(db, names):
 
 
 async def _live_tasks(db):
-    rows = await (await db.execute(
-        "SELECT profile_id, title, google_task_id FROM tasks WHERE archived = 0"
-    )).fetchall()
+    rows = await (await db.execute("SELECT profile_id, title, google_task_id FROM tasks WHERE archived = 0")).fetchall()
     return [tuple(r) for r in rows]
 
 
 async def _move(admin_client, task_id, profile_id):
-    resp = await admin_client.post(f"/admin/tasks/{task_id}/edit", data={"profile_id": profile_id, "is_recurring": "true"})
+    resp = await admin_client.post(
+        f"/admin/tasks/{task_id}/edit", data={"profile_id": profile_id, "is_recurring": "true"}
+    )
     assert resp.status_code == 303
 
 
@@ -399,7 +404,5 @@ async def test_tombstone_is_hidden_from_dashboard_and_admin(db, admin_client, co
 
     assert admin_html.count('class="admin-item-label">Feed cat ') == 1
     assert widget_html.count("Feed cat") == 1
-    tombstone = await (await db.execute(
-        "SELECT profile_id, google_task_id FROM tasks WHERE archived = 1"
-    )).fetchall()
+    tombstone = await (await db.execute("SELECT profile_id, google_task_id FROM tasks WHERE archived = 1")).fetchall()
     assert [tuple(r) for r in tombstone] == [(pa, "g-old")]

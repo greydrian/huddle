@@ -36,6 +36,7 @@ def _load(raw: str | None):
 
 # --- Family calendar ----------------------------------------------------------------------
 
+
 async def get_family_setting(db) -> dict | None:
     """The saved Family calendar ({"id", "summary"}), whether or not it's
     still selected (Admin shows it either way)."""
@@ -63,6 +64,7 @@ async def set_family_calendar(db, calendar: dict | None) -> None:
 
 # --- Default view -------------------------------------------------------------------------
 
+
 async def get_default_view(db) -> str:
     value = _load(await get_setting(db, DEFAULT_VIEW_KEY))
     return value if value in VIEWS else DEFAULT_VIEW
@@ -77,6 +79,7 @@ async def set_default_view(db, view: str) -> None:
 
 
 # --- Calendar -> person links -------------------------------------------------------------
+
 
 async def get_people_links(db) -> dict[str, int | str]:
     """{calendar id: profile id or EVERYONE}; anything unreadable is dropped."""

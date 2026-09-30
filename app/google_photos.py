@@ -73,7 +73,7 @@ CONTENT_HOST_SUFFIX = ".googleusercontent.com"  # where Picker baseUrls point (l
 # The Lenovo Idea Tab Plus panel (spec 3); Google scales to fit inside it.
 SIZE_PARAM = "=w2560-h1600"
 MAX_FILE_BYTES = 20 * 1024 * 1024  # a 2560x1600 photo is 1-3 MB; anything far bigger is skipped
-MAX_PIXELS = 40_000_000            # and so is anything that would decode to more than this
+MAX_PIXELS = 40_000_000  # and so is anything that would decode to more than this
 IMAGE_FORMATS = {"JPEG": "jpg", "PNG": "png", "WEBP": "webp", "GIF": "gif"}
 THUMB_SIZE = (320, 200)
 DOWNLOAD_TIMEOUT = httpx.Timeout(30.0, connect=5.0)
@@ -104,6 +104,7 @@ class Busy(Exception):
 
 
 # --- Configuration and sign-in ---------------------------------------------------------
+
 
 def client_id() -> str:
     return os.environ.get("GOOGLE_PHOTOS_CLIENT_ID", "").strip()
@@ -136,9 +137,14 @@ def build_auth_url(state: str, redirect_uri: str) -> str:
 
 async def _token_request(data: dict) -> dict:
     async with http_client.client() as client:
-        resp = await client.post(TOKEN_ENDPOINT, data={
-            **data, "client_id": client_id(), "client_secret": _client_secret(),
-        })
+        resp = await client.post(
+            TOKEN_ENDPOINT,
+            data={
+                **data,
+                "client_id": client_id(),
+                "client_secret": _client_secret(),
+            },
+        )
         resp.raise_for_status()
         return resp.json()
 
@@ -160,9 +166,9 @@ async def store_tokens(db, tokens: dict) -> None:
 
 
 async def _load_tokens(db) -> dict | None:
-    row = await (await db.execute(
-        "SELECT encrypted_token_json FROM auth_tokens WHERE service_name = ?", (SERVICE,)
-    )).fetchone()
+    row = await (
+        await db.execute("SELECT encrypted_token_json FROM auth_tokens WHERE service_name = ?", (SERVICE,))
+    ).fetchone()
     if row is None or not row["encrypted_token_json"]:
         return None
     return decrypt_token_json(row["encrypted_token_json"])
@@ -219,6 +225,7 @@ async def sign_out(db) -> None:
 
 # --- The Picker API -------------------------------------------------------------------
 
+
 def _auth(token: str) -> dict:
     return {"Authorization": f"Bearer {token}"}
 
@@ -227,14 +234,15 @@ def _seconds(duration, default: float) -> float:
     """A protobuf Duration string ("5s", "1799.5s") -> seconds."""
     try:
         return float(str(duration).removesuffix("s"))
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return default
 
 
 async def create_session(token: str) -> dict:
     async with http_client.client() as client:
-        resp = await client.post(SESSIONS_ENDPOINT, headers=_auth(token),
-                                 json={"pickingConfig": {"maxItemCount": str(MAX_PHOTOS)}})
+        resp = await client.post(
+            SESSIONS_ENDPOINT, headers=_auth(token), json={"pickingConfig": {"maxItemCount": str(MAX_PHOTOS)}}
+        )
         resp.raise_for_status()
         return resp.json()
 
@@ -282,14 +290,22 @@ def is_google_content_url(url) -> bool:
     except ValueError:
         return False
     host = (parts.hostname or "").lower()
-    return (parts.scheme == "https" and port in (None, 443) and not parts.username and not parts.password
-            and host.endswith(CONTENT_HOST_SUFFIX))
+    return (
+        parts.scheme == "https"
+        and port in (None, 443)
+        and not parts.username
+        and not parts.password
+        and host.endswith(CONTENT_HOST_SUFFIX)
+    )
 
 
 def is_photo(item: dict) -> bool:
     media = item.get("mediaFile") or {}
-    return (item.get("type") == "PHOTO" and str(media.get("mimeType", "")).startswith("image/")
-            and is_google_content_url(media.get("baseUrl")))
+    return (
+        item.get("type") == "PHOTO"
+        and str(media.get("mimeType", "")).startswith("image/")
+        and is_google_content_url(media.get("baseUrl"))
+    )
 
 
 async def download(token: str, base_url: str) -> bytes | None:
@@ -317,6 +333,7 @@ async def download(token: str, base_url: str) -> bytes | None:
 
 # --- Files on disk --------------------------------------------------------------------
 
+
 def _save_image(data: bytes) -> dict | None:
     """Check `data` is an image we can show, then write it and a thumbnail
     under new names. None (nothing written) if it isn't one."""
@@ -331,7 +348,7 @@ def _save_image(data: bytes) -> dict | None:
         with Image.open(io.BytesIO(data)) as img:
             thumb = ImageOps.exif_transpose(img).convert("RGB")
             thumb.thumbnail(THUMB_SIZE)
-    except (UnidentifiedImageError, OSError, SyntaxError, ValueError, Image.DecompressionBombError):
+    except UnidentifiedImageError, OSError, SyntaxError, ValueError, Image.DecompressionBombError:
         return None
     PHOTOS_DIR.mkdir(parents=True, exist_ok=True)
     stem = secrets.token_hex(16)
@@ -426,8 +443,11 @@ def weekly_order(ids: list[int], today: date) -> list[int]:
 
 async def slideshow(db, today: date) -> list[str]:
     """The slideshow's photo URLs, in this week's order (files that exist only)."""
-    rows = {r["id"]: r for r in await list_photos(db)
-            if FILE_NAME.fullmatch(r["filename"]) and (PHOTOS_DIR / r["filename"]).is_file()}
+    rows = {
+        r["id"]: r
+        for r in await list_photos(db)
+        if FILE_NAME.fullmatch(r["filename"]) and (PHOTOS_DIR / r["filename"]).is_file()
+    }
     return [f"/photos/{rows[photo_id]['key']}" for photo_id in weekly_order(list(rows), today)]
 
 
@@ -437,6 +457,7 @@ async def slideshow(db, today: date) -> list[str]:
 #   {"status": "waiting" | "importing" | "done" | "failed" | "expired",
 #    "session_id", "picker_uri", "poll_seconds", "expires_at" (epoch),
 #    "imported", "skipped", "message"}
+
 
 async def get_state(db) -> dict:
     try:
@@ -491,8 +512,9 @@ async def start_picking(db) -> dict:
         "status": "waiting",
         "session_id": session["id"],
         "picker_uri": session["pickerUri"],
-        "poll_seconds": min(MAX_POLL_SECONDS, max(MIN_POLL_SECONDS, _seconds(polling.get("pollInterval"),
-                                                                             DEFAULT_POLL_SECONDS))),
+        "poll_seconds": min(
+            MAX_POLL_SECONDS, max(MIN_POLL_SECONDS, _seconds(polling.get("pollInterval"), DEFAULT_POLL_SECONDS))
+        ),
         "expires_at": time.time() + _seconds(polling.get("timeoutIn"), DEFAULT_SESSION_SECONDS),
     }
     await _set_state(db, state)
@@ -579,8 +601,9 @@ async def poll_once(db) -> dict:
     try:
         imported, skipped = await import_session(db, token, session_id)
     except (httpx.HTTPError, ImportFailed, OSError) as exc:
-        http_client.report_failure(logger, OUTAGE_KEY, "Google Photos import failed; keeping the old photos: %s",
-                                   http_client.describe(exc))
+        http_client.report_failure(
+            logger, OUTAGE_KEY, "Google Photos import failed; keeping the old photos: %s", http_client.describe(exc)
+        )
         state.update(status="failed", message="empty" if isinstance(exc, ImportFailed) else "offline")
     else:
         http_client.report_success(logger, OUTAGE_KEY)
@@ -602,8 +625,12 @@ async def _poll_loop(poll_seconds: float) -> None:
                 state = await poll_once(db)
             http_client.report_success(logger, POLL_OUTAGE_KEY)
         except httpx.HTTPError as exc:
-            http_client.report_failure(logger, POLL_OUTAGE_KEY, "Google Photos picker unreachable; still waiting: %s",
-                                       http_client.describe(exc))
+            http_client.report_failure(
+                logger,
+                POLL_OUTAGE_KEY,
+                "Google Photos picker unreachable; still waiting: %s",
+                http_client.describe(exc),
+            )
             state = {"status": "waiting"}
         except Exception:
             logger.exception("Google Photos picker poll failed")

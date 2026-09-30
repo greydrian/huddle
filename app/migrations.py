@@ -74,6 +74,7 @@ class _MigrationConnection:
 # its own frozen constants. They are shared with the baseline, so don't change
 # what they do to a database: add a new migration instead.
 
+
 async def _backfill_updated_at(db):
     # Shopping items / tasks inserted without updated_at on a database whose
     # column was added by ALTER TABLE (no default) get it from created_at.
@@ -453,9 +454,7 @@ async def m0003_term_dates(db):
                    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
                )"""
     )
-    await db.execute(
-        "CREATE INDEX IF NOT EXISTS school_periods_dates ON school_periods (start_date, end_date)"
-    )
+    await db.execute("CREATE INDEX IF NOT EXISTS school_periods_dates ON school_periods (start_date, end_date)")
     await db.execute(
         """CREATE TABLE IF NOT EXISTS bank_holidays (
                    date TEXT PRIMARY KEY,       -- ISO date
@@ -496,9 +495,12 @@ async def m0005_widget_visibility(db):
 
     await database._add_column_if_missing(db, "layout_state", "school_days_only", "INTEGER NOT NULL DEFAULT 0")
     await database._add_column_if_missing(db, "layout_state", "hide_moves", "TEXT")
-    rows = [dict(r) for r in await (await db.execute(
-        "SELECT widget_id, grid_x, grid_y, grid_w, grid_h, is_visible FROM layout_state"
-    )).fetchall()]
+    rows = [
+        dict(r)
+        for r in await (
+            await db.execute("SELECT widget_id, grid_x, grid_y, grid_w, grid_h, is_visible FROM layout_state")
+        ).fetchall()
+    ]
     photos = next((r for r in rows if r["widget_id"] == "photos"), None)
     if photos is None:
         return
@@ -509,7 +511,9 @@ async def m0005_widget_visibility(db):
     before = {r["widget_id"]: r["grid_y"] for r in visible}
     for row in close_gap(visible, photos):
         if row["grid_y"] != before[row["widget_id"]]:
-            await db.execute("UPDATE layout_state SET grid_y = ? WHERE widget_id = ?", (row["grid_y"], row["widget_id"]))
+            await db.execute(
+                "UPDATE layout_state SET grid_y = ? WHERE widget_id = ?", (row["grid_y"], row["widget_id"])
+            )
 
 
 async def m0006_photos(db):
@@ -538,17 +542,54 @@ async def m0006_photos(db):
 _M7_LANGUAGE_WORDS = ("french", "spanish", "german", "mfl", "languages", "modern foreign languages")
 _M7_SYNONYMS = {
     "maths": (
-        "maths", "math", "mathematics", "numeracy", "number", "numbers", "number bonds", "times tables",
-        "times table", "arithmetic", "mental maths", "fractions", "sumdog", "mathletics",
-        "numbots", "tt rockstars", "ttrockstars", "ttrs", "times tables rock stars",
+        "maths",
+        "math",
+        "mathematics",
+        "numeracy",
+        "number",
+        "numbers",
+        "number bonds",
+        "times tables",
+        "times table",
+        "arithmetic",
+        "mental maths",
+        "fractions",
+        "sumdog",
+        "mathletics",
+        "numbots",
+        "tt rockstars",
+        "ttrockstars",
+        "ttrs",
+        "times tables rock stars",
     ),
     "english": (
-        "english", "spelling", "spellings", "phonics", "grammar", "spag", "gps", "punctuation",
-        "writing", "handwriting", "literacy", "vocabulary", "creative writing", "read write inc", "rwi",
+        "english",
+        "spelling",
+        "spellings",
+        "phonics",
+        "grammar",
+        "spag",
+        "gps",
+        "punctuation",
+        "writing",
+        "handwriting",
+        "literacy",
+        "vocabulary",
+        "creative writing",
+        "read write inc",
+        "rwi",
     ),
     "reading": (
-        "reading", "reader", "library", "reading book", "reading record",
-        "guided reading", "comprehension", "reading comprehension", "bug club", "oxford owl",
+        "reading",
+        "reader",
+        "library",
+        "reading book",
+        "reading record",
+        "guided reading",
+        "comprehension",
+        "reading comprehension",
+        "bug club",
+        "oxford owl",
     ),
     "science": ("science", "biology", "chemistry", "physics", "experiment", "investigation"),
     "topic": ("topic", "project", "history", "geography", "humanities", "topic work"),
@@ -587,9 +628,9 @@ async def m0007_homework_extras(db):
     await database._add_column_if_missing(db, "homework", "subject_key", "TEXT NOT NULL DEFAULT 'other'")
     # Only rows still on the default: a re-run (a restored older backup) never
     # overwrites a subject Admin picked since.
-    for row in await (await db.execute(
-        "SELECT id, subject FROM homework WHERE subject_key IS NULL OR subject_key = 'other'"
-    )).fetchall():
+    for row in await (
+        await db.execute("SELECT id, subject FROM homework WHERE subject_key IS NULL OR subject_key = 'other'")
+    ).fetchall():
         await db.execute(
             "UPDATE homework SET subject_key = ? WHERE id = ?", (_m7_subject_key(row["subject"]), row["id"])
         )
@@ -722,7 +763,9 @@ async def run_migrations(db, migrations: list[Migration] | None = None) -> list[
                 raise  # cancellation / interpreter exit: still rolled back
             logger.error(
                 "Database migration %04d %r failed and was rolled back; startup stopped: %s",
-                migration.version, migration.name, exc,
+                migration.version,
+                migration.name,
+                exc,
             )
             raise MigrationError(f"migration {migration.version:04d} {migration.name!r} failed: {exc}") from exc
         logger.info("Applied database migration %04d %r", migration.version, migration.name)

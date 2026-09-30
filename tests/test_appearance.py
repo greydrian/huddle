@@ -19,12 +19,12 @@ def _at(hour, minute=0, tz=LONDON, day=(2026, 6, 15)):
 @pytest.mark.parametrize(
     ("hour", "minute", "mode", "switch"),
     [
-        (7, 0, "day", (6, 15, 19)),     # morning edge: day starts at 07:00 sharp
+        (7, 0, "day", (6, 15, 19)),  # morning edge: day starts at 07:00 sharp
         (12, 30, "day", (6, 15, 19)),
         (18, 59, "day", (6, 15, 19)),
-        (19, 0, "night", (6, 16, 7)),   # evening edge: night starts at 19:00 sharp
+        (19, 0, "night", (6, 16, 7)),  # evening edge: night starts at 19:00 sharp
         (23, 30, "night", (6, 16, 7)),
-        (0, 0, "night", (6, 15, 7)),    # after midnight: switches back the same morning
+        (0, 0, "night", (6, 15, 7)),  # after midnight: switches back the same morning
         (6, 59, "night", (6, 15, 7)),
     ],
 )
@@ -95,12 +95,12 @@ async def test_admin_saves_appearance(db, client):
     [
         ("#FFFFFF", "dark"),
         ("#000000", "light"),
-        ("#D6A02C", "dark"),   # ochre: white text would be ~2.3:1
+        ("#D6A02C", "dark"),  # ochre: white text would be ~2.3:1
         ("#F2C94C", "dark"),
         ("#3D6E93", "light"),
         ("#C1584A", "light"),
         ("#8E5BB5", "light"),
-        ("#abc", "dark"),       # shorthand hex
+        ("#abc", "dark"),  # shorthand hex
         ("not-a-colour", "light"),
     ],
 )

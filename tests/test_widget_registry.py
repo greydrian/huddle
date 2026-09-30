@@ -49,16 +49,22 @@ async def seeded(db):
     # A fresh cache, so the weather widget renders without a network call.
     location = {"name": MARKERS["/widgets/weather"], "country": "", "latitude": 1.0, "longitude": 2.0}
     await weather.set_location(db, location)
-    await database.set_setting(db, weather.CACHE_SETTING, json.dumps({
-        "fetched_at": datetime.now(timezone.utc).isoformat(),
-        "latitude": 1.0,
-        "longitude": 2.0,
-        "forecast": {
-            "utc_offset_seconds": 0,
-            "current": {"temperature": 12.0, "weather_code": 3},
-            "daily": [{"date": today, "weather_code": 3, "max": 14.0, "min": 6.0}],
-        },
-    }))
+    await database.set_setting(
+        db,
+        weather.CACHE_SETTING,
+        json.dumps(
+            {
+                "fetched_at": datetime.now(timezone.utc).isoformat(),
+                "latitude": 1.0,
+                "longitude": 2.0,
+                "forecast": {
+                    "utc_offset_seconds": 0,
+                    "current": {"temperature": 12.0, "weather_code": 3},
+                    "daily": [{"date": today, "weather_code": 3, "max": 14.0, "min": 6.0}],
+                },
+            }
+        ),
+    )
     await db.commit()
 
 

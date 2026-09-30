@@ -47,6 +47,7 @@ def _changed(before, after):
 
 # --- /api/rev ---
 
+
 async def test_rev_is_stable_when_nothing_changes(client):
     assert await _revs(client) == await _revs(client)
     assert set(await _revs(client)) == {*freshness.REFRESHED, freshness.BANNERS}
@@ -134,6 +135,7 @@ async def test_dashboard_starts_with_the_same_revisions_as_the_endpoint(db, clie
 
 # --- Refresh markup ---
 
+
 def test_every_refreshed_widget_is_registered():
     assert set(freshness.REFRESHED) == set(REFRESH_ROUTES)
     assert all(widget_id in WIDGETS for widget_id in freshness.REFRESHED)
@@ -163,12 +165,20 @@ async def test_dashboard_loads_the_refresh_script(client):
 
 def test_refresh_script_guards_widgets_in_use():
     source = (STATIC_JS / "fresh.js").read_text(encoding="utf-8")
-    for guard in ("osk-open", "details[open]", ".just-ticked", ".htmx-request",
-                  "ui-draggable-dragging", "ui-resizable-resizing", "shouldSwap = false"):
+    for guard in (
+        "osk-open",
+        "details[open]",
+        ".just-ticked",
+        ".htmx-request",
+        "ui-draggable-dragging",
+        "ui-resizable-resizing",
+        "shouldSwap = false",
+    ):
         assert guard in source, guard
 
 
 # --- The family date ---
+
 
 async def test_today_endpoint_uses_the_family_timezone(db, client):
     body = (await client.get("/api/today")).json()
@@ -196,11 +206,14 @@ async def test_today_info_converts_a_utc_now_to_the_family_zone(db):
     assert info == {"date": "2026-09-29", "next_change_in": 23 * 3600 + 30 * 60}
 
 
-@pytest.mark.parametrize(("local", "expected_hours"), [
-    (datetime(2026, 3, 29, 0, 30), 22.5),   # London springs forward at 01:00: a 23h day
-    (datetime(2026, 10, 25, 0, 30), 24.5),  # falls back at 02:00: a 25h day
-    (datetime(2026, 10, 24, 12, 0), 12),    # ordinary day before the change
-])
+@pytest.mark.parametrize(
+    ("local", "expected_hours"),
+    [
+        (datetime(2026, 3, 29, 0, 30), 22.5),  # London springs forward at 01:00: a 23h day
+        (datetime(2026, 10, 25, 0, 30), 24.5),  # falls back at 02:00: a 25h day
+        (datetime(2026, 10, 24, 12, 0), 12),  # ordinary day before the change
+    ],
+)
 def test_seconds_until_tomorrow_across_dst(local, expected_hours):
     now = local.replace(tzinfo=ZoneInfo("Europe/London"))
     assert freshness.seconds_until_tomorrow(now) == int(expected_hours * 3600)

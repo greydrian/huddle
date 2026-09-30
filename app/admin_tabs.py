@@ -74,8 +74,14 @@ def login_return(next_url: str | None, section: str | None = None) -> str:
     if next_url:
         parts = urlsplit(next_url)
         query = parse_qsl(parts.query, keep_blank_values=True)
-        valid = (not parts.scheme and not parts.netloc and parts.path == "/admin" and not parts.fragment
-                 and len(query) <= 1 and all(k == "tab" and v in TABS for k, v in query))
+        valid = (
+            not parts.scheme
+            and not parts.netloc
+            and parts.path == "/admin"
+            and not parts.fragment
+            and len(query) <= 1
+            and all(k == "tab" and v in TABS for k, v in query)
+        )
         if not valid:
             return "/admin"
         tab = query[0][1] if query else None

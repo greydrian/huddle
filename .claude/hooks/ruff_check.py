@@ -28,11 +28,22 @@ elif shutil.which("ruff"):
 else:
     sys.exit(0)
 
-result = subprocess.run(
+problems = []
+result = subprocess.run(  # noqa: S603 (our own ruff, on the edited path)
     [*cmd, "check", "--output-format", "concise", "--quiet", str(path)],
-    cwd=root, capture_output=True, text=True,
+    cwd=root,
+    capture_output=True,
+    text=True,
 )
 if result.returncode == 1 and result.stdout.strip():
-    print(f"ruff found issues in {path.name} (fix before committing):\n{result.stdout}", file=sys.stderr)
+    problems.append(f"ruff found issues in {path.name} (fix before committing):\n{result.stdout}")
+# CI runs `ruff format --check`, so an unformatted file fails there.
+formatted = subprocess.run(  # noqa: S603
+    [*cmd, "format", "--check", "--quiet", str(path)], cwd=root, capture_output=True, text=True
+)
+if formatted.returncode == 1:
+    problems.append(f"{path.name} is not ruff-formatted: run `ruff format {path}` (never format by hand)")
+if problems:
+    print("\n".join(problems), file=sys.stderr)
     sys.exit(2)
 sys.exit(0)

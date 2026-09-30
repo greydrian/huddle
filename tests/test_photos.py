@@ -36,7 +36,11 @@ def jpeg(width=64, height=40, colour=(200, 80, 40)) -> bytes:
 
 
 def item(n, kind="PHOTO", mime="image/jpeg"):
-    return {"id": f"m{n}", "type": kind, "mediaFile": {"baseUrl": f"{BASE}/{n}", "mimeType": mime, "filename": f"{n}.jpg"}}
+    return {
+        "id": f"m{n}",
+        "type": kind,
+        "mediaFile": {"baseUrl": f"{BASE}/{n}", "mimeType": mime, "filename": f"{n}.jpg"},
+    }
 
 
 @pytest.fixture
@@ -53,15 +57,21 @@ def admin_client(client):
 
 @pytest.fixture
 async def signed_in(db, configured):
-    await google_photos.store_tokens(db, {"access_token": ACCESS, "refresh_token": REFRESH,
-                                          "expires_at": time.time() + 3600})
+    await google_photos.store_tokens(
+        db, {"access_token": ACCESS, "refresh_token": REFRESH, "expires_at": time.time() + 3600}
+    )
 
 
 def mock_session(google, media_items_set=False):
-    google.post(google_photos.SESSIONS_ENDPOINT, name="create").respond(200, json={
-        "id": SESSION, "pickerUri": PICKER_URI, "mediaItemsSet": False,
-        "pollingConfig": {"pollInterval": "3s", "timeoutIn": "1800s"},
-    })
+    google.post(google_photos.SESSIONS_ENDPOINT, name="create").respond(
+        200,
+        json={
+            "id": SESSION,
+            "pickerUri": PICKER_URI,
+            "mediaItemsSet": False,
+            "pollingConfig": {"pollInterval": "3s", "timeoutIn": "1800s"},
+        },
+    )
     google.get(SESSION_URL).respond(200, json={"id": SESSION, "mediaItemsSet": media_items_set})
     return google.delete(SESSION_URL).respond(200, json={})
 
@@ -69,7 +79,7 @@ def mock_session(google, media_items_set=False):
 def mock_items(google, items, pages=1):
     """mediaItems.list over `pages` pages."""
     size = -(-len(items) // pages)
-    chunks = [items[i:i + size] for i in range(0, len(items), size)] or [[]]
+    chunks = [items[i : i + size] for i in range(0, len(items), size)] or [[]]
     if pages == 1:
         return google.get(google_photos.MEDIA_ITEMS_ENDPOINT).respond(200, json={"mediaItems": items})
     responses = []
@@ -86,8 +96,16 @@ def mock_downloads(google, body=None):
 
 
 async def waiting_state(db):
-    await google_photos._set_state(db, {"status": "waiting", "session_id": SESSION, "picker_uri": PICKER_URI,
-                                        "poll_seconds": 3, "expires_at": time.time() + 1800})
+    await google_photos._set_state(
+        db,
+        {
+            "status": "waiting",
+            "session_id": SESSION,
+            "picker_uri": PICKER_URI,
+            "poll_seconds": 3,
+            "expires_at": time.time() + 1800,
+        },
+    )
 
 
 async def rows(db):
@@ -106,6 +124,7 @@ def files():
 
 # --- Sign-in ---
 
+
 async def test_connect_asks_only_for_the_picker_scope(admin_client, configured):
     resp = await admin_client.get("/admin/photos/connect")
     assert resp.status_code == 302
@@ -122,9 +141,15 @@ async def test_callback_stores_the_token_encrypted_and_apart_then_starts_picking
     admin_client, db, configured, connected, google
 ):
     main_before = await (await db.execute("SELECT * FROM auth_tokens WHERE service_name = 'google'")).fetchone()
-    google.post(google_photos.TOKEN_ENDPOINT).respond(200, json={
-        "access_token": ACCESS, "refresh_token": REFRESH, "expires_in": 3599, "scope": google_photos.SCOPE,
-    })
+    google.post(google_photos.TOKEN_ENDPOINT).respond(
+        200,
+        json={
+            "access_token": ACCESS,
+            "refresh_token": REFRESH,
+            "expires_in": 3599,
+            "scope": google_photos.SCOPE,
+        },
+    )
     mock_session(google)
     create = google.routes["create"]
     admin_client.cookies.set(photos.STATE_COOKIE, "st8")
@@ -152,8 +177,9 @@ async def test_callback_stores_the_token_encrypted_and_apart_then_starts_picking
     assert 'hx-get="/admin/photos/status"' in html
 
 
-@pytest.mark.parametrize("params", [{"code": "c", "state": "wrong"}, {"error": "access_denied", "state": "st8"},
-                                    {"state": "st8"}])
+@pytest.mark.parametrize(
+    "params", [{"code": "c", "state": "wrong"}, {"error": "access_denied", "state": "st8"}, {"state": "st8"}]
+)
 async def test_a_bad_callback_stores_nothing(admin_client, db, configured, google, params):
     admin_client.cookies.set(photos.STATE_COOKIE, "st8")
     resp = await admin_client.get("/admin/photos/callback", params=params)
@@ -200,6 +226,7 @@ async def test_sign_out_revokes_and_forgets_only_the_photos_token(admin_client, 
 
 # --- Picking and importing ---
 
+
 async def test_poll_waits_until_items_are_set(db, signed_in, google):
     mock_session(google, media_items_set=False)
     await waiting_state(db)
@@ -228,8 +255,11 @@ async def test_import_lists_every_page_downloads_at_panel_size_and_cleans_up(db,
 
 async def test_at_most_30_photos_and_videos_are_skipped(db, signed_in, google):
     mock_session(google, media_items_set=True)
-    items = [item("v1", kind="VIDEO", mime="video/mp4"), *[item(n) for n in range(33)],
-             item("x", mime="application/pdf")]
+    items = [
+        item("v1", kind="VIDEO", mime="video/mp4"),
+        *[item(n) for n in range(33)],
+        item("x", mime="application/pdf"),
+    ]
     mock_items(google, items)
     download = mock_downloads(google)
     await waiting_state(db)
@@ -342,13 +372,21 @@ async def test_status_fragment_polls_only_while_picking(admin_client, db, signed
 
 async def test_a_picker_uri_that_isnt_https_is_never_linked(admin_client, db, signed_in, monkeypatch):
     monkeypatch.setattr(google_photos, "ensure_poller", lambda state: None)
-    await google_photos._set_state(db, {"status": "waiting", "session_id": SESSION,
-                                        "picker_uri": "javascript:alert(1)", "expires_at": time.time() + 60})
+    await google_photos._set_state(
+        db,
+        {
+            "status": "waiting",
+            "session_id": SESSION,
+            "picker_uri": "javascript:alert(1)",
+            "expires_at": time.time() + 60,
+        },
+    )
     html = (await admin_client.get("/admin/photos/status")).text
     assert "javascript:" not in html and "<svg" not in html
 
 
 # --- Storage, order and serving ---
+
 
 def test_the_weekly_shuffle_is_deterministic():
     ids = list(range(1, 31))
@@ -370,8 +408,18 @@ async def test_photos_are_served_by_id_and_stem_only(client, db):
     assert resp.content == (google_photos.PHOTOS_DIR / saved[0]["filename"]).read_bytes()
     assert (await client.get(f"/photos/{photo_id}-{stem}/thumb")).status_code == 200
     other = "0" * 32
-    for bad in (str(photo_id), f"{photo_id}-{other}", f"999-{stem}", f"0-{stem}", f"-1-{stem}", "abc",
-                f"{photo_id}-{stem}.jpg", f"{photo_id}-{stem.upper()}", "..%2F..%2Fdata", f"{2**70}-{stem}"):
+    for bad in (
+        str(photo_id),
+        f"{photo_id}-{other}",
+        f"999-{stem}",
+        f"0-{stem}",
+        f"-1-{stem}",
+        "abc",
+        f"{photo_id}-{stem}.jpg",
+        f"{photo_id}-{stem.upper()}",
+        "..%2F..%2Fdata",
+        f"{2**70}-{stem}",
+    ):
         assert (await client.get(f"/photos/{bad}")).status_code in (404, 422), bad
     # A row whose name isn't one we generated is never opened.
     await db.execute("UPDATE photos SET filename = '../.secret_key' WHERE id = ?", (photo_id,))
@@ -413,6 +461,7 @@ async def test_remove_all(admin_client, db):
 
 # --- Admin ---
 
+
 async def test_missing_env_vars_show_the_setup_steps(admin_client):
     html = (await admin_client.get("/admin?tab=display")).text
     assert 'id="photos"' in html
@@ -434,11 +483,19 @@ async def test_configured_shows_choose_and_the_thumbnails(admin_client, db, conf
     assert 'action="/admin/photos/remove"' in html
 
 
-@pytest.mark.parametrize(("method", "path"), [
-    ("GET", "/admin/photos/connect"), ("GET", "/admin/photos/callback"), ("POST", "/admin/photos/choose"),
-    ("GET", "/admin/photos/status"), ("POST", "/admin/photos/cancel"), ("POST", "/admin/photos/remove"),
-    ("POST", "/admin/photos/sign-out"), ("POST", "/admin/idle"),
-])
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [
+        ("GET", "/admin/photos/connect"),
+        ("GET", "/admin/photos/callback"),
+        ("POST", "/admin/photos/choose"),
+        ("GET", "/admin/photos/status"),
+        ("POST", "/admin/photos/cancel"),
+        ("POST", "/admin/photos/remove"),
+        ("POST", "/admin/photos/sign-out"),
+        ("POST", "/admin/idle"),
+    ],
+)
 async def test_every_photos_route_needs_admin(client, db, method, path):
     await seed_old_set(db, 1)
     resp = await client.request(method, path)
@@ -447,8 +504,9 @@ async def test_every_photos_route_needs_admin(client, db, method, path):
 
 
 async def test_no_secret_or_token_is_logged(admin_client, db, configured, google, caplog):
-    google.post(google_photos.TOKEN_ENDPOINT).respond(200, json={
-        "access_token": ACCESS, "refresh_token": REFRESH, "expires_in": 3599})
+    google.post(google_photos.TOKEN_ENDPOINT).respond(
+        200, json={"access_token": ACCESS, "refresh_token": REFRESH, "expires_in": 3599}
+    )
     mock_session(google, media_items_set=True)
     mock_items(google, [item(1), item(2)])
     google.get(f"{BASE}/1=w2560-h1600").respond(200, content=jpeg())
@@ -467,6 +525,7 @@ async def test_no_secret_or_token_is_logged(admin_client, db, configured, google
 
 # --- Migration 6 ---
 
+
 async def test_migration_6_adds_the_photos_table_and_is_a_no_op_again(tmp_path, monkeypatch):
     path = tmp_path / "upgrade.db"
     monkeypatch.setattr(database, "DB_PATH", path)
@@ -482,7 +541,7 @@ async def test_migration_6_adds_the_photos_table_and_is_a_no_op_again(tmp_path, 
         columns = [row[1] for row in conn.execute("PRAGMA table_info(photos)")]
         versions = {row[0] for row in conn.execute("SELECT version FROM schema_migrations")}
         # (later migrations may add columns: the ones that were there are unchanged)
-        assert [row[:len(before[0])] for row in conn.execute("SELECT * FROM profiles ORDER BY id")] == before
+        assert [row[: len(before[0])] for row in conn.execute("SELECT * FROM profiles ORDER BY id")] == before
     assert columns == ["id", "filename", "thumb", "width", "height", "bytes", "created_at"]
     assert 6 in versions
     with sqlite3.connect(path) as conn:

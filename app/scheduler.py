@@ -48,32 +48,56 @@ def start():
     # Single-process only: every uvicorn worker would start its own scheduler
     # and push the same sync_queue rows (duplicate Google tasks).
     scheduler.add_job(
-        _run_sync_job, "interval", seconds=SYNC_INTERVAL_SECONDS,
-        id="google_tasks_sync", replace_existing=True, max_instances=1,
+        _run_sync_job,
+        "interval",
+        seconds=SYNC_INTERVAL_SECONDS,
+        id="google_tasks_sync",
+        replace_existing=True,
+        max_instances=1,
     )
     scheduler.add_job(
-        _daily_reset_job, "interval", seconds=DAILY_RESET_CHECK_SECONDS,
-        id="daily_task_reset", replace_existing=True, max_instances=1,
+        _daily_reset_job,
+        "interval",
+        seconds=DAILY_RESET_CHECK_SECONDS,
+        id="daily_task_reset",
+        replace_existing=True,
+        max_instances=1,
         next_run_time=datetime.now(timezone.utc),  # catch up straight away after downtime
     )
     scheduler.add_job(
-        backup.run_backup_if_due, "interval", seconds=BACKUP_CHECK_SECONDS,
-        id="nightly_backup", replace_existing=True, max_instances=1,
+        backup.run_backup_if_due,
+        "interval",
+        seconds=BACKUP_CHECK_SECONDS,
+        id="nightly_backup",
+        replace_existing=True,
+        max_instances=1,
         next_run_time=datetime.now(timezone.utc),  # startup catch-up if stale
     )
     scheduler.add_job(
-        school_email.run_if_due, "interval", seconds=school_email.CHECK_SECONDS,
-        id="school_email", replace_existing=True, max_instances=1,
+        school_email.run_if_due,
+        "interval",
+        seconds=school_email.CHECK_SECONDS,
+        id="school_email",
+        replace_existing=True,
+        max_instances=1,
         next_run_time=datetime.now(timezone.utc),  # startup catch-up if a check was missed
     )
     scheduler.add_job(
-        bank_holidays.run_if_due, "interval", seconds=bank_holidays.CHECK_SECONDS,
-        id="bank_holidays", replace_existing=True, max_instances=1,
+        bank_holidays.run_if_due,
+        "interval",
+        seconds=bank_holidays.CHECK_SECONDS,
+        id="bank_holidays",
+        replace_existing=True,
+        max_instances=1,
         next_run_time=datetime.now(timezone.utc) + bank_holidays.STARTUP_DELAY,  # fetch if missing or stale
     )
     scheduler.add_job(
-        _calendar_cache_job, "interval", seconds=CALENDAR_CACHE_SECONDS,
-        id="calendar_cache", replace_existing=True, max_instances=1,
+        _calendar_cache_job,
+        "interval",
+        seconds=CALENDAR_CACHE_SECONDS,
+        id="calendar_cache",
+        replace_existing=True,
+        max_instances=1,
     )
     scheduler.start()
 

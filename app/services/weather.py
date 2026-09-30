@@ -79,9 +79,11 @@ async def geocode(query: str) -> dict | None:
     first = results[0]
     if qualifier:
         first = next(
-            (r for r in results if any(
-                qualifier in str(r.get(k, "")).lower() for k in ("country", "country_code", "admin1", "admin2")
-            )),
+            (
+                r
+                for r in results
+                if any(qualifier in str(r.get(k, "")).lower() for k in ("country", "country_code", "admin1", "admin2"))
+            ),
             first,
         )
     return {
@@ -145,13 +147,15 @@ def _present(location: dict, forecast: dict, fetched_at: datetime, stale: bool, 
     for d in forecast["daily"]:
         day = date.fromisoformat(d["date"])
         if day >= local_today:
-            days.append({
-                "date": day,
-                "label": day.strftime("%a"),
-                "category": weather_category(d["weather_code"]),
-                "high": round(d["max"]),
-                "low": round(d["min"]),
-            })
+            days.append(
+                {
+                    "date": day,
+                    "label": day.strftime("%a"),
+                    "category": weather_category(d["weather_code"]),
+                    "high": round(d["max"]),
+                    "low": round(d["min"]),
+                }
+            )
     today = days[0] if days and days[0]["date"] == local_today else None
     category = weather_category(forecast["current"]["weather_code"])
     return {
@@ -183,19 +187,37 @@ async def get_weather(db) -> dict | None:
     if not (last_failure and now - last_failure < RETRY_BACKOFF):
         try:
             forecast = await asyncio.wait_for(_fetch_forecast(location), FETCH_DEADLINE)
-        except (httpx.HTTPError, asyncio.TimeoutError, KeyError, IndexError, TypeError, ValueError, AttributeError) as exc:
+        except (
+            httpx.HTTPError,
+            asyncio.TimeoutError,
+            KeyError,
+            IndexError,
+            TypeError,
+            ValueError,
+            AttributeError,
+        ) as exc:
             http_client.report_failure(
-                logger, "Weather", "Weather fetch failed; retrying every %s: %s", RETRY_BACKOFF, http_client.describe(exc)
+                logger,
+                "Weather",
+                "Weather fetch failed; retrying every %s: %s",
+                RETRY_BACKOFF,
+                http_client.describe(exc),
             )
             await set_setting(db, FAILURE_SETTING, now.isoformat())
             await db.commit()
         else:
-            await set_setting(db, CACHE_SETTING, json.dumps({
-                "fetched_at": now.isoformat(),
-                "latitude": location["latitude"],
-                "longitude": location["longitude"],
-                "forecast": forecast,
-            }))
+            await set_setting(
+                db,
+                CACHE_SETTING,
+                json.dumps(
+                    {
+                        "fetched_at": now.isoformat(),
+                        "latitude": location["latitude"],
+                        "longitude": location["longitude"],
+                        "forecast": forecast,
+                    }
+                ),
+            )
             await set_setting(db, FAILURE_SETTING, "")
             await db.commit()
             http_client.report_success(logger, "Weather")
@@ -211,7 +233,7 @@ async def get_weather(db) -> dict | None:
 def _parse_time(value: str | None) -> datetime | None:
     try:
         parsed = datetime.fromisoformat(value) if value else None
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
     return parsed if parsed and parsed.tzinfo else None
 
@@ -230,7 +252,7 @@ async def _load_cache(db, location: dict, now: datetime) -> dict | None:
         if fetched_at is None:
             return None
         weather = _present(location, cache["forecast"], fetched_at, stale=False, now=now)
-    except (KeyError, IndexError, TypeError, ValueError, AttributeError):
+    except KeyError, IndexError, TypeError, ValueError, AttributeError:
         return None
     return {"fetched_at": fetched_at, "weather": weather}
 

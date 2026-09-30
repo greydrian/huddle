@@ -30,11 +30,46 @@ HASH_CHARS = 16
 # nature, sport and space. All single code points with no variation
 # selector, so they look the same on every system font.
 CURATED_EMOJI = (
-    "🐶", "🐱", "🐭", "🐰", "🦊", "🐻", "🐼", "🐨",
-    "🐯", "🦁", "🐮", "🐷", "🐸", "🐵", "🐧", "🐢",
-    "🦄", "🐝", "🦋", "🐙", "🐬", "🦖", "🐳", "🦉",
-    "🍓", "🍉", "🍕", "🍩", "🌈", "🌻", "🌙", "🌟",
-    "🚀", "🚂", "⚽", "🏀", "🎨", "🎸", "🎈", "👑",
+    "🐶",
+    "🐱",
+    "🐭",
+    "🐰",
+    "🦊",
+    "🐻",
+    "🐼",
+    "🐨",
+    "🐯",
+    "🦁",
+    "🐮",
+    "🐷",
+    "🐸",
+    "🐵",
+    "🐧",
+    "🐢",
+    "🦄",
+    "🐝",
+    "🦋",
+    "🐙",
+    "🐬",
+    "🦖",
+    "🐳",
+    "🦉",
+    "🍓",
+    "🍉",
+    "🍕",
+    "🍩",
+    "🌈",
+    "🌻",
+    "🌙",
+    "🌟",
+    "🚀",
+    "🚂",
+    "⚽",
+    "🏀",
+    "🎨",
+    "🎸",
+    "🎈",
+    "👑",
 )
 
 
@@ -57,12 +92,35 @@ _TAGS = range(0xE0020, 0xE007F)
 _TAG_END = 0xE007F
 # Pictographic code points (approximately Unicode's Extended_Pictographic).
 _PICTOGRAPHIC = (
-    range(0x1F000, 0x1F1E6), range(0x1F200, 0x1F3FB), range(0x1F400, 0x1FB00),
-    range(0x2600, 0x27C0), range(0x2300, 0x2400), range(0x2194, 0x21AB), range(0x25AA, 0x2600),
+    range(0x1F000, 0x1F1E6),
+    range(0x1F200, 0x1F3FB),
+    range(0x1F400, 0x1FB00),
+    range(0x2600, 0x27C0),
+    range(0x2300, 0x2400),
+    range(0x2194, 0x21AB),
+    range(0x25AA, 0x2600),
 )
 _PICTOGRAPHIC_SINGLES = {
-    0x00A9, 0x00AE, 0x203C, 0x2049, 0x2122, 0x2139, 0x24C2, 0x2934, 0x2935,
-    0x2B05, 0x2B06, 0x2B07, 0x2B1B, 0x2B1C, 0x2B50, 0x2B55, 0x3030, 0x303D, 0x3297, 0x3299,
+    0x00A9,
+    0x00AE,
+    0x203C,
+    0x2049,
+    0x2122,
+    0x2139,
+    0x24C2,
+    0x2934,
+    0x2935,
+    0x2B05,
+    0x2B06,
+    0x2B07,
+    0x2B1B,
+    0x2B1C,
+    0x2B50,
+    0x2B55,
+    0x3030,
+    0x303D,
+    0x3297,
+    0x3299,
 }
 _KEYCAP_BASES = set("0123456789#*")
 MAX_EMOJI_CODEPOINTS = 16  # the longest real sequences (families, flags of UK nations) are ~10
@@ -120,6 +178,7 @@ def clean_emoji(text: str) -> str:
 
 # --- Photos --------------------------------------------------------------------------------
 
+
 def process_photo(data: bytes) -> bytes:
     """An uploaded photo -> a 256x256 WebP, centre-cropped, turned upright
     (EXIF orientation), and re-encoded from the pixels only: no EXIF, ICC
@@ -161,7 +220,7 @@ def process_photo(data: bytes) -> bytes:
         raise
     except Image.DecompressionBombError:
         raise AvatarError("avatar-too-big") from None
-    except (OSError, ValueError, SyntaxError, EOFError):
+    except OSError, ValueError, SyntaxError, EOFError:
         raise AvatarError("avatar-bad-type") from None
     # A brand-new image from the raw pixels: nothing from the original's
     # .info (EXIF, XMP, ICC, comments) can be carried into the output.
@@ -176,6 +235,7 @@ def photo_hash(photo: bytes) -> str:
 
 
 # --- For templates -------------------------------------------------------------------------
+
 
 def avatar_of(profile: dict) -> dict:
     """What the person_face macro needs, from a profile dict with its id and

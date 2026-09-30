@@ -309,4 +309,3 @@ def status(tz) -> dict:
         "newest_at": backup_time(backups[0], tz).astimezone(tz),
         "newest_size": backups[0].stat().st_size,
     }
-

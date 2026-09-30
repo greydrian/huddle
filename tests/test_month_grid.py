@@ -29,6 +29,7 @@ def timed(title, day, hour):
 def events(google, connected):
     def serve(*items):
         google.get(url__regex=EVENTS_URL_PATTERN).respond(200, json={"items": list(items)})
+
     return serve
 
 
@@ -59,15 +60,19 @@ async def test_bar_spanning_a_whole_week_fills_every_column(db, events):
     weeks = (await google_calendar.get_month_grid(db, 2026, 8))["weeks"]
 
     assert [_bars(w).get("Summer camp") for w in weeks[:5]] == [
-        (7, 7, 0), (1, 7, 0), (1, 7, 0), (1, 1, 0), None,
+        (7, 7, 0),
+        (1, 7, 0),
+        (1, 7, 0),
+        (1, 1, 0),
+        None,
     ]
 
 
 async def test_slot_is_reused_once_a_bar_ends(db, events):
     events(
         all_day("Grandma visits", "2026-08-10", "2026-08-12"),  # Mon-Tue
-        timed("Dentist", "2026-08-11", 9),                      # Tue: overlaps Grandma
-        timed("Swimming", "2026-08-12", 16),                    # Wed: Grandma has ended
+        timed("Dentist", "2026-08-11", 9),  # Tue: overlaps Grandma
+        timed("Swimming", "2026-08-12", 16),  # Wed: Grandma has ended
     )
 
     week = (await google_calendar.get_month_grid(db, 2026, 8))["weeks"][2]
