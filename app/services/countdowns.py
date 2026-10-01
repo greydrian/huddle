@@ -2,9 +2,9 @@
 shown in the "next up" strip under the banners.
 
 Two sources:
-- the next school break (a half term or holiday) from the term dates
-  (services/term_dates.py), within BREAK_HORIZON days, unless switched off
-  in Admin;
+- each family school's next break (a half term or holiday) from its term
+  dates (services/term_dates.py), within BREAK_HORIZON days, unless
+  switched off in Admin;
 - family dates added in Admin → Display → Countdowns (the `countdowns`
   table), each optionally one person's.
 
@@ -17,7 +17,7 @@ from datetime import date, timedelta
 
 from app import avatars
 from app.database import get_setting, set_setting
-from app.services import term_dates
+from app.services import schools, term_dates
 
 SHOWN = 3
 BREAK_HORIZON = 60  # days: further off, a school break isn't worth the space
@@ -98,17 +98,26 @@ async def delete(db, countdown_id: int) -> None:
     await db.commit()
 
 
-async def _next_break(db, today: date) -> dict | None:
-    """The next half term or holiday starting after today, within the horizon."""
+async def _next_breaks(db, today: date) -> list[dict]:
+    """Each family school's next half term or holiday starting after today,
+    within the horizon (spec 11.2: one per school, named when there's more
+    than one)."""
     horizon = today + timedelta(days=BREAK_HORIZON)
-    for period in await term_dates.list_periods(db):  # by start date
-        if period["kind"] not in BREAK_KINDS:
-            continue
-        start = date.fromisoformat(period["start_date"])
-        if today < start <= horizon:
-            title = (period.get("label") or "").strip() or term_dates.KINDS[period["kind"]]
-            return {"title": title, "date": start, "person": None, "school": True}
-    return None
+    school_ids = await term_dates.family_ids(db)
+    names = await schools.names(db)
+    found = []
+    for school_id in school_ids:
+        for period in await term_dates.list_periods(db, school_id):  # by start date
+            if period["kind"] not in BREAK_KINDS:
+                continue
+            start = date.fromisoformat(period["start_date"])
+            if today < start <= horizon:
+                title = (period.get("label") or "").strip() or term_dates.KINDS[period["kind"]]
+                if len(names) > 1:
+                    title = f"{names[school_id]}: {title}"
+                found.append({"key": f"break{school_id}", "title": title, "date": start, "person": None})
+                break
+    return found
 
 
 async def upcoming(db, today: date) -> list[dict]:
@@ -116,9 +125,7 @@ async def upcoming(db, today: date) -> list[dict]:
     days"), "days", "person" (name, colour, avatar) or None, "school"}."""
     found = []
     if await breaks_enabled(db):
-        school_break = await _next_break(db, today)
-        if school_break:
-            found.append(school_break)
+        found += await _next_breaks(db, today)
     rows = await (
         await db.execute(
             f"""SELECT c.id, c.title, c.target_date, p.id AS pid, p.name, p.colour_hex, {avatars.columns("p")}
@@ -133,21 +140,25 @@ async def upcoming(db, today: date) -> list[dict]:
             profile = dict(row) | {"id": row["pid"]}
             person = {"name": row["name"], "colour": row["colour_hex"], "avatar": avatars.avatar_of(profile)}
         found.append(
-            {"id": row["id"], "title": row["title"], "date": date.fromisoformat(row["target_date"]), "person": person}
+            {
+                "key": f"c{row['id']}",
+                "title": row["title"],
+                "date": date.fromisoformat(row["target_date"]),
+                "person": person,
+            }
         )
     found.sort(key=lambda c: c["date"])
     result = []
     for c in found[:SHOWN]:
         days = (c["date"] - today).days
-        key = "break" if c.get("school") else f"c{c['id']}"
         result.append(
             {
-                "key": key,
+                "key": c["key"],
                 "title": c["title"],
                 "days": days,
                 "when": in_days(days),
                 "person": c["person"],
-                "school": bool(c.get("school")),
+                "school": c["key"].startswith("break"),
             }
         )
     return result

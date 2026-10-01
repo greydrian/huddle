@@ -1163,6 +1163,7 @@ html:has(.admin-shell), html:has(.admin-shell) body { height: auto; overflow-y: 
 .admin-item:last-child { border-bottom: none; }
 .admin-item-label { flex: 1; min-width: 0; }
 .countdown-past .admin-item-label { color: var(--ink-soft); }
+.school-senders { display: block; overflow-wrap: anywhere; }
 .task-edit summary {
   list-style: none; display: inline-flex; min-height: 48px; padding: 8px 14px;
   font-size: 0.9rem; background: var(--sunken); color: var(--ink);

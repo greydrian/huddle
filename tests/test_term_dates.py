@@ -16,7 +16,7 @@ from app.admin_tabs import admin_url
 from app.routers import admin
 from app.routers.admin import common as admin_common
 from app.security import create_session_token
-from app.services import extraction, imports, term_dates
+from app.services import extraction, imports, schools, term_dates
 
 TODAY = date(2026, 9, 29)  # a Tuesday, early in 2026–27
 EVENTS_URL_PATTERN = r"https://www\.googleapis\.com/calendar/v3/calendars/.+/events"
@@ -754,6 +754,15 @@ async def test_ingest_stores_one_term_dates_candidate(db, monkeypatch, caplog):
     assert [p["already"] for p in candidate["payload"]["periods"]] == [True, False, False]
     assert candidate["duplicate"] is False
     assert source["approvable"] == 0  # never part of "Approve all"
+    assert candidate["payload"]["school_id"] is None  # no school known: the oldest, at approval
+
+    # From a second school's sender (spec 11.2): its own dates, so nothing is already added.
+    nursery = await schools.add(db, "Little Acorns")
+    doc = imports.SourceDocument(kind="paste", source_ref="letter-2", text="Nursery dates", school_id=nursery)
+    source = await imports.get_source(db, (await imports.ingest(db, doc)).source_id)
+    (candidate,) = source["candidates"]
+    assert candidate["payload"]["school_id"] == nursery
+    assert [p["already"] for p in candidate["payload"]["periods"]] == [False, False, False]
 
 
 async def test_inbox_renders_the_set_with_editable_rows(db, admin_client):
@@ -872,11 +881,11 @@ async def test_a_failure_mid_approve_rolls_everything_back(db, monkeypatch):
     real_insert = term_dates.insert_period
     calls = []
 
-    async def fail_second(db, period, source):
+    async def fail_second(db, period, source, school_id=None):
         calls.append(period)
         if len(calls) == 2:
             raise sqlite3.OperationalError("database is locked")
-        return await real_insert(db, period, source)
+        return await real_insert(db, period, source, school_id)
 
     monkeypatch.setattr(term_dates, "insert_period", fail_second)
     rows = [dict(zip(("kind", "start_date", "end_date", "label"), p, strict=True)) for p in (AUTUMN, HALF_TERM, INSET)]

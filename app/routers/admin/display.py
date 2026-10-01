@@ -29,7 +29,7 @@ async def display_context(db, base: dict, extra: dict) -> dict:
         "night_source": await appearance.night_source(db),
         "appearances": appearance.APPEARANCES,
         "widget_settings": await layout.admin_widgets(db),
-        "school_day_today": await term_dates.is_school_day(db, today),
+        "school_day_today": await term_dates.family_school_day(db, today),
         "banner_settings": await banners.get_settings(db),
         "next_up_enabled": await next_up.is_enabled(db),
         "countdown_list": await countdowns.list_all(db),

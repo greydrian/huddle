@@ -16,7 +16,7 @@ from app.database import get_db, set_setting
 from app.routers.admin import common
 from app.routers.admin.common import MAX_SCHOOL_YEAR, admin_error, tab_context
 from app.routers.admin.page import render_admin
-from app.services import homework, term_dates
+from app.services import homework, schools, term_dates
 from app.services import tasks as task_service
 
 router = APIRouter(prefix="/admin")
@@ -28,6 +28,17 @@ _NOT_IN_EMAIL = r"@\s,;:<>()\[\]\"'\x00-\x1f\x7f"  # a regex character class's c
 EMAIL_PATTERN = re.compile(rf"[^{_NOT_IN_EMAIL}]+@[^{_NOT_IN_EMAIL}.]+(?:\.[^{_NOT_IN_EMAIL}.]+)*\.[A-Za-z]{{2,}}")
 
 
+async def _missing_term_dates(db, today) -> list[str]:
+    """The family schools' missing school years ("2026–27", or "Gresham
+    2026–27" when there's more than one school), for the Tasks note."""
+    names = await schools.names(db)
+    return [
+        f"{names[school_id]} {year}" if len(names) > 1 else year
+        for school_id in await term_dates.family_ids(db)
+        for year in await term_dates.missing_years(db, today, school_id)
+    ]
+
+
 @tab_context("family")
 async def family_context(db, base: dict, extra: dict) -> dict:
     today = await common.family_today(db)
@@ -37,7 +48,8 @@ async def family_context(db, base: dict, extra: dict) -> dict:
         "weekdays": recurrence.WEEKDAYS,
         "task_groups": [(g, task_service.GROUP_LABELS[g]) for g in task_service.GROUPS],
         "task_group_bounds": await task_service.get_group_boundaries(db),
-        "term_dates_missing": await term_dates.missing_years(db, today),
+        "term_dates_missing": await _missing_term_dates(db, today),
+        "schools": await schools.list_schools(db),
         "homework_items": homework_items,
         "finished_homework": finished_homework,
         "homework_events": await homework.get_recent_homework_events(db),
@@ -70,12 +82,18 @@ async def add_profile(name: str = Form(...), colour_hex: str = Form(...)):
 
 @router.post("/profiles/{profile_id}/details", dependencies=[Depends(require_admin)])
 async def save_profile_details(
-    profile_id: int, school_year: str = Form(""), is_parent: bool = Form(False), email: str = Form("")
+    profile_id: int,
+    school_year: str = Form(""),
+    is_parent: bool = Form(False),
+    email: str = Form(""),
+    school_id: str = Form(""),
 ):
     """A family member's details. A child's year group ("Year 4"): the school
     inbox uses it to decide whose spellings and homework are whose. Parent +
     email (spec 10.0): for assistant parent tasks and the weekly digest; only
-    shown in Admin so far. Blank clears the year group or the email."""
+    shown in Admin so far. School (spec 11.2): whose term dates their
+    "school days" follow and whose email is about them. Blank clears the
+    year group, the email or the school."""
     try:
         year = homework.clean_text(school_year, "Year group", MAX_SCHOOL_YEAR) or None
     except homework.ValidationError:
@@ -84,9 +102,14 @@ async def save_profile_details(
     if address is not None and (len(address) > MAX_EMAIL or not EMAIL_PATTERN.fullmatch(address)):
         return admin_error("profile-email")
     async with get_db() as db:
+        school = None
+        if school_id.strip():
+            if not await schools.exists(db, school_id):
+                return admin_error("profile-school")
+            school = schools.parse_id(school_id)
         cursor = await db.execute(
-            "UPDATE profiles SET school_year = ?, is_parent = ?, email = ? WHERE id = ?",
-            (year, int(is_parent), address, profile_id),
+            "UPDATE profiles SET school_year = ?, is_parent = ?, email = ?, school_id = ? WHERE id = ?",
+            (year, int(is_parent), address, school, profile_id),
         )
         await db.commit()
     if not cursor.rowcount:

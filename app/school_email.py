@@ -64,13 +64,11 @@ logger = logging.getLogger(__name__)
 
 OUTAGE_KEY = "Gmail (school email)"
 
-SENDERS_SETTING = "school_email_senders"
 EXCLUSIONS_SETTING = "school_email_exclusions"
 SCHEDULE_SETTING = "school_email_schedule"
 CHECKPOINT_SETTING = "school_email_checkpoint"  # epoch seconds
 STATUS_SETTING = "school_email_status"
 
-DEFAULT_SENDERS = ("office@greshamprimary.school", "*@gresham.croydon.sch.uk")
 # Private SENDCo conversations: never fetched, whatever the lists say.
 ALWAYS_EXCLUDED = ("sen@gresham.croydon.sch.uk",)
 DEFAULT_EXCLUSIONS = ALWAYS_EXCLUDED
@@ -183,15 +181,18 @@ async def _entries(db, key: str, default: tuple[str, ...]) -> list[str]:
 
 
 async def get_senders(db) -> list[str]:
-    return await _entries(db, SENDERS_SETTING, DEFAULT_SENDERS)
+    """Every school's senders (spec 11.2: each school keeps its own list,
+    services/schools.py); one Gmail search covers them all."""
+    from app.services import schools  # schools imports this module
+
+    return await schools.all_senders(db)
 
 
 async def get_exclusions(db) -> list[str]:
     return await _entries(db, EXCLUSIONS_SETTING, DEFAULT_EXCLUSIONS)
 
 
-async def set_lists(db, senders: list[str], exclusions: list[str]):
-    await set_setting(db, SENDERS_SETTING, "\n".join(senders))
+async def set_exclusions(db, exclusions: list[str]):
     await set_setting(db, EXCLUSIONS_SETTING, "\n".join(exclusions))
     await db.commit()
 
@@ -604,6 +605,7 @@ async def _read_one(db, token: str, message_id: str, senders, exclusions) -> _Ou
         sender=message.sender[:200] or None,
         received_at=message.received_at,
         sender_verified=verified is True,  # no verdict at all: read, but marked unverified
+        school_id=await _school_for(db, message.from_addresses),
     )
     result = await imports.ingest(db, doc)
     if result.already:
@@ -619,6 +621,13 @@ async def _read_one(db, token: str, message_id: str, senders, exclusions) -> _Ou
         await _give_up(db, message_id, row["error_code"])
         return _Outcome("failed", when)
     return _Outcome("failed", when, retry_later=_retryable(row))
+
+
+async def _school_for(db, from_addresses: list[str]) -> int | None:
+    """The school whose senders list this email's (single, checked) sender."""
+    from app.services import schools  # schools imports this module
+
+    return await schools.for_sender(db, from_addresses[0]) if from_addresses else None
 
 
 async def _give_up(db, message_id: str, code: str):

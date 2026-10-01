@@ -15,7 +15,7 @@ from fastapi.responses import RedirectResponse
 from app import google_oauth, google_tasks, school_email
 from app.admin_tabs import admin_url
 from app.database import family_timezone, family_today
-from app.services import banners, countdowns, extraction, term_dates
+from app.services import banners, countdowns, extraction, schools, term_dates
 
 __all__ = [
     "ADMIN_ERRORS",
@@ -176,6 +176,16 @@ ADMIN_ERRORS = {
         "may fall inside a term, and INSET days inside a holiday. Nothing was saved.",
     ),
     "term-missing": ("term-dates", "That period no longer exists. It may have just been deleted."),
+    "term-school": ("term-dates", "Pick which school these dates are for (add a school under Schools first)."),
+    "school-name": ("schools", f"Give the school a name of up to {schools.MAX_NAME} characters. Nothing was saved."),
+    "school-full": ("schools", f"Huddle keeps at most {schools.MAX_SCHOOLS} schools. Delete one first."),
+    "school-list-senders": (
+        "schools",
+        f"Each sender must be an email address or *@domain, one per line, with at most "
+        f"{school_email.MAX_ENTRIES} across all schools. Nothing was changed.",
+    ),
+    "school-missing": ("schools", "That school no longer exists. It may have just been deleted."),
+    "profile-school": ("family", "That school no longer exists. Nothing was changed."),
     "countdown-title": (
         "countdowns",
         f"Give the countdown a name of up to {countdowns.MAX_TITLE} characters. Nothing was saved.",

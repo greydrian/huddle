@@ -20,13 +20,15 @@ from PIL import Image
 from app import calendar_cache, google_gmail, google_oauth, school_email
 from app.routers import admin
 from app.security import create_session_token
-from app.services import extraction, imports, school_events
+from app.services import extraction, imports, school_events, schools
 
 LONDON = ZoneInfo("Europe/London")
 NOW = datetime(2026, 9, 28, 17, 30, tzinfo=UTC)  # a Monday, 18:30 in London
 API_KEY = "sk-ant-SECRET-KEY-do-not-log"
 ACCESS = "ya29.SECRET-ACCESS-TOKEN"
 REFRESH = "SECRET-REFRESH-TOKEN"
+# Gresham's senders, as migration 10 seeds them on a fresh database.
+GRESHAM_SENDERS = ("office@greshamprimary.school", "*@gresham.croydon.sch.uk")
 MESSAGES = google_gmail.MESSAGES_ENDPOINT
 MESSAGE_URL = re.compile(re.escape(MESSAGES) + r"/(?P<mid>[^/?]+)(\?.*)?$")
 ATTACHMENT_URL = re.compile(re.escape(MESSAGES) + r"/(?P<mid>[^/?]+)/attachments/(?P<aid>[^/?]+)$")
@@ -261,7 +263,7 @@ async def _sources(db):
 
 
 def test_query_has_allowlist_exclusions_and_checkpoint():
-    query = school_email.build_query(list(school_email.DEFAULT_SENDERS), [], 1_790_000_000)
+    query = school_email.build_query(list(GRESHAM_SENDERS), [], 1_790_000_000)
     assert query == (
         "from:(office@greshamprimary.school OR @gresham.croydon.sch.uk) "
         "-from:sen@gresham.croydon.sch.uk -to:sen@gresham.croydon.sch.uk -cc:sen@gresham.croydon.sch.uk "
@@ -291,7 +293,7 @@ def test_sender_entries_are_validated():
 
 
 def test_allowed_rechecks_from_and_every_recipient():
-    senders, exclusions = list(school_email.DEFAULT_SENDERS), []
+    senders, exclusions = list(GRESHAM_SENDERS), []
     ok = {"from": ["year4@gresham.croydon.sch.uk"], "to": ["family@example.com"]}
     assert school_email.allowed(ok, senders, exclusions)
     assert not school_email.allowed({"from": ["sen@gresham.croydon.sch.uk"]}, senders, exclusions)
@@ -305,12 +307,19 @@ def test_allowed_rechecks_from_and_every_recipient():
 
 
 async def test_admin_saves_sender_lists(db, admin_client):
+    """Senders are per school (Admin → School → Schools, spec 11.2); the
+    never-read list is the School email panel's own."""
     r = await admin_client.post(
-        "/admin/school-email/senders",
+        "/admin/schools/1/edit",
         data={
+            "name": "Gresham",
             "senders": "office@greshamprimary.school\n*@gresham.croydon.sch.uk\nclubs@example.org",
-            "exclusions": "sen@gresham.croydon.sch.uk\nhead@gresham.croydon.sch.uk",
         },
+    )
+    assert r.headers["location"] == "/admin?tab=school#schools"
+    r = await admin_client.post(
+        "/admin/school-email/exclusions",
+        data={"exclusions": "sen@gresham.croydon.sch.uk\nhead@gresham.croydon.sch.uk"},
     )
     assert r.headers["location"] == "/admin?tab=school#school-email"
     assert await school_email.get_senders(db) == [
@@ -320,14 +329,33 @@ async def test_admin_saves_sender_lists(db, admin_client):
     ]
     assert await school_email.get_exclusions(db) == ["sen@gresham.croydon.sch.uk", "head@gresham.croydon.sch.uk"]
 
-    r = await admin_client.post("/admin/school-email/senders", data={"senders": "not an address", "exclusions": ""})
+    r = await admin_client.post("/admin/school-email/exclusions", data={"exclusions": "not an address"})
     assert r.headers["location"] == "/admin?tab=school&error=school-senders#school-email"
-    assert "clubs@example.org" in await school_email.get_senders(db)  # unchanged
+    assert "head@gresham.croydon.sch.uk" in await school_email.get_exclusions(db)  # unchanged
     page = (await admin_client.get("/admin?error=school-senders")).text
     assert "Each sender must be an email address" in page
 
 
 # --- The check ---
+
+
+async def test_each_email_is_read_with_its_senders_school(db, gmail, claude, mailbox, monkeypatch):
+    """Spec 11.2: the school whose senders list the From address decides
+    whose children Claude is offered (and where term dates go)."""
+    nursery = await schools.add(db, "Little Acorns")
+    await schools.update(db, nursery, "Little Acorns", "hello@acorns.example")
+    asked = []
+    real = imports.get_children
+
+    async def spy(db, school_id=None):
+        asked.append(school_id)
+        return await real(db, school_id)
+
+    monkeypatch.setattr(imports, "get_children", spy)
+    mailbox.add("m1")
+    mailbox.add("m2", sender="Acorns <hello@acorns.example>", received=NOW - timedelta(hours=2))
+    assert (await school_email.check_now(db, NOW)).emails == 2
+    assert asked == [1, nursery]
 
 
 async def test_school_emails_become_inbox_items(db, gmail, claude, mailbox):
@@ -338,7 +366,7 @@ async def test_school_emails_become_inbox_items(db, gmail, claude, mailbox):
     (source,) = await _sources(db)
     assert (source["source_ref"], source["subject"], source["status"]) == ("m1", "Homework this week", "extracted")
     after = int((NOW - timedelta(days=school_email.BACKFILL_DAYS)).timestamp())
-    assert mailbox.queries == [school_email.build_query(list(school_email.DEFAULT_SENDERS), [], after)]
+    assert mailbox.queries == [school_email.build_query(list(GRESHAM_SENDERS), [], after)]
     sent = claude.calls[0]["messages"][0]["content"][-1]["text"]
     assert "please read chapter 3" in sent and "Sent by: Year 4" in sent
     status = await school_email.get_status(db)
@@ -572,7 +600,7 @@ async def test_skipped_states(db, claude, monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "")
     assert (await school_email.check_now(db, NOW)).result == "not_configured"
     monkeypatch.setenv("ANTHROPIC_API_KEY", API_KEY)
-    await school_email.set_lists(db, [], [])
+    await schools.update(db, 1, "Gresham", "")
     assert (await school_email.check_now(db, NOW)).result == "no_senders"
 
 
@@ -792,7 +820,7 @@ async def test_default_schedule_is_daily_at_six_pm(db):
     [
         "/admin/school-email/check",
         "/admin/school-email/schedule",
-        "/admin/school-email/senders",
+        "/admin/school-email/exclusions",
         "/admin/school-email/calendar",
     ],
 )
@@ -1377,7 +1405,7 @@ def test_ordinary_entries_are_accepted():
 
 
 def test_plus_tags_and_case_are_normalised():
-    senders = list(school_email.DEFAULT_SENDERS)
+    senders = list(GRESHAM_SENDERS)
     ok = {"from": ["year4@gresham.croydon.sch.uk"], "to": ["family@example.com"]}
     assert not school_email.allowed({"from": ["SEN+x@Gresham.Croydon.sch.uk"]}, senders, [])
     assert not school_email.allowed({**ok, "cc": ["sen+private@gresham.croydon.sch.uk"]}, senders, [])

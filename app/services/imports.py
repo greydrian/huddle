@@ -245,13 +245,24 @@ def content_ref(text: str, blobs: list[bytes]) -> str:
 # --- Ingest ---
 
 
-async def get_children(db) -> list[Child]:
-    """Who the extractor may assign items to: family members with a year
-    group, or everyone if no year groups are set yet."""
+async def get_children(db, school_id: int | None = None) -> list[Child]:
+    """Who the extractor may assign items to: the children at `school_id`
+    when it has any (spec 11.2: a school's email is about its children).
+    Otherwise family members with a year group, or everyone if no year
+    groups are set yet, but for a known school never a child linked to a
+    different one (a new nursery's email must not pre-fill the Year 4
+    child)."""
     rows = [
         dict(r)
-        for r in await (await db.execute("SELECT id, name, school_year FROM profiles ORDER BY sort_order")).fetchall()
+        for r in await (
+            await db.execute("SELECT id, name, school_year, school_id FROM profiles ORDER BY sort_order")
+        ).fetchall()
     ]
+    if school_id is not None:
+        at_school = [r for r in rows if r["school_id"] == school_id]
+        if at_school:
+            return [Child(r["id"], r["name"], (r["school_year"] or "").strip() or None) for r in at_school]
+        rows = [r for r in rows if r["school_id"] is None]
     with_year = [r for r in rows if (r["school_year"] or "").strip()]
     return [Child(r["id"], r["name"], (r["school_year"] or "").strip() or None) for r in (with_year or rows)]
 
@@ -340,6 +351,17 @@ async def take_claude_call(db) -> bool:
     return cursor.rowcount == 1
 
 
+async def _school_of(db, doc: SourceDocument) -> int | None:
+    """The document's school: the sender's (school email), else the picked
+    child's (an upload), else unknown."""
+    if doc.school_id is not None:
+        return doc.school_id
+    if doc.child_hint is None:
+        return None
+    row = await (await db.execute("SELECT school_id FROM profiles WHERE id = ?", (doc.child_hint,))).fetchone()
+    return row["school_id"] if row else None
+
+
 async def _extract_into(db, source_id: int, doc: SourceDocument) -> IngestResult:
     """Runs the extractor for a claimed source and stores its candidates."""
     try:
@@ -350,7 +372,8 @@ async def _extract_into(db, source_id: int, doc: SourceDocument) -> IngestResult
             await db.execute("UPDATE import_sources SET attempts = attempts + 1 WHERE id = ?", (source_id,))
             await db.commit()
         try:
-            candidates = await extract(doc, await get_children(db), await family_today(db))
+            school_id = await _school_of(db, doc)
+            candidates = await extract(doc, await get_children(db, school_id), await family_today(db))
         except NotConfigured:
             await _set_status(db, source_id, "not_configured", "not_configured")
             return IngestResult(source_id, "not_configured")
@@ -358,6 +381,9 @@ async def _extract_into(db, source_id: int, doc: SourceDocument) -> IngestResult
             await _set_status(db, source_id, "failed", exc.code)
             return IngestResult(source_id, "failed")
         for candidate in candidates:
+            if candidate.kind == "term_dates":
+                # Which school's dates these are; the inbox can change it.
+                candidate.payload["school_id"] = school_id
             await _store_candidate(db, source_id, candidate)
         await _set_status(db, source_id, "extracted")
     except Exception as exc:
@@ -455,7 +481,7 @@ async def _is_duplicate(db, source_id: int, candidate: Candidate) -> bool:
     ("Read 20 minutes", no due date) isn't a duplicate of last week's done
     or archived copy. Term dates: every period is already in the term dates."""
     if candidate.kind == "term_dates":
-        existing = await term_dates.list_periods(db)
+        existing = await term_dates.list_periods(db, candidate.payload.get("school_id"))
         return all(any(term_dates.same_period(p, e) for e in existing) for p in candidate.payload["periods"])
     if candidate.profile_id is None or candidate.kind == "event":
         return False
@@ -581,8 +607,8 @@ async def _mark_term_dates(db, candidates: list[dict]):
     pending = [c for c in candidates if c["kind"] == "term_dates" and c["status"] == "pending"]
     if not pending:
         return
-    existing = await term_dates.list_periods(db)
     for candidate in pending:
+        existing = await term_dates.list_periods(db, candidate["payload"].get("school_id"))
         periods = candidate["payload"].get("periods") or []
         for period in periods:
             period["already"] = any(term_dates.same_period(period, e) for e in existing)
@@ -705,9 +731,10 @@ async def approve_candidate(db, candidate_id: int, form: dict) -> tuple[str, int
     return table, cursor.lastrowid
 
 
-async def approve_term_dates(db, candidate_id: int, rows: list[dict]) -> int:
+async def approve_term_dates(db, candidate_id: int, rows: list[dict], school_id: int | None = None) -> int:
     """Adds a term-dates candidate's periods (as edited in the inbox; `rows`
-    are the ones left ticked) to the term dates with source "import", all
+    are the ones left ticked) to a school's term dates (`school_id`, else the
+    candidate's own, else the oldest school) with source "import", all
     in one transaction. Periods identical to ones already there are
     skipped. Validated like Admin's own form: raises term_dates.PeriodError
     (nothing saved) or CandidateError. Returns how many were added."""
@@ -719,6 +746,13 @@ async def approve_term_dates(db, candidate_id: int, rows: list[dict]) -> int:
     cleaned = [
         term_dates.clean_period(r.get("kind"), r.get("start_date"), r.get("end_date"), r.get("label")) for r in rows
     ]
+    if school_id is None:
+        read_for = json.loads(candidate["payload_json"]).get("school_id")
+        found = await (await db.execute("SELECT id FROM schools WHERE id = ?", (read_for,))).fetchone()
+        school_id = found["id"] if found else None  # its school since deleted: the oldest one
+    school_id = await term_dates.resolve_school(db, school_id)
+    if school_id is None:
+        raise term_dates.PeriodError("term-school")
     try:
         # Claim first: the UPDATE takes SQLite's write lock, so the dedupe and
         # clash checks below see every committed period, and a second approve
@@ -726,11 +760,11 @@ async def approve_term_dates(db, candidate_id: int, rows: list[dict]) -> int:
         claimed = await db.execute(
             """UPDATE import_candidates SET status = 'approved', payload_json = ?, updated_at = datetime('now')
                WHERE id = ? AND status = 'pending'""",
-            (json.dumps({"periods": cleaned}), candidate_id),
+            (json.dumps({"periods": cleaned, "school_id": school_id}), candidate_id),
         )
         if claimed.rowcount != 1:
             raise CandidateError("import-missing")
-        existing = await term_dates.list_periods(db)
+        existing = await term_dates.list_periods(db, school_id)
         new: list[dict] = []
         for period in cleaned:
             if not any(term_dates.same_period(period, other) for other in (*existing, *new)):
@@ -741,7 +775,7 @@ async def approve_term_dates(db, candidate_id: int, rows: list[dict]) -> int:
                 raise term_dates.PeriodError("term-overlap", other)
         last_id = None
         for period in new:
-            last_id = await term_dates.insert_period(db, period, "import")
+            last_id = await term_dates.insert_period(db, period, "import", school_id)
         await db.execute(
             "UPDATE import_candidates SET created_table = 'school_periods', created_id = ? WHERE id = ?",
             (last_id, candidate_id),

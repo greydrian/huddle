@@ -97,6 +97,9 @@ class SourceDocument:
     child_hint:  optional profile id the parent picked ("this is for Riley")
     sender_verified: False when a Gmail message's sender couldn't be
                  verified (no SPF/DKIM/DMARC result); the inbox says so
+    school_id:   the school whose senders list a Gmail message's sender
+                 (spec 11.2): its children are the ones offered to Claude,
+                 and its term dates the ones a letter's dates go to
     """
 
     kind: str
@@ -108,6 +111,7 @@ class SourceDocument:
     received_at: datetime | None = None
     child_hint: int | None = None
     sender_verified: bool | None = None
+    school_id: int | None = None
 
 
 @dataclass(frozen=True)
