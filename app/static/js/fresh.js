@@ -144,8 +144,18 @@
     return false;
   };
 
+  // Reload only once the page itself answers: a release whose dashboard
+  // fails to render must not strand the wall on a bare error page (it keeps
+  // the old page and tries again on the next tick, e.g. after a rollback).
+  var reloading = false;
   function reloadIfWanted() {
-    if (reloadWanted && !pageBusy()) window.location.reload();
+    if (reloadWanted && !reloading && !pageBusy()) {
+      reloading = true;
+      fetch(window.location.pathname, fetchOptions()).then(function (r) {
+        if (r.ok) window.location.reload();
+        else reloading = false;
+      }).catch(function () { reloading = false; });
+    }
     return reloadWanted;
   }
 

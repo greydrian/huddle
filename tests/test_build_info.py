@@ -1,6 +1,8 @@
 """The running build's id (app/build_info.py): the wall reloads itself
 after a deploy when /api/rev's build differs from the page's."""
 
+from pathlib import Path
+
 from app import build_info
 
 
@@ -62,3 +64,19 @@ async def test_rev_health_and_dashboard_report_the_same_build(client):
     assert (await client.get("/health")).json()["build"] == build
     html = (await client.get("/")).text
     assert f'data-build="{build}"' in html
+
+
+def test_an_unreadable_file_counts_as_a_marker_not_an_error(tmp_path, monkeypatch):
+    """A file that vanishes or can't be read mid-walk (an editor's temp file
+    on bare metal) must never fail /health or /api/rev."""
+    _tree(tmp_path, {"main.py": b"print(1)", "static/js/fresh.js": b"var a;"})
+    before = build_info.compute(tmp_path)
+    real = Path.read_bytes
+
+    def flaky(self):
+        if self.name == "main.py":
+            raise PermissionError("no")
+        return real(self)
+
+    monkeypatch.setattr(Path, "read_bytes", flaky)
+    assert build_info.compute(tmp_path) not in ("", before)

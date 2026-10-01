@@ -8,7 +8,8 @@ reload. /api/rev returns BUILD_ID; static/js/fresh.js reloads the page, once
 nobody is using it, when that differs from the id the page was served with.
 
 The id is a hash of the app's own files (code, templates, static), computed
-once at startup. So it changes exactly when a deploy changes what the page
+once at startup (main.py's lifespan; build_id() caches it). A file that
+can't be read counts as a marker rather than failing /health or /api/rev. So it changes exactly when a deploy changes what the page
 could look like, needs no git or build argument, and a plain restart of the
 same image keeps it, so the wall doesn't reload for nothing.
 """
@@ -32,7 +33,10 @@ def compute(root: Path = APP_DIR) -> str:
             continue
         digest.update(relative.as_posix().encode())
         digest.update(b"\0")
-        digest.update(path.read_bytes())
+        try:
+            digest.update(path.read_bytes())
+        except OSError:  # vanished or unreadable (an editor's temp file on bare metal)
+            digest.update(b"\1unreadable")
         digest.update(b"\0")
     return digest.hexdigest()[:12]
 

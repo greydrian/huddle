@@ -53,5 +53,35 @@ async def test_the_wall_reloads_after_a_deploy_once_nobody_is_typing(start_serve
     await page.evaluate("document.activeElement.blur()")
     async with page.expect_navigation():
         await _wake(page)
+    await page.unroute("**/api/rev")  # the reloaded page is on the new build
+    await page.wait_for_selector("#dashboard-grid")
+    assert await page.evaluate("window.huddleMarker") is None
+
+
+async def test_a_release_whose_page_fails_keeps_the_old_page(start_server, page):
+    """The wall reloads only once the dashboard answers: a broken release
+    (or one still starting) leaves the old page up, and it tries again."""
+    server = start_server()
+    await page.goto(server.url + "/")
+    await page.wait_for_selector("#dashboard-grid")
+    await page.evaluate("window.huddleMarker = 1")
+    await _pretend_a_new_build(page)
+    broken = {"on": True}
+
+    async def dashboard(route):
+        if broken["on"]:
+            await route.fulfill(status=500, body="Internal Server Error")
+        else:
+            await route.continue_()
+
+    await page.route(server.url + "/", dashboard)
+    await _wake(page)
+    await page.wait_for_timeout(1500)
+    assert await page.evaluate("window.huddleMarker") == 1  # still the old page
+
+    broken["on"] = False  # fixed (or rolled back): the next tick reloads
+    async with page.expect_navigation(timeout=15000):
+        await _wake(page)
+    await page.unroute("**/api/rev")
     await page.wait_for_selector("#dashboard-grid")
     assert await page.evaluate("window.huddleMarker") is None
