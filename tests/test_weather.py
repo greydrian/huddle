@@ -267,11 +267,15 @@ async def test_admin_saves_geocoded_location(db, client, google):
         },
     )
 
+    forecast = google.get(weather.FORECAST_URL).respond(200, json=FORECAST)
+
     resp = await client.post("/admin/weather-location", data={"place": "Reading, United Kingdom"})
 
     assert resp.status_code == 303
     stored = json.loads(await database.get_setting(db, weather.LOCATION_SETTING))
     assert stored == READING
+    # The new place's forecast (and sunset) is fetched straight away.
+    assert forecast.called and await database.get_setting(db, weather.CACHE_SETTING)
     page = await client.get("/admin?tab=display")
     assert "Reading, United Kingdom" in page.text
 
@@ -311,3 +315,14 @@ async def test_admin_location_requires_login(client, google):
 
     assert resp.status_code == 303
     assert resp.headers["location"] == "/admin/login"
+
+
+async def test_saving_a_location_while_offline_still_saves_it(db, client, google):
+    client.cookies.set(admin.SESSION_COOKIE, create_session_token())
+    google.get(weather.GEOCODING_URL).respond(
+        200, json={"results": [{"name": "Reading", "country": "United Kingdom", "latitude": 51.45, "longitude": -0.97}]}
+    )
+    google.get(weather.FORECAST_URL).mock(side_effect=httpx.ConnectError("offline"))
+    resp = await client.post("/admin/weather-location", data={"place": "Reading"})
+    assert resp.status_code == 303 and "weather_error" not in resp.headers["location"]
+    assert json.loads(await database.get_setting(db, weather.LOCATION_SETTING))["name"] == "Reading"

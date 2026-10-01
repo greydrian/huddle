@@ -65,6 +65,12 @@
       </label>
       {% endfor %}
       <p class="admin-hint">Evening and morning follow the family's timezone (the connected calendar's). The dashboard switches by itself — no reload needed.</p>
+      {#- Spec 11.4: where Auto's night comes from today, and why it last fell back. -#}
+      <p class="admin-meta" id="night-source">
+        {%- if night_source.kind == "sun" %}Today: dark from sunset {{ night_source.sunset }} to sunrise {{ night_source.sunrise }}, from the weather forecast.
+        {%- else %}Today: the fixed 19:00–07:00 night, because {{ night_source.why }}.{% endif %}
+        {%- if night_source.last_fallback %} Last fell back on {{ night_source.last_fallback.label }}: {{ night_source.last_fallback.why }}.{% endif -%}
+      </p>
       <button type="submit" class="btn btn-small">Save</button>
     </form>
   </div>
