@@ -1,0 +1,56 @@
+{#- A meal's recipe card (spec 10.7), swapped into #wall-overlay by the Meal
+    Plan widget's book button: the card read from the meal's link
+    (app/recipes.py, no images, so the tablet never contacts the site), its
+    notes, and a QR code to open the link on a phone. While it's open the
+    wall counts as in use (fresh.js), for up to half an hour untouched. -#}
+{% from "_icons.html" import icon %}
+<div class="recipe-overlay" role="dialog" aria-modal="true" aria-label="Recipe: {{ recipe.name }}">
+  <div class="recipe-card">
+    <div class="recipe-head">
+      <h2 class="recipe-title">{{ recipe.card.title if recipe.card and recipe.card.title else recipe.name }}</h2>
+      <button type="button" class="btn recipe-close" hx-on:click="this.closest('.recipe-overlay').remove()">{{ icon("x", 20) }}Close</button>
+    </div>
+    <div class="recipe-body">
+      <div class="recipe-main">
+        {% if recipe.card %}
+        {% set c = recipe.card %}
+        {% if c.time or c.prep or c.cook or c.serves %}
+        <p class="recipe-facts">
+          {%- for label, value in [("Total", c.time), ("Prep", c.prep), ("Cook", c.cook)] if value %}<span>{{ label }} {{ value }}</span>{% endfor %}
+          {%- if c.serves %}<span>{{ c.serves }}</span>{% endif %}
+        </p>
+        {% endif %}
+        {% if c.ingredients %}
+        <h3>Ingredients</h3>
+        <ul class="recipe-ingredients">{% for i in c.ingredients %}<li>{{ i }}</li>{% endfor %}</ul>
+        {% endif %}
+        {% if recipe.method %}
+        <h3>Method</h3>
+        {#- One numbered list per section ("For the sauce"), numbered on across them. -#}
+        {% set count = namespace(n=1) %}
+        {% for part in recipe.method %}
+        {% if part.section %}<h4 class="recipe-section">{{ part.section }}</h4>{% endif %}
+        <ol class="recipe-steps" start="{{ count.n }}">{% for text in part.steps %}<li>{{ text }}</li>{% endfor %}</ol>
+        {% set count.n = count.n + part.steps | length %}
+        {% endfor %}
+        {% endif %}
+        {% elif recipe.error %}
+        <p class="recipe-error" role="note">{{ recipe.error }}{% if qr_svg %} Scan the code to open it on a phone.{% endif %}</p>
+        {% endif %}
+        {% if recipe.notes %}
+        <h3>Notes</h3>
+        <p class="recipe-notes">{{ recipe.notes }}</p>
+        {% endif %}
+        {% if not recipe.card and not recipe.error and not recipe.notes %}
+        <p class="recipe-error">No recipe saved for this meal yet: add a link or notes in Admin → Family → Meals.</p>
+        {% endif %}
+      </div>
+      {% if qr_svg %}
+      <div class="recipe-qr">
+        {{ qr_svg | safe }}
+        <span class="admin-meta">Open on a phone</span>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>

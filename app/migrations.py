@@ -756,6 +756,32 @@ async def m0011_shopping_categories(db):
     )
 
 
+async def m0012_meal_favourites(db):
+    """Spec 10.7: favourites are the meals planned before (read from
+    meal_plans); this keeps what the family set on one, by name: starred,
+    removed from favourites, a recipe link and notes. recipe_cache keeps the
+    card read from a link (app/recipes.py), or why it couldn't be read."""
+    await db.execute(
+        """CREATE TABLE IF NOT EXISTS meal_favourites (
+               name_key TEXT PRIMARY KEY,          -- services/meals.meal_key
+               name TEXT NOT NULL,
+               starred INTEGER NOT NULL DEFAULT 0,
+               hidden INTEGER NOT NULL DEFAULT 0,
+               recipe_url TEXT,
+               notes TEXT,
+               updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+           )"""
+    )
+    await db.execute(
+        """CREATE TABLE IF NOT EXISTS recipe_cache (
+               url TEXT PRIMARY KEY,
+               fetched_at TEXT NOT NULL,           -- ISO, UTC
+               status TEXT NOT NULL,               -- ok, or a recipes.RecipeError code
+               card_json TEXT
+           )"""
+    )
+
+
 # Append only: see the module docstring.
 MIGRATIONS: list[Migration] = [
     Migration(1, "baseline", m0001_baseline),
@@ -769,6 +795,7 @@ MIGRATIONS: list[Migration] = [
     Migration(9, "countdowns", m0009_countdowns),
     Migration(10, "schools", m0010_schools),
     Migration(11, "shopping_categories", m0011_shopping_categories),
+    Migration(12, "meal_favourites", m0012_meal_favourites),
 ]
 
 

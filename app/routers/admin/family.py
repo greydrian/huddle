@@ -16,7 +16,7 @@ from app.database import get_db, set_setting
 from app.routers.admin import common
 from app.routers.admin.common import MAX_SCHOOL_YEAR, admin_error, tab_context
 from app.routers.admin.page import render_admin
-from app.services import homework, schools, term_dates
+from app.services import homework, meals, schools, term_dates
 from app.services import tasks as task_service
 
 router = APIRouter(prefix="/admin")
@@ -50,6 +50,7 @@ async def family_context(db, base: dict, extra: dict) -> dict:
         "task_group_bounds": await task_service.get_group_boundaries(db),
         "term_dates_missing": await _missing_term_dates(db, today),
         "schools": await schools.list_schools(db),
+        "meal_favourites": await meals.favourites(db, include_hidden=True),
         "homework_items": homework_items,
         "finished_homework": finished_homework,
         "homework_events": await homework.get_recent_homework_events(db),
@@ -115,6 +116,55 @@ async def save_profile_details(
     if not cursor.rowcount:
         return admin_error("profile-missing")
     return RedirectResponse(url=admin_url("family"), status_code=303)
+
+
+# --- Meals (spec 10.7): favourites, recipe links and notes ---
+
+
+def _meal_name(name: str) -> str | None:
+    clean = " ".join((name or "").split())
+    return clean if 0 < len(clean) <= meals.MAX_MEAL else None
+
+
+@router.post("/meals/recipe", dependencies=[Depends(require_admin)])
+async def save_meal_recipe(
+    name: str = Form(""), url: str | None = Form(None), notes: str | None = Form(None), add: bool = Form(False)
+):
+    """A meal's recipe link and notes; also how a favourite is added before
+    it has been planned ("add": only what was filled in, so adding a name
+    that's already a favourite never wipes its link or notes)."""
+    clean = _meal_name(name)
+    if clean is None:
+        return admin_error("meal-name")
+    # FastAPI gives a blank field as None; only the add form leaves things as they are.
+    link = (url or None) if add else (url or "")
+    async with get_db() as db:
+        try:
+            await meals.set_recipe(db, clean, link, None if add else (notes or ""))
+        except ValueError as exc:
+            return admin_error(str(exc))
+    return RedirectResponse(url=admin_url("meals"), status_code=303)
+
+
+@router.post("/meals/star", dependencies=[Depends(require_admin)])
+async def star_meal(name: str = Form(""), starred: bool = Form(False)):
+    clean = _meal_name(name)
+    if clean is None:
+        return admin_error("meal-name")
+    async with get_db() as db:
+        await meals.set_starred(db, clean, starred)
+    return RedirectResponse(url=admin_url("meals"), status_code=303)
+
+
+@router.post("/meals/hide", dependencies=[Depends(require_admin)])
+async def hide_meal(name: str = Form(""), hidden: bool = Form(False)):
+    """Removed from favourites (hidden=true) or put back."""
+    clean = _meal_name(name)
+    if clean is None:
+        return admin_error("meal-name")
+    async with get_db() as db:
+        await meals.set_hidden(db, clean, hidden)
+    return RedirectResponse(url=admin_url("meals"), status_code=303)
 
 
 # --- Avatars (spec 10.9) ---

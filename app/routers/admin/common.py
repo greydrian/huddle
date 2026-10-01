@@ -187,6 +187,13 @@ ADMIN_ERRORS = {
     "school-missing": ("schools", "That school no longer exists. It may have just been deleted."),
     "profile-school": ("family", "That school no longer exists. Nothing was changed."),
     "shopping-view": ("shopping", "Pick Simple list or Grouped by aisle."),
+    "meal-name": ("meals", "Give the meal a name of up to 120 characters. Nothing was saved."),
+    "meal-link": (
+        "meals",
+        "A recipe link must be a whole web address starting https:// or http:// (up to 500 characters). "
+        "Nothing was saved.",
+    ),
+    "meal-notes": ("meals", "Notes can be at most 1000 characters. Nothing was saved."),
     "countdown-title": (
         "countdowns",
         f"Give the countdown a name of up to {countdowns.MAX_TITLE} characters. Nothing was saved.",

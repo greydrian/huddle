@@ -888,6 +888,51 @@ body:has(> .dashboard-scroll) > .topbar, body:has(> .dashboard-scroll) > .banner
   text-overflow: ellipsis;
 }
 .meal-desc-input:focus { outline: 2px solid var(--accent); background: var(--sunken); }
+/* Spec 10.7: the favourites picker (a star with an invisible native select
+   over it) and the recipe button, each a 48px tap target. */
+.meal-picker, .meal-recipe {
+  position: relative; flex-shrink: 0; width: 40px; height: 48px;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--ink-soft); background: none; border: none; padding: 0; cursor: pointer;
+}
+.meal-recipe { color: var(--accent); }
+.meal-picker-select {
+  position: absolute; inset: 0; width: 100%; opacity: 0; cursor: pointer; font-size: 16px; appearance: none; border: 0;
+}
+.meal-picker::after, .meal-recipe::after { content: ""; position: absolute; inset: 0 -4px; }
+
+/* The recipe card (_recipe_card.html) over the whole wall. */
+.recipe-overlay {
+  position: fixed; inset: 0; z-index: 900;
+  display: flex; align-items: center; justify-content: center;
+  padding: 24px; background: rgba(0, 0, 0, 0.55);
+}
+.recipe-card {
+  width: min(1100px, 100%); max-height: 100%; display: flex; flex-direction: column;
+  background: var(--card); color: var(--ink); border-radius: var(--radius-card, 16px);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35); overflow: hidden;
+}
+.recipe-head { display: flex; align-items: center; gap: 16px; padding: 18px 24px; border-bottom: 1px solid var(--line); }
+.recipe-title { flex: 1; min-width: 0; margin: 0; font-size: 1.5rem; }
+.recipe-close { display: inline-flex; align-items: center; gap: 6px; min-height: 48px; }
+.recipe-body { display: flex; gap: 24px; padding: 16px 24px 24px; overflow-y: auto; min-height: 0; }
+.recipe-main { flex: 1; min-width: 0; font-size: 1.1rem; line-height: 1.45; }
+.recipe-main h3 { margin: 16px 0 6px; font-size: 1rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-soft); }
+.recipe-facts { display: flex; flex-wrap: wrap; gap: 8px 18px; margin: 0; color: var(--ink-soft); font-weight: 600; }
+.recipe-ingredients { columns: 2 260px; column-gap: 32px; margin: 0; padding-left: 20px; }
+.recipe-ingredients li { break-inside: avoid; margin-bottom: 4px; }
+.recipe-steps { margin: 0; padding-left: 24px; }
+.recipe-steps li { margin-bottom: 10px; }
+.recipe-main h4.recipe-section { margin: 10px 0 4px; font-size: 1.05rem; }
+.recipe-notes { white-space: pre-line; margin: 0; }
+.recipe-error { margin: 0; color: var(--ink-soft); }
+.recipe-qr { flex-shrink: 0; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.recipe-qr svg { width: 160px; height: 160px; border-radius: 8px; }
+.meal-favourite form { display: flex; }
+.meal-star.is-starred { color: var(--accent); }
+.meal-star .icon { fill: none; }
+.meal-star.is-starred .icon { fill: currentColor; }
+.meal-removed { margin-top: 12px; }
 
 /* --- Empty / not-connected states --- */
 .stub-empty {

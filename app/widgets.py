@@ -13,8 +13,7 @@ placeholder was removed in migration 5, spec 10.2.)
 from collections.abc import Awaitable, Callable
 from typing import NamedTuple
 
-from app.services import calendar_view, homework, shopping, tasks, weather
-from app.services.meals import get_week_meal_plan
+from app.services import calendar_view, homework, meals, shopping, tasks, weather
 
 
 class Widget(NamedTuple):
@@ -28,7 +27,7 @@ async def _shopping(db) -> dict:
 
 
 async def _meals(db) -> dict:
-    return {"days": await get_week_meal_plan(db)}
+    return await meals.widget_context(db)
 
 
 async def _calendar(db) -> dict:

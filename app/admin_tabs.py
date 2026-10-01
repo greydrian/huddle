@@ -27,6 +27,7 @@ SECTIONS = {
     "homework": "family",
     "reading": "family",
     "practice-words": "family",
+    "meals": "family",
     "classroom": "school",
     "inbox": "school",
     "school-email": "school",
