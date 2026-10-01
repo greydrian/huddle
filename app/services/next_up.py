@@ -68,7 +68,11 @@ async def items(db, now: datetime) -> list[dict]:
     order), then Everyone's: {"key", "person" (name, colour, avatar) or None
     for Everyone, "title", "time" ("16:30"), "in" ("in 25 min")}."""
     today = now.date()
-    events = await google_calendar.cached_events(db, today, today + timedelta(days=1))
+    # The cache is filtered by each event's date in Google's own offset; one
+    # day more catches an event in a zone ahead of the family's that is still
+    # "today" here (00:30+02:00 tomorrow is 23:30 today in London). The
+    # family-day check below decides.
+    events = await google_calendar.cached_events(db, today, today + timedelta(days=2))
     if not events:
         return []
     profiles = await _profiles(db)
