@@ -416,6 +416,8 @@ async def get_order(db) -> list[str]:
         saved = json.loads(await get_setting(db, ORDER_SETTING) or "[]")
     except ValueError:
         saved = []
+    if not isinstance(saved, list):  # a hand-edited setting
+        saved = []
     order = [c for c in saved if isinstance(c, str) and c in CATEGORIES]
     order = list(dict.fromkeys(order))
     return order + [c for c in CATEGORIES if c not in order]
@@ -477,21 +479,24 @@ async def widget_context(db) -> dict:
 async def add_item(db, title: str) -> None:
     """Add an item (blank titles are ignored). Adding something already on
     the list, unticked, adds to its quantity instead ("Milk" twice is
-    "Milk ×2"); a ticked one is unticked with the new quantity."""
+    "Milk ×2"; that row's title is rewritten as Huddle writes it). A ticked
+    one stays in the basket and the new one is a row of its own."""
     name, quantity = parse_title(title.strip()[:MAX_TITLE])
     if not name:
         return
     key = item_key(name)
-    for row in await (await db.execute("SELECT id, title, is_checked FROM shopping_items")).fetchall():
+    rows = await (await db.execute("SELECT id, title FROM shopping_items WHERE is_checked = 0 ORDER BY id")).fetchall()
+    for row in rows:
         if item_key(row["title"]) != key:
             continue
         old_name, old_quantity = parse_title(row["title"])
-        total = quantity if row["is_checked"] else old_quantity + quantity
         await db.execute(
-            "UPDATE shopping_items SET title = ?, is_checked = 0, updated_at = datetime('now') WHERE id = ?",
-            (format_title(old_name, total), row["id"]),
+            "UPDATE shopping_items SET title = ?, updated_at = datetime('now') WHERE id = ?",
+            (format_title(old_name, old_quantity + quantity), row["id"]),
         )
-        await queue_sync(db, "shopping", {"item_id": row["id"]})
+        # "revive": if this task was deleted in Google Tasks meanwhile, the
+        # push re-creates it rather than losing what was just added.
+        await queue_sync(db, "shopping", {"item_id": row["id"], "revive": True})
         await db.commit()
         return
     cursor = await db.execute("INSERT INTO shopping_items (title) VALUES (?)", (format_title(name, quantity),))
