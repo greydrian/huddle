@@ -12,6 +12,7 @@ The nearest SHOWN are shown; a date that has passed simply stops showing
 (Admin lists it greyed until someone deletes it).
 """
 
+import re
 from datetime import date, timedelta
 
 from app import avatars
@@ -74,7 +75,9 @@ async def add(db, title: str, target: str, profile_id: str, today: date) -> int:
     person = None
     if (profile_id or "").strip():
         row = None
-        if profile_id.strip().isdigit():
+        # A plain small number only: "²".isdigit() is True but int() refuses
+        # it, and SQLite overflows past 2**63.
+        if re.fullmatch(r"[0-9]{1,9}", profile_id.strip()):
             row = await (await db.execute("SELECT id FROM profiles WHERE id = ?", (int(profile_id),))).fetchone()
         if row is None:
             raise CountdownError("countdown-person")

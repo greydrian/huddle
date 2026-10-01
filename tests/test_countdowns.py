@@ -85,6 +85,8 @@ async def test_a_deleted_person_leaves_the_countdown_as_everyones(db):
         ("Trip", "2028-12-25", "", "countdown-date"),  # over two years off
         ("Trip", "2026-10-10", "99", "countdown-person"),
         ("Trip", "2026-10-10", "one", "countdown-person"),
+        ("Trip", "2026-10-10", "²", "countdown-person"),
+        ("Trip", "2026-10-10", "99999999999999999999999", "countdown-person"),
     ],
 )
 async def test_bad_forms_are_refused_with_a_code(db, title, target, person, code):
