@@ -1,6 +1,7 @@
 {#- Admin → Display tab: included by admin/settings.html for admin_tab == "display".
     Context: app/routers/admin/display.py (display_context) plus what page.py gives every tab. -#}
 {% from "admin/_macros.html" import section_error with context %}
+{% from "_icons.html" import icon %}
   <!-- Widgets (spec 10.3): each switch is its own one-button form. -->
   {% macro widget_switch(action, name, on, label, widget_label) %}
   <form method="post" action="{{ action }}" class="widget-switch-form">
@@ -146,6 +147,36 @@
       </label>
       <button type="submit" class="btn btn-small">Save</button>
     </form>
+  </div>
+
+  <!-- Shopping list (app/services/shopping.py, spec 10.8) -->
+  <div class="admin-panel" id="shopping">
+    <h2>Shopping list</h2>
+    {{ section_error("shopping") }}
+    <form method="post" action="/admin/shopping/view">
+      {% for value, label in shopping_views.items() %}
+      <label class="admin-check">
+        <input type="radio" name="view" value="{{ value }}" {{ 'checked' if value == shopping_view else '' }}>
+        {{ label }}
+      </label>
+      {% endfor %}
+      <p class="admin-hint">Grouped puts each item under its aisle, guessed from its name. Tap an item's name on the wall to move it to another aisle; that's remembered for next time. Type "Milk x2" or "2x milk" for a quantity: it's kept in the item's name, so phones see it too.</p>
+      <button type="submit" class="btn btn-small">Save</button>
+    </form>
+    <h3>Aisle order</h3>
+    <p class="admin-hint">The order of your usual supermarket, for the grouped list.</p>
+    <ol class="shopping-order">
+      {% for key, label in shopping_order %}
+      <li class="admin-row shopping-order-row">
+        <span class="admin-item-label">{{ label }}</span>
+        <form method="post" action="/admin/shopping/order">
+          <input type="hidden" name="category" value="{{ key }}">
+          <button type="submit" name="step" value="-1" class="btn btn-quiet btn-small" aria-label="Move {{ label }} up" {{ 'disabled' if loop.first else '' }}>{{ icon("chevron-up", 20) }}</button>
+          <button type="submit" name="step" value="1" class="btn btn-quiet btn-small" aria-label="Move {{ label }} down" {{ 'disabled' if loop.last else '' }}>{{ icon("chevron-down", 20) }}</button>
+        </form>
+      </li>
+      {% endfor %}
+    </ol>
   </div>
 
   <!-- On-screen keyboard -->

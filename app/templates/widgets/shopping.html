@@ -1,25 +1,60 @@
 {% from "_icons.html" import icon %}
 {% from "widgets/_widget.html" import widget_header %}
-{#- Re-fetched by static/js/fresh.js when /api/rev says it changed. -#}
-<div class="widget-card" id="widget-shopping" data-refresh="/widgets/shopping" data-rev-key="shopping">
-  {{ widget_header("shopping-basket", "Shopping List") }}
-  <div class="widget-body">
-    {% for item in items %}
+{#- Re-fetched by static/js/fresh.js when /api/rev says it changed.
+    Spec 10.8: a quantity shows as "×2" (it lives in the Google Tasks title);
+    the grouped view (Admin → Display → Shopping) lists unticked items by
+    aisle, in the family's order, and tapping an item's name there picks its
+    aisle, remembered for next time. -#}
+{% macro shopping_row(item, grouped=false) %}
     <div class="shopping-row {{ 'checked' if item.is_checked else '' }}">
       <button class="shopping-check" aria-label="{{ 'Untick' if item.is_checked else 'Tick' }} {{ item.title }}"
               hx-post="/api/shopping/{{ item.id }}/toggle"
               hx-target="#widget-shopping" hx-swap="outerHTML">{{ icon("check", 18) }}</button>
-      <span class="shopping-title">{{ item.title }}</span>
+      {% if grouped %}
+      {#- The name is the aisle picker: an invisible native <select> over it, so one
+          tap opens the tablet's own list, and a change posts straight away. -#}
+      <span class="shopping-title shopping-aisle">{{ item.name }}{% if item.quantity > 1 %} <span class="shopping-qty">×{{ item.quantity }}</span>{% endif %}
+        <select class="shopping-aisle-select" name="category" aria-label="Aisle for {{ item.name }}"
+                hx-post="/api/shopping/{{ item.id }}/category" hx-trigger="change"
+                hx-target="#widget-shopping" hx-swap="outerHTML">
+          {% for key, label in shopping_categories.items() %}<option value="{{ key }}" {{ 'selected' if key == item.category else '' }}>{{ label }}</option>{% endfor %}
+        </select>
+      </span>
+      {% else %}
+      <span class="shopping-title">{{ item.name }}{% if item.quantity > 1 %} <span class="shopping-qty">×{{ item.quantity }}</span>{% endif %}</span>
+      {% endif %}
       <button class="shopping-delete" aria-label="Remove {{ item.title }}"
               hx-post="/api/shopping/{{ item.id }}/delete"
               hx-target="#widget-shopping" hx-swap="outerHTML">{{ icon("x", 20) }}</button>
     </div>
+{% endmacro %}
+<div class="widget-card" id="widget-shopping" data-refresh="/widgets/shopping" data-rev-key="shopping">
+  {{ widget_header("shopping-basket", "Shopping List") }}
+  <div class="widget-body">
+    {% if shopping_view == "grouped" %}
+    {% for group in shopping_groups %}
+    <div class="shopping-group">
+      <h3 class="shopping-group-name">{{ group.label }}</h3>
+      {% for item in group["items"] %}{{ shopping_row(item, true) }}{% endfor %}
+    </div>
+    {% endfor %}
+    {% if shopping_ticked %}
+    <div class="shopping-group shopping-group-ticked">
+      <h3 class="shopping-group-name">In the basket</h3>
+      {% for item in shopping_ticked %}{{ shopping_row(item) }}{% endfor %}
+    </div>
+    {% endif %}
+    {% if not items %}<div class="widget-note">List's empty — add something below.</div>{% endif %}
+    {% else %}
+    {% for item in items %}
+    {{ shopping_row(item) }}
     {% else %}
     <div class="widget-note">List's empty — add something below.</div>
     {% endfor %}
+    {% endif %}
     <form class="shopping-add-form"
           hx-post="/api/shopping" hx-target="#widget-shopping" hx-swap="outerHTML">
-      <input type="text" name="title" aria-label="New item" placeholder="Add an item…" required autocomplete="off"{% if onscreen_keyboard %} data-osk="text"{% endif %}>
+      <input type="text" name="title" aria-label="New item" placeholder="Add an item… (Milk x2)" required autocomplete="off"{% if onscreen_keyboard %} data-osk="text"{% endif %}>
       <button type="submit">Add</button>
     </form>
   </div>

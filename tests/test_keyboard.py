@@ -63,7 +63,7 @@ async def test_enabled_dashboard_includes_assets_and_marks_inputs(db, client):
 
     html = (await client.get("/")).text
     assert all(asset in html for asset in ASSETS)
-    assert 'placeholder="Add an item…" required autocomplete="off" data-osk="text"' in html
+    assert 'placeholder="Add an item… (Milk x2)" required autocomplete="off" data-osk="text"' in html
     meal_inputs = html.count('class="meal-desc-input"')
     assert meal_inputs == 7
     assert html.count('data-osk="text"') == meal_inputs + 2  # + the shopping and task quick-add inputs

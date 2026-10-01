@@ -24,7 +24,7 @@ class Widget(NamedTuple):
 
 
 async def _shopping(db) -> dict:
-    return {"items": await shopping.get_shopping_items(db)}
+    return await shopping.widget_context(db)
 
 
 async def _meals(db) -> dict:

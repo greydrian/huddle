@@ -37,6 +37,7 @@ SECTIONS = {
     "display": "display",  # Appearance (its anchor predates the tabs)
     "banners": "display",
     "countdowns": "display",
+    "shopping": "display",
     "keyboard": "display",
     "idle": "display",
     "photos": "display",

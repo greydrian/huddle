@@ -155,13 +155,27 @@ async def _push_shopping_change(db, access_token: str, payload: dict):
         return  # deleted locally since this row was queued; the delete has its own row
 
     if item["google_task_id"]:
-        await google_tasks.update_task(
-            access_token,
-            tasklist["id"],
-            item["google_task_id"],
-            title=item["title"],
-            completed=bool(item["is_checked"]),
+        try:
+            await google_tasks.update_task(
+                access_token,
+                tasklist["id"],
+                item["google_task_id"],
+                title=item["title"],
+                completed=bool(item["is_checked"]),
+            )
+            return
+        except httpx.HTTPStatusError as exc:
+            # "revive": something was just added on the wall into this row
+            # (shopping.add_item), so if the family deleted the task in Google
+            # Tasks meanwhile, the new item must not vanish with it: it goes
+            # back as a new task. Any other change to a deleted task is
+            # dropped, and reconcile removes the row.
+            if not (payload.get("revive") and exc.response.status_code in (404, 410)):
+                raise
+        remote = await google_tasks.insert_task(
+            access_token, tasklist["id"], item["title"], completed=bool(item["is_checked"])
         )
+        await db.execute("UPDATE shopping_items SET google_task_id = ? WHERE id = ?", (remote["id"], item_id))
     else:
         remote = await google_tasks.insert_task(
             access_token,
