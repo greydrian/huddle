@@ -57,7 +57,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
-from app import appearance, freshness, google_photos, idle, scheduler
+from app import appearance, build_info, freshness, google_photos, idle, scheduler
 from app.database import get_db, init_db
 from app.routers import (
     admin,
@@ -84,6 +84,7 @@ BASE_DIR = Path(__file__).parent
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
+    build_info.build_id()  # hashed once, at startup, not on the first request
     async with get_db() as db:
         # Documents being read when the app stopped are gone from memory.
         await imports.fail_interrupted(db)
