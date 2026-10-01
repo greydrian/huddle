@@ -13,7 +13,7 @@ from app.database import get_db, set_onscreen_keyboard
 from app.routers import photos as photos_admin
 from app.routers.admin import common
 from app.routers.admin.common import admin_error, tab_context
-from app.services import banners, layout, next_up, term_dates, weather
+from app.services import banners, countdowns, layout, next_up, term_dates, weather
 from app.widgets import WIDGETS
 
 router = APIRouter(prefix="/admin")
@@ -21,6 +21,7 @@ router = APIRouter(prefix="/admin")
 
 @tab_context("display")
 async def display_context(db, base: dict, extra: dict) -> dict:
+    today = await common.family_today(db)
     return {
         "weather_location": await weather.get_location(db),
         "weather_error": extra.get("weather_error"),
@@ -28,9 +29,15 @@ async def display_context(db, base: dict, extra: dict) -> dict:
         "night_source": await appearance.night_source(db),
         "appearances": appearance.APPEARANCES,
         "widget_settings": await layout.admin_widgets(db),
-        "school_day_today": await term_dates.is_school_day(db, await common.family_today(db)),
+        "school_day_today": await term_dates.is_school_day(db, today),
         "banner_settings": await banners.get_settings(db),
         "next_up_enabled": await next_up.is_enabled(db),
+        "countdown_list": await countdowns.list_all(db),
+        "countdown_today": today.isoformat(),
+        "countdown_breaks": await countdowns.breaks_enabled(db),
+        "countdown_shown": countdowns.SHOWN,
+        "countdown_max_title": countdowns.MAX_TITLE,
+        "countdown_break_horizon": countdowns.BREAK_HORIZON,
         "banner_triggers": banners.TRIGGERS,
         "banner_lead_range": (banners.MIN_LEAD, banners.MAX_LEAD),
         "idle_settings": await idle.get_settings(db),
@@ -70,6 +77,31 @@ async def save_next_up(enabled: bool = Form(False)):
     async with get_db() as db:
         await next_up.set_enabled(db, enabled)
     return RedirectResponse(url=admin_url("banners"), status_code=303)
+
+
+@router.post("/countdowns", dependencies=[Depends(require_admin)])
+async def add_countdown(title: str = Form(""), target_date: str = Form(""), profile_id: str = Form("")):
+    async with get_db() as db:
+        try:
+            await countdowns.add(db, title, target_date, profile_id, await common.family_today(db))
+        except countdowns.CountdownError as exc:
+            return admin_error(str(exc))
+    return RedirectResponse(url=admin_url("countdowns"), status_code=303)
+
+
+@router.post("/countdowns/{countdown_id}/delete", dependencies=[Depends(require_admin)])
+async def delete_countdown(countdown_id: int):
+    """Deleting one that's already gone is fine: the list shows what's left."""
+    async with get_db() as db:
+        await countdowns.delete(db, countdown_id)
+    return RedirectResponse(url=admin_url("countdowns"), status_code=303)
+
+
+@router.post("/countdowns/school-breaks", dependencies=[Depends(require_admin)])
+async def save_countdown_breaks(enabled: bool = Form(False)):
+    async with get_db() as db:
+        await countdowns.set_breaks_enabled(db, enabled)
+    return RedirectResponse(url=admin_url("countdowns"), status_code=303)
 
 
 @router.post("/onscreen-keyboard", dependencies=[Depends(require_admin)])

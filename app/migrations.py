@@ -672,6 +672,21 @@ async def m0008_avatars(db):
     await database._add_column_if_missing(db, "profiles", "avatar_hash", "TEXT")
 
 
+async def m0009_countdowns(db):
+    """Spec 11.8: family dates to count down to ("Trip to Gran in 3 days"),
+    added in Admin → Display. A countdown can belong to one person; deleting
+    that person keeps the countdown as Everyone's."""
+    await db.execute(
+        """CREATE TABLE IF NOT EXISTS countdowns (
+               id INTEGER PRIMARY KEY AUTOINCREMENT,
+               title TEXT NOT NULL,
+               target_date TEXT NOT NULL,          -- ISO date
+               profile_id INTEGER REFERENCES profiles(id) ON DELETE SET NULL,
+               created_at TEXT NOT NULL DEFAULT (datetime('now'))
+           )"""
+    )
+
+
 # Append only: see the module docstring.
 MIGRATIONS: list[Migration] = [
     Migration(1, "baseline", m0001_baseline),
@@ -682,6 +697,7 @@ MIGRATIONS: list[Migration] = [
     Migration(6, "photos", m0006_photos),
     Migration(7, "homework_extras", m0007_homework_extras),
     Migration(8, "avatars", m0008_avatars),
+    Migration(9, "countdowns", m0009_countdowns),
 ]
 
 

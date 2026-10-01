@@ -106,7 +106,7 @@ async def test_the_admin_switch_turns_it_off(db, client, calendars):
     resp = await client.post("/admin/next-up", data={})  # unticked
     assert resp.status_code == 303 and resp.headers["location"].endswith("#banners")
     assert await database.get_setting(db, next_up.SETTING) == "0"
-    assert await next_up.context(db, at(9)) == {"next_up": [], "next_up_enabled": False}
+    assert await next_up.context(db, at(9)) == {"next_up": [], "next_up_enabled": False, "countdowns": []}
 
     await client.post("/admin/next-up", data={"enabled": "true"})
     assert await next_up.is_enabled(db)

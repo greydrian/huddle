@@ -1,11 +1,12 @@
 {#- The "next up" strip (app/services/next_up.py), under the banner bar: each
-    person's next timed event today and how long until it. Re-fetched by
+    person's next timed event today and how long until it, then the nearest
+    countdowns (services/countdowns.py). Re-fetched by
     static/js/fresh.js when /api/rev's "next_up" revision changes (about once
     a minute while something is coming up); data-busy-any holds that back
     while anything on the wall is in use, so the grid never jumps under a
     finger. Read-only: nothing here is a button. -#}
 {% from "_icons.html" import person_pill %}
-<div id="next-up" class="next-up{{ '' if next_up else ' is-empty' }}" data-refresh="/next-up"
+<div id="next-up" class="next-up{{ '' if next_up or countdowns else ' is-empty' }}" data-refresh="/next-up"
      data-rev-key="next_up" data-busy-any role="region" aria-label="Next up today">
   {%- if next_up %}
   <span class="next-up-label">Next up</span>
@@ -17,5 +18,17 @@
       <span class="next-up-when">{{ item.time }} · {{ item.in }}</span></span>
   </span>
   {%- endfor %}
+  {%- endif %}
+  {%- if countdowns %}
+  <span class="next-up-group">
+    <span class="next-up-label">Counting down</span>
+    {%- for c in countdowns %}
+    <span class="next-up-item countdown{{ ' countdown-school' if c.school }}">
+      {%- if c.person %}{{ person_pill(c.person.name, c.person.colour, c.person.avatar) }}{% endif %}
+      <span class="next-up-text"><span class="next-up-title">{{ c.title }}</span>
+        <span class="next-up-when">{{ c.when }}</span></span>
+    </span>
+    {%- endfor %}
+  </span>
   {%- endif %}
 </div>

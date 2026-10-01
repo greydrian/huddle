@@ -110,6 +110,44 @@
     </form>
   </div>
 
+  <!-- Countdowns (app/services/countdowns.py): shown in the "next up" strip -->
+  <div class="admin-panel" id="countdowns">
+    <h2>Countdowns</h2>
+    {{ section_error("countdowns") }}
+    <p class="admin-hint">Days to go, on the line under the banners: "Half term in 12 days", "Trip to Gran in 3 days". The nearest {{ countdown_shown }} show; a date that has passed stops showing.</p>
+    {% for c in countdown_list %}
+    <div class="admin-row admin-item{{ ' countdown-past' if c.target_date < countdown_today else '' }}">
+      <span class="admin-item-label">{{ c.title }}
+        <span class="admin-meta">· {{ c.target_date }}{% if c.person %} · {{ c.person }}{% endif %}{% if c.target_date < countdown_today %} · passed{% endif %}</span></span>
+      <form method="post" action="/admin/countdowns/{{ c.id }}/delete">
+        <button type="submit" class="btn btn-danger btn-small">Delete</button>
+      </form>
+    </div>
+    {% else %}
+    <p class="admin-meta">No countdowns yet.</p>
+    {% endfor %}
+    <form class="admin-form" method="post" action="/admin/countdowns">
+      <label class="hw-field">Name
+        <input type="text" name="title" maxlength="{{ countdown_max_title }}" required placeholder="e.g. Trip to Gran" autocomplete="off"{% if onscreen_keyboard %} data-osk="text"{% endif %}>
+      </label>
+      <label class="hw-field">Date <input type="date" name="target_date" min="{{ countdown_today }}" required></label>
+      <label class="hw-field">Whose
+        <select name="profile_id">
+          <option value="">Everyone</option>
+          {% for p in profiles %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}
+        </select>
+      </label>
+      <button type="submit" class="btn">Add countdown</button>
+    </form>
+    <form method="post" action="/admin/countdowns/school-breaks" class="next-up-setting">
+      <label class="admin-check">
+        <input type="checkbox" name="enabled" value="true" {{ 'checked' if countdown_breaks else '' }}>
+        Also count down to the next half term or holiday (from the term dates, when it's under {{ countdown_break_horizon }} days away)
+      </label>
+      <button type="submit" class="btn btn-small">Save</button>
+    </form>
+  </div>
+
   <!-- On-screen keyboard -->
   <div class="admin-panel" id="keyboard">
     <h2>On-screen Keyboard</h2>
