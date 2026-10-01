@@ -309,3 +309,65 @@
       <button type="submit" class="btn btn-small admin-submit">Save</button>
     </form>
   </div>
+
+  <!-- Meals (app/services/meals.py, spec 10.7): favourites are the meals planned before -->
+  <div class="admin-panel" id="meals">
+    <h2>Meals</h2>
+    {{ section_error("meals") }}
+    <p class="admin-hint">Meals planned before become favourites, most used first: the star next to each day on the wall picks one. Starred meals come first. Add a recipe link (the wall shows a recipe card, or a code to open it on a phone) or short notes.</p>
+    {% set shown = meal_favourites | rejectattr("hidden") | list %}
+    {% set removed = meal_favourites | selectattr("hidden") | list %}
+    {% for m in shown %}
+    <div class="admin-row admin-item meal-favourite">
+      <form method="post" action="/admin/meals/star">
+        <input type="hidden" name="name" value="{{ m.name }}">
+        <button type="submit" name="starred" value="{{ 'false' if m.starred else 'true' }}" class="btn btn-quiet btn-small meal-star{{ ' is-starred' if m.starred else '' }}"
+                aria-pressed="{{ 'true' if m.starred else 'false' }}" aria-label="{{ 'Unstar' if m.starred else 'Star' }} {{ m.name }}">{{ icon("star", 20) }}</button>
+      </form>
+      <span class="admin-item-label">{{ m.name }}
+        <span class="admin-meta">· {% if m.uses %}planned {{ m.uses }} time{{ 's' if m.uses != 1 }}{% else %}not planned yet{% endif %}{% if m.recipe_url %} · recipe link{% endif %}{% if m.notes %} · notes{% endif %}</span></span>
+      <details class="task-edit">
+        <summary class="btn"><span class="task-edit-open">Recipe</span><span class="task-edit-close">Cancel</span></summary>
+        <form class="admin-form" method="post" action="/admin/meals/recipe">
+          <input type="hidden" name="name" value="{{ m.name }}">
+          <label class="hw-field">Recipe link
+            <input type="text" name="url" value="{{ m.recipe_url }}" maxlength="500" placeholder="https://…" autocomplete="off" autocapitalize="off" spellcheck="false"{% if onscreen_keyboard %} data-osk="text"{% endif %}>
+          </label>
+          <label class="hw-field">Notes
+            <textarea name="notes" rows="3" maxlength="1000"{% if onscreen_keyboard %} data-osk="text"{% endif %}>{{ m.notes }}</textarea>
+          </label>
+          <button type="submit" class="btn">Save</button>
+        </form>
+      </details>
+      <form method="post" action="/admin/meals/hide">
+        <input type="hidden" name="name" value="{{ m.name }}">
+        <button type="submit" name="hidden" value="true" class="btn btn-quiet btn-small">Remove</button>
+      </form>
+    </div>
+    {% else %}
+    <p class="admin-meta">No favourites yet: plan a meal on the wall, or add one below.</p>
+    {% endfor %}
+    <form class="admin-form" method="post" action="/admin/meals/recipe">
+      <label class="hw-field">Add a favourite
+        <input type="text" name="name" maxlength="120" required placeholder="e.g. Spaghetti bolognese" autocomplete="off"{% if onscreen_keyboard %} data-osk="text"{% endif %}>
+      </label>
+      <label class="hw-field">Recipe link (optional)
+        <input type="text" name="url" maxlength="500" placeholder="https://…" autocomplete="off" autocapitalize="off" spellcheck="false"{% if onscreen_keyboard %} data-osk="text"{% endif %}>
+      </label>
+      <button type="submit" class="btn">Add</button>
+    </form>
+    {% if removed %}
+    <details class="meal-removed">
+      <summary class="btn btn-quiet btn-small">Removed from favourites ({{ removed | length }})</summary>
+      {% for m in removed %}
+      <div class="admin-row admin-item">
+        <span class="admin-item-label">{{ m.name }}</span>
+        <form method="post" action="/admin/meals/hide">
+          <input type="hidden" name="name" value="{{ m.name }}">
+          <button type="submit" name="hidden" value="false" class="btn btn-quiet btn-small">Put back</button>
+        </form>
+      </div>
+      {% endfor %}
+    </details>
+    {% endif %}
+  </div>
