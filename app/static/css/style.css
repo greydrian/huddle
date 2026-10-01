@@ -923,7 +923,7 @@ body:has(> .dashboard-scroll) > .topbar, body:has(> .dashboard-scroll) > .banner
 .recipe-ingredients li { break-inside: avoid; margin-bottom: 4px; }
 .recipe-steps { margin: 0; padding-left: 24px; }
 .recipe-steps li { margin-bottom: 10px; }
-.recipe-steps .recipe-section { list-style: none; margin-left: -24px; font-weight: 700; }
+.recipe-main h4.recipe-section { margin: 10px 0 4px; font-size: 1.05rem; }
 .recipe-notes { white-space: pre-line; margin: 0; }
 .recipe-error { margin: 0; color: var(--ink-soft); }
 .recipe-qr { flex-shrink: 0; display: flex; flex-direction: column; align-items: center; gap: 6px; }

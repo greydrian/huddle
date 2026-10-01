@@ -69,7 +69,7 @@ def clean_url(url: str) -> str | None:
 async def _resolve(host: str, port: int) -> list[str]:
     """Every address the name resolves to (tests replace this)."""
     infos = await asyncio.get_running_loop().getaddrinfo(host, port, type=socket.SOCK_STREAM)
-    return list(dict.fromkeys(info[4][0] for info in infos))
+    return list(dict.fromkeys(str(info[4][0]) for info in infos))
 
 
 def _public(address: str) -> bool:

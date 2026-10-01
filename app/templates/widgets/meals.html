@@ -1,8 +1,9 @@
 {% from "_icons.html" import icon %}
 {% from "widgets/_widget.html" import widget_header %}
 {#- Re-fetched by static/js/fresh.js when /api/rev says it changed.
-    Spec 10.7: the star is the favourites picker (an invisible native <select>
-    over it: one tap opens the tablet's own list, most used first); the book
+    Spec 10.7: on a day not planned yet, the star is the favourites picker (an
+    invisible native <select> over it: one tap opens the tablet's own list,
+    most used first); the book
     opens the meal's recipe card in #wall-overlay (dashboard.html). -#}
 <div class="widget-card" id="widget-meals" data-refresh="/widgets/meals" data-rev-key="meals">
   {{ widget_header("utensils", "Meal Plan") }}
@@ -14,7 +15,8 @@
              value="{{ day.description }}" placeholder="Not planned" maxlength="120" autocomplete="off"{% if onscreen_keyboard %} data-osk="text"{% endif %}
              hx-post="/api/meals/{{ day.date }}" hx-trigger="change"
              hx-target="#widget-meals" hx-swap="outerHTML">
-      {% if meal_picker %}
+      {#- A planned day keeps its name readable: clear it to pick a favourite again. -#}
+      {% if meal_picker and not day.description %}
       <span class="meal-picker">{{ icon("star", 20) }}
         <select class="meal-picker-select" name="description" aria-label="Pick a favourite for {{ day.weekday }}"
                 hx-post="/api/meals/{{ day.date }}" hx-trigger="change"

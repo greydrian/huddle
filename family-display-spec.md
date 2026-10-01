@@ -548,14 +548,28 @@ alone doesn't close the gap or skip their data (see below).
 - **They appear on the Huddle calendar** as subtle all-day bars for holidays, half-terms and INSET
   days. These are local only, **not written to Google**.
 
-### 10.7 Meals
+### 10.7 Meals (built)
 - **Favourites.** Past meals are remembered. When planning, pick from favourites (most used first)
   instead of typing. A meal can be starred or removed from favourites.
+  - *As built:* every meal planned before is a favourite, counted by the days it was planned
+    (re-typing a day never counts twice). On the wall, a day not planned yet has a star: one tap
+    opens the tablet's own list of favourites (starred first, then most used). Admin → Family →
+    Meals stars, removes (and puts back) favourites, and adds one with its link or notes before
+    it has ever been planned.
 - **Recipe link.** Each meal can have a link or short notes. The widget shows a small icon.
   - Tapping it on the tablet shows a **recipe card**. Huddle fetches the page server-side and
     builds a clean card (ingredients, steps, time) from the **schema.org `Recipe` JSON-LD** that
     most recipe sites publish (checked: BBC Good Food, Jamie Oliver, RecipeTin Eats).
   - A **QR code** to open the recipe on a phone is the fallback when no recipe data is found.
+  - *As built:* the link and notes belong to the meal (its favourite), so every day it's planned
+    shows the book. The card opens over the whole wall and holds off the idle screen for up to 30
+    minutes untouched, for cooking from it. It shows no pictures, so the tablet never contacts the
+    site. The QR code is always on the card. A card is read once and kept for a week; a failure
+    is kept for an hour.
+  - *Safety:* the fetch runs inside the home network, so it only follows plain http(s) links on
+    the standard ports, checks that every address the site's name resolves to is public (never
+    the router or anything else at home), connects to that checked address, re-checks every
+    redirect, and reads at most 2 MB within 8 seconds (`app/recipes.py`).
   - Why not show the site itself: 9 of 12 major UK recipe sites checked forbid being shown inside
     another page (X-Frame-Options/CSP), and navigating the kiosk away to the site would be a kiosk
     escape.

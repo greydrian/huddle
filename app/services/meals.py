@@ -191,19 +191,37 @@ def _now() -> datetime:
     return datetime.now(UTC)
 
 
+def _method(card: dict | None) -> list[dict]:
+    """The card's steps as consecutive sections: [{"section", "steps": [text]}]."""
+    parts: list[dict] = []
+    for step in (card or {}).get("steps") or []:
+        if not parts or parts[-1]["section"] != step.get("section"):
+            parts.append({"section": step.get("section"), "steps": []})
+        parts[-1]["steps"].append(step.get("text", ""))
+    return parts
+
+
 async def recipe_card(db, name: str) -> dict:
+    """See _recipe_card; adds "method" (the steps by section) to its result."""
+    result = await _recipe_card(db, name)
+    result["method"] = _method(result["card"])
+    return result
+
+
+async def _recipe_card(db, name: str) -> dict:
     """What _recipe_card.html shows for a meal: {"name", "notes", "url",
     "card" (recipes.parse_recipe's dict) or None, "error" (text) or None}.
     Never raises for a network or page problem."""
     favourite = await get_favourite(db, name)
-    result = {
+    result: dict = {
         "name": favourite["name"] if favourite else name,
         "notes": favourite["notes"] if favourite else "",
         "url": favourite["recipe_url"] if favourite else "",
         "card": None,
         "error": None,
+        "method": [],
     }
-    url = result["url"]
+    url: str = result["url"]
     if not url:
         return result
     row = await (await db.execute("SELECT * FROM recipe_cache WHERE url = ?", (url,))).fetchone()

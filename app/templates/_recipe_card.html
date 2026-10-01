@@ -24,14 +24,15 @@
         <h3>Ingredients</h3>
         <ul class="recipe-ingredients">{% for i in c.ingredients %}<li>{{ i }}</li>{% endfor %}</ul>
         {% endif %}
-        {% if c.steps %}
+        {% if recipe.method %}
         <h3>Method</h3>
-        <ol class="recipe-steps">
-          {% for step in c.steps %}
-          {% if step.section and (loop.first or step.section != c.steps[loop.index0 - 1].section) %}<li class="recipe-section">{{ step.section }}</li>{% endif %}
-          <li>{{ step.text }}</li>
-          {% endfor %}
-        </ol>
+        {#- One numbered list per section ("For the sauce"), numbered on across them. -#}
+        {% set count = namespace(n=1) %}
+        {% for part in recipe.method %}
+        {% if part.section %}<h4 class="recipe-section">{{ part.section }}</h4>{% endif %}
+        <ol class="recipe-steps" start="{{ count.n }}">{% for text in part.steps %}<li>{{ text }}</li>{% endfor %}</ol>
+        {% set count.n = count.n + part.steps | length %}
+        {% endfor %}
         {% endif %}
         {% elif recipe.error %}
         <p class="recipe-error" role="note">{{ recipe.error }}{% if qr_svg %} Scan the code to open it on a phone.{% endif %}</p>
