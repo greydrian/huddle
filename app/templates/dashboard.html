@@ -24,8 +24,10 @@
 <div id="dashboard-scroll" class="dashboard-scroll">
 {#- data-revs: what each self-refreshing widget shows (app/freshness.py).
     data-layout: the layout generation this page shows (services/layout.generation):
-    fresh.js reloads when /api/rev's differs, and every layout save sends it. #}
-<div id="dashboard-grid" class="grid-stack" data-revs='{{ widget_revs | tojson }}' data-layout="{{ layout_generation }}">
+    fresh.js reloads when /api/rev's differs, and every layout save sends it.
+    data-build: the build that served this page (app/build_info.py): fresh.js
+    reloads when /api/rev's differs, i.e. after a deploy. #}
+<div id="dashboard-grid" class="grid-stack" data-revs='{{ widget_revs | tojson }}' data-layout="{{ layout_generation }}" data-build="{{ build_id }}">
   {% for widget in layout %}
   <div class="grid-stack-item"
        gs-id="{{ widget.widget_id }}"
