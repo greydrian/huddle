@@ -8,22 +8,27 @@ Background jobs, started/stopped from app/main.py's lifespan:
 - the calendar outage cache refresh every 5 minutes (app/calendar_cache.py)
 - the school email check (daily at 18:00 family time by default, set in
   Admin; catches up at startup), checked every 10 minutes — see app/school_email.py
+- the weather forecast, refreshed every 3 hours so night mode's sunset
+  times stay current even with the Weather widget hidden
 - the GOV.UK bank holidays, refreshed weekly (checked every 6 hours, and
   shortly after startup so missing or stale data is fetched) — see app/bank_holidays.py
 """
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from app import backup, bank_holidays, google_calendar, school_email, task_sync
 from app.database import get_db
-from app.services import tasks
+from app.services import tasks, weather
 
 SYNC_INTERVAL_SECONDS = 60
 DAILY_RESET_CHECK_SECONDS = 300
 BACKUP_CHECK_SECONDS = 600
 CALENDAR_CACHE_SECONDS = 300
+# Keeps the saved forecast fresh when the Weather widget is hidden: night
+# mode reads sunrise and sunset from it (app/appearance.py, spec 11.4).
+WEATHER_REFRESH_SECONDS = 3 * 3600
 
 scheduler = AsyncIOScheduler()
 
@@ -36,6 +41,11 @@ async def _run_sync_job():
 async def _daily_reset_job():
     async with get_db() as db:
         await tasks.run_daily_reset_if_due(db)
+
+
+async def _weather_refresh_job():
+    async with get_db() as db:
+        await weather.refresh(db)
 
 
 async def _calendar_cache_job():
@@ -98,6 +108,15 @@ def start():
         id="calendar_cache",
         replace_existing=True,
         max_instances=1,
+    )
+    scheduler.add_job(
+        _weather_refresh_job,
+        "interval",
+        seconds=WEATHER_REFRESH_SECONDS,
+        id="weather_refresh",
+        replace_existing=True,
+        max_instances=1,
+        next_run_time=datetime.now(timezone.utc) + timedelta(minutes=1),  # sun times soon after a restart
     )
     scheduler.start()
 

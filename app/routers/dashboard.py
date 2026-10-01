@@ -11,7 +11,7 @@ import sqlite3
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
-from app import idle, scheduler, sync_status
+from app import build_info, idle, scheduler, sync_status
 from app.appearance import current_mode
 from app.database import get_db
 from app.freshness import BANNERS, NEXT_UP, today_info, widget_revisions
@@ -34,7 +34,14 @@ async def health():
     must never make the container "unhealthy"; that's reported in the body.
     Only a database that can't be read at all gives 503. WAL readers never
     wait on a writer, so a busy SQLite doesn't trip it."""
-    body = {"status": "ok", "db": "ok", "scheduler": "running" if scheduler.scheduler.running else "stopped"}
+    body = {
+        "status": "ok",
+        "db": "ok",
+        "scheduler": "running" if scheduler.scheduler.running else "stopped",
+        # Which build is running: scripts/deploy.sh and a person can check a
+        # deploy took, and it's what the wall compares to reload (build_info).
+        "build": build_info.build_id(),
+    }
     try:
         async with asyncio.timeout(HEALTH_DB_TIMEOUT_SECONDS), get_db() as db:
             await (await db.execute("SELECT 1")).fetchone()
@@ -77,6 +84,7 @@ async def dashboard(request: Request):
             **next_up_context,
             "layout": shown,
             "layout_generation": layout_generation,
+            "build_id": build_info.build_id(),
             "widget_templates": {widget_id: widget.template for widget_id, widget in WIDGETS.items()},
             "today": today["date"],
             "today_next_change": today["next_change_in"],

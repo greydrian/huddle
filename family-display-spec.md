@@ -117,7 +117,7 @@ in the box. It replaces the Tab A9+.
 ### 4.5 Appearance
 - The "Calm modern" design. **Night mode switches on automatically from 19:00 to 07:00** in the
   family's timezone, with no reload needed. Admin → Appearance can set Auto, Always light or
-  Always dark. *Changing to sunset-based, with 19:00–07:00 as the fallback: see 11.4.*
+  Always dark. *Now sunset-based, with 19:00–07:00 as the fallback: see 11.4 (built).*
 - All text meets WCAG AA contrast in both modes. Minimum text size is 1 rem, and 0.8 rem for
   secondary text.
 - Fonts (Figtree, Playwrite GB) and icons (Lucide, Meteocons) are bundled with the app. Nothing
@@ -743,7 +743,7 @@ answer; they're decided in outline and settled in detail when built.
     the family's behalf: no public API for either was found, and storing a parent's password
     there would be a new and larger risk.
 
-### 11.4 Sunset-based night mode (changes 4.5)
+### 11.4 Sunset-based night mode (changes 4.5) — built
 - **Decided:** Auto appearance follows **sunset and sunrise** for the weather location, with
   **19:00–07:00 as the fallback**.
 - *Proposed design:*

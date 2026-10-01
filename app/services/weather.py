@@ -8,7 +8,8 @@ showing the last good reading when Open-Meteo is down or slow.
 import asyncio
 import json
 import logging
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone, tzinfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import httpx
 
@@ -111,7 +112,8 @@ async def _fetch_forecast(location: dict) -> dict:
         "latitude": location["latitude"],
         "longitude": location["longitude"],
         "current": "temperature_2m,weather_code",
-        "daily": "weather_code,temperature_2m_max,temperature_2m_min",
+        # sunrise/sunset: the Auto appearance's night (app/appearance.py, spec 11.4).
+        "daily": "weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset",
         "forecast_days": 4,
         "timezone": "auto",
     }
@@ -123,6 +125,8 @@ async def _fetch_forecast(location: dict) -> dict:
     daily = data["daily"]
     return {
         "utc_offset_seconds": int(data.get("utc_offset_seconds", 0)),
+        # The location's IANA zone (timezone=auto): sunrise/sunset are local times in it.
+        "timezone": str(data.get("timezone") or ""),
         "current": {
             "temperature": float(data["current"]["temperature_2m"]),
             "weather_code": int(data["current"]["weather_code"]),
@@ -133,10 +137,20 @@ async def _fetch_forecast(location: dict) -> dict:
                 "weather_code": int(daily["weather_code"][i]),
                 "max": float(daily["temperature_2m_max"][i]),
                 "min": float(daily["temperature_2m_min"][i]),
+                # Optional: a day without them only costs night mode its sunset (it falls back).
+                "sunrise": _sun_value(daily, "sunrise", i),
+                "sunset": _sun_value(daily, "sunset", i),
             }
             for i in range(len(daily["time"]))
         ],
     }
+
+
+def _sun_value(daily: dict, key: str, i: int) -> str | None:
+    values = daily.get(key)
+    if not isinstance(values, list) or i >= len(values) or not isinstance(values[i], str):
+        return None
+    return values[i]
 
 
 def _present(location: dict, forecast: dict, fetched_at: datetime, stale: bool, now: datetime) -> dict:
@@ -271,3 +285,58 @@ async def cached_now(db) -> dict | None:
         return None
     weather = cached["weather"]
     return {key: weather[key] for key in ("temperature", "category", "condition")}
+
+
+# --- Sunrise and sunset, for the Auto appearance (app/appearance.py, spec 11.4) ---
+
+
+class SunUnavailable(Exception):
+    """No usable sun times; `code` says why (logged, and shown in Admin)."""
+
+    def __init__(self, code: str):
+        super().__init__(code)
+        self.code = code
+
+
+def _forecast_zone(forecast: dict) -> tzinfo:
+    try:
+        return ZoneInfo(forecast["timezone"])
+    except KeyError, TypeError, ValueError, OSError, ZoneInfoNotFoundError:
+        return timezone(timedelta(seconds=int(forecast.get("utc_offset_seconds", 0))))
+
+
+async def sun_times(db) -> dict[date, tuple[datetime, datetime]]:
+    """{day: (sunrise, sunset)} (tz-aware) from the saved forecast only:
+    appearance never makes a request. Raises SunUnavailable("no_location")
+    with no weather location, or SunUnavailable("no_forecast") when there's
+    no saved forecast for it or the saved one has no sun times (one from
+    before they were fetched). The scheduler's weather job and the Weather
+    widget keep the saved forecast fresh."""
+    location = await get_location(db)
+    if not location:
+        raise SunUnavailable("no_location")
+    raw = await get_setting(db, CACHE_SETTING)
+    try:
+        cache = json.loads(raw) if raw else None
+        if not cache or (cache["latitude"], cache["longitude"]) != (location["latitude"], location["longitude"]):
+            raise SunUnavailable("no_forecast")
+        forecast = cache["forecast"]
+        zone = _forecast_zone(forecast)
+        days = {}
+        for d in forecast["daily"]:
+            if d.get("sunrise") and d.get("sunset"):
+                rise = datetime.fromisoformat(d["sunrise"]).replace(tzinfo=zone)
+                set_ = datetime.fromisoformat(d["sunset"]).replace(tzinfo=zone)
+                days[date.fromisoformat(d["date"])] = (rise, set_)
+    except (KeyError, IndexError, TypeError, ValueError, AttributeError) as exc:
+        raise SunUnavailable("no_forecast") from exc
+    if not days:
+        raise SunUnavailable("no_forecast")
+    return days
+
+
+async def refresh(db) -> None:
+    """Scheduler entry point: keep the saved forecast (and so the sun
+    times) fresh even when the Weather widget is hidden. get_weather keeps
+    its own cache age, backoff and outage logging."""
+    await get_weather(db)
