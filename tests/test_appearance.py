@@ -3,7 +3,7 @@ container's UTC clock) and the person-colour ink helper."""
 
 import json
 import logging
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -321,3 +321,17 @@ async def test_forecast_stores_sun_times_and_zone(db, google):
     assert "sunrise" in route.calls.last.request.url.params["daily"]
     days = await weather.sun_times(db)
     assert days[DAY] == (_local(7, 21), _local(18, 5))
+
+
+async def test_late_evening_in_utc_reads_the_forecasts_own_day(db):
+    """No calendar connected, so the family's timezone is UTC; the weather is
+    in a British summer. At 23:10 UTC it's already 00:10 tomorrow in Reading,
+    and a forecast fetched since starts on that day: that's still night until
+    Reading's sunrise, not a "stale forecast" fallback."""
+    summer = date(2026, 6, 16)
+    await _sun_forecast(db, {summer: ("04:43", "21:21"), summer + timedelta(days=1): ("04:43", "21:21")})
+    now = datetime(2026, 6, 15, 23, 10, tzinfo=UTC)
+    result = await appearance.current_mode(db, now)
+    sunrise = datetime(2026, 6, 16, 4, 43, tzinfo=LONDON)
+    assert result == {"mode": "night", "switch_in": int((sunrise - now).total_seconds())}
+    assert await database.get_setting(db, appearance.FALLBACK_SETTING) is None

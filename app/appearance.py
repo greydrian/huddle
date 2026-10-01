@@ -95,8 +95,9 @@ async def set_appearance(db, value: str):
 
 
 def _plausible(rise: datetime, set_: datetime, day: date) -> bool:
-    """Both on `day` (family time), sunrise first, and a day length a UK-ish
-    household could see: 4 to 20 hours. Anything else is a bad forecast."""
+    """Both on `day` (in the forecast's own zone), sunrise first, and a day
+    length a UK-ish household could see: 4 to 20 hours. Anything else is a
+    bad forecast."""
     return rise.date() == day == set_.date() and timedelta(hours=4) <= set_ - rise <= timedelta(hours=20)
 
 
@@ -106,16 +107,21 @@ async def sun_night(db, now: datetime) -> tuple[SunNight | None, str | None]:
         days = await weather.sun_times(db)
     except weather.SunUnavailable as exc:
         return None, exc.code
-    tz, today = now.tzinfo, now.date()
-    local = {d: (rise.astimezone(tz), set_.astimezone(tz)) for d, (rise, set_) in days.items()}
-    if today not in local:
+    # The forecast's days are the weather location's own dates, so "today"
+    # is today there, not in the family's timezone (which is UTC with no
+    # calendar connected: just before midnight UTC it's already tomorrow in
+    # a British summer). The times are absolute, so they compare fine.
+    zone = next(iter(days.values()))[0].tzinfo
+    today = now.astimezone(zone).date()
+    if today not in days:
         return None, "stale_forecast"
-    rise, set_ = local[today]
+    rise, set_ = days[today]
     if not _plausible(rise, set_, today):
         return None, "bad_times"
-    tomorrow = local.get(today + timedelta(days=1))
+    tomorrow = days.get(today + timedelta(days=1))
     next_rise = tomorrow[0] if tomorrow and _plausible(*tomorrow, today + timedelta(days=1)) else None
-    return SunNight(rise, set_, next_rise), None
+    tz = now.tzinfo
+    return SunNight(rise.astimezone(tz), set_.astimezone(tz), next_rise.astimezone(tz) if next_rise else None), None
 
 
 async def _note_fallback(db, today: date, reason: str) -> None:
@@ -168,7 +174,8 @@ async def night_source(db, now: datetime | None = None) -> dict:
         last = json.loads(await get_setting(db, FALLBACK_SETTING) or "null")
         if last and last.get("reason") in FALLBACK_REASONS:
             last["why"] = FALLBACK_REASONS[last["reason"]]
-            last["label"] = date.fromisoformat(last["date"]).strftime("%a %-d %b")
+            day = date.fromisoformat(last["date"])
+            last["label"] = f"{day:%a} {day.day} {day:%b}"  # no %-d: glibc-only
         else:
             last = None
     except ValueError, TypeError, AttributeError:

@@ -53,6 +53,10 @@ async def save_weather_location(place: str = Form(...)):
         return RedirectResponse(url=admin_url("weather", weather_error="notfound"), status_code=303)
     async with get_db() as db:
         await weather.set_location(db, location)
+        # Fetch the new place's forecast now (it has its own short deadline
+        # and outage handling), so Auto night follows its sunset straight
+        # away even with the Weather widget hidden.
+        await weather.refresh(db)
     return RedirectResponse(url=admin_url("weather"), status_code=303)
 
 
