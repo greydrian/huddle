@@ -50,7 +50,7 @@ def _changed(before, after):
 
 async def test_rev_is_stable_when_nothing_changes(client):
     assert await _revs(client) == await _revs(client)
-    assert set(await _revs(client)) == {*freshness.REFRESHED, freshness.BANNERS}
+    assert set(await _revs(client)) == {*freshness.REFRESHED, freshness.BANNERS, freshness.NEXT_UP}
 
 
 async def test_rev_changes_only_for_the_shopping_list_on_add_and_delete(db, client):

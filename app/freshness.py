@@ -28,7 +28,7 @@ from fastapi import APIRouter
 
 from app import build_info, database
 from app.database import family_timezone, get_db
-from app.services import banners, layout
+from app.services import banners, layout, next_up
 from app.widgets import WIDGETS
 
 # Widgets refreshed through /api/rev. Each template's root carries
@@ -37,6 +37,8 @@ REFRESHED = ("tasks", "shopping", "meals", "homework", "practice_words")
 # Not a widget, refreshed the same way: the notification banner bar
 # (templates/_banners.html, data-refresh="/banners").
 BANNERS = "banners"
+# Also not a widget: the "next up" strip (templates/_next_up.html, data-refresh="/next-up").
+NEXT_UP = "next_up"
 
 router = APIRouter()
 
@@ -52,7 +54,7 @@ def widget_revisions(contexts: dict[str, dict]) -> dict[str, str]:
     `contexts`: the dashboard passes the contexts it just rendered (only the
     widgets it shows), so the page's starting revisions describe exactly
     what it shows."""
-    return {key: revision(contexts[key]) for key in (*REFRESHED, BANNERS) if key in contexts}
+    return {key: revision(contexts[key]) for key in (*REFRESHED, BANNERS, NEXT_UP) if key in contexts}
 
 
 async def shown_revisions(db, shown: list[str]) -> dict[str, str]:
@@ -61,6 +63,7 @@ async def shown_revisions(db, shown: list[str]) -> dict[str, str]:
     on a day off) isn't loaded at all."""
     revs = {widget_id: revision(await WIDGETS[widget_id].load(db)) for widget_id in REFRESHED if widget_id in shown}
     revs[BANNERS] = revision(await banners.context(db))
+    revs[NEXT_UP] = revision(await next_up.context(db))
     return revs
 
 

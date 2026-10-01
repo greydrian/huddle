@@ -68,6 +68,7 @@ from app.routers import (
     homework,
     layout,
     meals,
+    next_up,
     pen_test,
     photos,
     shopping,
@@ -143,6 +144,7 @@ app.include_router(weather.router)
 app.include_router(homework.router)
 app.include_router(sync.router)
 app.include_router(banners.router)
+app.include_router(next_up.router)
 app.include_router(pen_test.router)
 app.include_router(idle.router)
 app.include_router(photos.router)

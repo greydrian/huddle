@@ -100,6 +100,14 @@
       <p class="admin-hint">Chimes: the tablet keeps sound off until someone touches the screen after the display loads, so banners before that show without a chime. In Fully Kiosk, Web Content Settings → Autoplay Audio may let it start sooner.</p>
       <button type="submit" class="btn btn-small">Save</button>
     </form>
+    {#- The "next up" strip (app/services/next_up.py). -#}
+    <form method="post" action="/admin/next-up" class="next-up-setting">
+      <label class="admin-check">
+        <input type="checkbox" name="enabled" value="true" {{ 'checked' if next_up_enabled else '' }}>
+        Show a "Next up" line: each person's next event today and how long until it
+      </label>
+      <button type="submit" class="btn btn-small">Save</button>
+    </form>
   </div>
 
   <!-- On-screen keyboard -->
