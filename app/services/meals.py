@@ -34,6 +34,7 @@ ERROR_TEXT = {
     "offline": "Couldn't reach the recipe's website just now.",
     "http_error": "The recipe's website didn't return the page.",
     "not_html": "That link isn't a web page.",
+    "encoded": "That site sent the page compressed, which Huddle doesn't read.",
     "too_big": "That page is too big to read.",
     "too_many_redirects": "That link redirects too many times.",
     "no_recipe": "That page has no recipe details Huddle can read.",
@@ -166,17 +167,24 @@ async def set_hidden(db, name: str, hidden: bool) -> None:
     await _upsert(db, name, hidden=int(hidden))
 
 
-async def set_recipe(db, name: str, url: str, notes: str) -> None:
-    """Saves a meal's recipe link and notes. Raises ValueError("meal-link")
-    for a link that isn't a plain http(s) address, ("meal-notes") for notes
-    too long. Cards are cached by link, so a new link is read afresh."""
-    url = url.strip()
-    if url and recipes.clean_url(url) is None:
-        raise ValueError("meal-link")
-    notes = notes.strip()
-    if len(notes) > MAX_NOTES:
-        raise ValueError("meal-notes")
-    await _upsert(db, name, recipe_url=url, notes=notes)
+async def set_recipe(db, name: str, url: str | None, notes: str | None) -> None:
+    """Saves a meal's recipe link and notes; None leaves that one as it is
+    (Admin's "Add a favourite" form has no notes, and a blank link there
+    means "none given"). Raises ValueError("meal-link") for a link that
+    isn't a plain http(s) address, ("meal-notes") for notes too long. Cards
+    are cached by link, so a new link is read afresh."""
+    fields: dict = {}
+    if url is not None:
+        url = url.strip()
+        if url and recipes.clean_url(url) is None:
+            raise ValueError("meal-link")
+        fields["recipe_url"] = url
+    if notes is not None:
+        notes = notes.strip()
+        if len(notes) > MAX_NOTES:
+            raise ValueError("meal-notes")
+        fields["notes"] = notes
+    await _upsert(db, name, **fields)
 
 
 async def get_favourite(db, name: str) -> dict | None:

@@ -207,3 +207,12 @@ async def test_admin_manages_favourites(db, admin_client):
 
     await admin_client.post("/admin/meals/hide", data={"name": "Pasta bake", "hidden": "false"})
     assert "Pasta bake" in [f["name"] for f in await meals.favourites(db)]
+
+    # "Add a favourite" for a name that's already one keeps its link and notes.
+    await admin_client.post("/admin/meals/recipe", data={"name": "lasagne", "url": "", "add": "true"})
+    fav = await meals.get_favourite(db, "Lasagne")
+    assert (fav["recipe_url"], fav["notes"]) == (LINK, "Big dish")
+    # The edit form (both fields) can still clear them.
+    await admin_client.post("/admin/meals/recipe", data={"name": "Lasagne", "url": "", "notes": ""})
+    fav = await meals.get_favourite(db, "Lasagne")
+    assert (fav["recipe_url"], fav["notes"]) == ("", "")

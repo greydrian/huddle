@@ -568,8 +568,10 @@ alone doesn't close the gap or skip their data (see below).
     is kept for an hour.
   - *Safety:* the fetch runs inside the home network, so it only follows plain http(s) links on
     the standard ports, checks that every address the site's name resolves to is public (never
-    the router or anything else at home), connects to that checked address, re-checks every
-    redirect, and reads at most 2 MB within 8 seconds (`app/recipes.py`).
+    the router or anything else at home, including addresses tunnelled inside IPv6), connects to
+    that checked address, re-checks every redirect, reads at most 2 MB of uncompressed HTML
+    (a compressed answer is refused, never inflated), gives up after 10 seconds in all, and parses
+    the page in time proportional to its size (`app/recipes.py`).
   - Why not show the site itself: 9 of 12 major UK recipe sites checked forbid being shown inside
     another page (X-Frame-Options/CSP), and navigating the kiosk away to the site would be a kiosk
     escape.

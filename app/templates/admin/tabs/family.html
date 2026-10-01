@@ -348,6 +348,7 @@
     <p class="admin-meta">No favourites yet: plan a meal on the wall, or add one below.</p>
     {% endfor %}
     <form class="admin-form" method="post" action="/admin/meals/recipe">
+      <input type="hidden" name="add" value="true">
       <label class="hw-field">Add a favourite
         <input type="text" name="name" maxlength="120" required placeholder="e.g. Spaghetti bolognese" autocomplete="off"{% if onscreen_keyboard %} data-osk="text"{% endif %}>
       </label>

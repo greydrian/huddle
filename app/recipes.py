@@ -12,7 +12,13 @@ inward (SSRF):
   still checked against the name), so DNS can't answer differently between
   the check and the connection;
 - redirects are followed by hand, at most MAX_REDIRECTS, each re-checked;
-- only HTML is read, at most MAX_BYTES, within TIMEOUT.
+- only uncompressed HTML is read (Accept-Encoding: identity; a compressed
+  answer is refused, so no decompression bomb), at most MAX_BYTES, and the
+  whole fetch, DNS included, within DEADLINE seconds;
+- proxies from the environment are ignored (a proxy tunnel would check the
+  certificate against the address, not the name);
+- parsing is linear in the page size (no regex that can backtrack on a
+  hostile page), because it runs on the app's one event loop.
 Failures raise RecipeError with a log-safe code; nothing here logs a URL.
 """
 
@@ -32,6 +38,7 @@ MAX_URL = 500
 MAX_BYTES = 2_000_000
 MAX_REDIRECTS = 3
 TIMEOUT = httpx.Timeout(8.0, connect=4.0)
+DEADLINE = 10.0  # seconds for the whole fetch, redirects and DNS included
 PORTS = {"http": 80, "https": 443}
 USER_AGENT = "Huddle family display (recipe card)"
 
@@ -42,7 +49,7 @@ MAX_TEXT = 500
 
 class RecipeError(Exception):
     """A recipe couldn't be read. `code`: bad_url, blocked, offline,
-    http_error, not_html, too_big, too_many_redirects, no_recipe."""
+    http_error, not_html, encoded, too_big, too_many_redirects, no_recipe."""
 
     def __init__(self, code: str):
         super().__init__(code)
@@ -72,10 +79,20 @@ async def _resolve(host: str, port: int) -> list[str]:
     return list(dict.fromkeys(str(info[4][0]) for info in infos))
 
 
+# IPv6 ranges that carry an IPv4 address a gateway may translate to (NAT64,
+# IPv4-compatible, 6to4, Teredo): refused outright, whatever they embed.
+_EMBEDDING = tuple(
+    ipaddress.ip_network(n) for n in ("64:ff9b::/96", "64:ff9b:1::/48", "::/96", "2002::/16", "2001::/32")
+)
+
+
 def _public(address: str) -> bool:
     ip = ipaddress.ip_address(address.split("%", 1)[0])
-    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped:
-        ip = ip.ipv4_mapped
+    if isinstance(ip, ipaddress.IPv6Address):
+        if ip.ipv4_mapped:
+            ip = ip.ipv4_mapped
+        elif any(ip in net for net in _EMBEDDING):
+            return False
     return ip.is_global and not ip.is_multicast
 
 
@@ -109,14 +126,28 @@ def _is_ip(host: str) -> bool:
 
 
 async def fetch_page(url: str) -> str:
-    """The page's HTML, following up to MAX_REDIRECTS checked redirects."""
-    async with http_client.client(TIMEOUT) as client:
+    """The page's HTML, following up to MAX_REDIRECTS checked redirects,
+    all within DEADLINE."""
+    try:
+        async with asyncio.timeout(DEADLINE):
+            return await _fetch_page(url)
+    except TimeoutError:
+        raise RecipeError("offline") from None
+
+
+async def _fetch_page(url: str) -> str:
+    async with http_client.client(TIMEOUT, trust_env=False) as client:
         for _ in range(MAX_REDIRECTS + 1):
             target, host_header, sni = await _checked_target(url)
             request = client.build_request(
                 "GET",
                 target,
-                headers={"Host": host_header, "User-Agent": USER_AGENT, "Accept": "text/html"},
+                headers={
+                    "Host": host_header,
+                    "User-Agent": USER_AGENT,
+                    "Accept": "text/html",
+                    "Accept-Encoding": "identity",
+                },
                 extensions={"sni_hostname": sni},
             )
             try:
@@ -131,15 +162,20 @@ async def fetch_page(url: str) -> str:
                     raise RecipeError("http_error")
                 if "html" not in response.headers.get("content-type", "").lower():
                     raise RecipeError("not_html")
+                if response.headers.get("content-encoding", "identity").strip().lower() not in ("", "identity"):
+                    raise RecipeError("encoded")  # compressed though asked not to: never inflated
                 body = bytearray()
                 try:
-                    async for chunk in response.aiter_bytes():
+                    async for chunk in response.aiter_raw():
                         body += chunk
                         if len(body) > MAX_BYTES:
                             raise RecipeError("too_big")
                 except httpx.HTTPError:
                     raise RecipeError("offline") from None
-                return body.decode(response.encoding or "utf-8", errors="replace")
+                try:
+                    return body.decode(response.encoding or "utf-8", errors="replace")
+                except LookupError:  # a charset Python doesn't know
+                    return body.decode("utf-8", errors="replace")
             finally:
                 await response.aclose()
     raise RecipeError("too_many_redirects")
@@ -147,12 +183,34 @@ async def fetch_page(url: str) -> str:
 
 # --- Parsing ---
 
-_LD_JSON = re.compile(r"<script[^>]*type\s*=\s*[\"']?application/ld\+json[\"']?[^>]*>(.*?)</script\s*>", re.I | re.S)
-_TAG = re.compile(r"<[^>]+>")
+_TAG = re.compile(r"<[^<>]*>")
+
+
+def _ld_json_blocks(page: str) -> list[str]:
+    """The contents of every <script type="application/ld+json"> block, by a
+    linear scan (a regex with a lazy body backtracks quadratically on a page
+    of unclosed script tags)."""
+    lower = page.lower()
+    blocks: list[str] = []
+    pos = 0
+    while True:
+        start = lower.find("<script", pos)
+        if start < 0:
+            return blocks
+        tag_end = lower.find(">", start)
+        if tag_end < 0:
+            return blocks
+        close = lower.find("</script", tag_end)
+        if close < 0:
+            return blocks  # no closing tag anywhere after: none further either
+        if "application/ld+json" in lower[start:tag_end]:
+            blocks.append(page[tag_end + 1 : close])
+        pos = close + 8
 
 
 def _text(value, limit: int = MAX_TEXT) -> str:
-    text = html.unescape(_TAG.sub(" ", str(value or "")))
+    # Cut first: tags and entities only shrink, so 4x the limit is plenty.
+    text = html.unescape(_TAG.sub(" ", str(value or "")[: limit * 4]))
     return " ".join(text.split())[:limit]
 
 
@@ -226,7 +284,7 @@ def _yield(value) -> str | None:
 def parse_recipe(page: str) -> dict:
     """The card from a page's JSON-LD: {"title", "ingredients", "steps",
     "time", "prep", "cook", "serves"}. Raises RecipeError("no_recipe")."""
-    for block in _LD_JSON.findall(page):
+    for block in _ld_json_blocks(page):
         try:
             data = json.loads(block.strip())
         except ValueError:

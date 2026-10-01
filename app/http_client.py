@@ -19,9 +19,11 @@ import httpx
 DEFAULT_TIMEOUT = httpx.Timeout(10.0, connect=5.0)
 
 
-def client(timeout: httpx.Timeout = DEFAULT_TIMEOUT) -> httpx.AsyncClient:
-    """Use as `async with http_client.client() as c: ...`."""
-    return httpx.AsyncClient(timeout=timeout)
+def client(timeout: httpx.Timeout = DEFAULT_TIMEOUT, trust_env: bool = True) -> httpx.AsyncClient:
+    """Use as `async with http_client.client() as c: ...`. trust_env=False
+    ignores proxy settings from the environment (app/recipes.py, which
+    connects to a checked address itself)."""
+    return httpx.AsyncClient(timeout=timeout, trust_env=trust_env)
 
 
 # Upstreams currently failing, by key. Callers retry on every sync cycle,

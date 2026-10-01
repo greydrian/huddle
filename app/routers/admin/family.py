@@ -127,15 +127,20 @@ def _meal_name(name: str) -> str | None:
 
 
 @router.post("/meals/recipe", dependencies=[Depends(require_admin)])
-async def save_meal_recipe(name: str = Form(""), url: str = Form(""), notes: str = Form("")):
+async def save_meal_recipe(
+    name: str = Form(""), url: str | None = Form(None), notes: str | None = Form(None), add: bool = Form(False)
+):
     """A meal's recipe link and notes; also how a favourite is added before
-    it has been planned."""
+    it has been planned ("add": only what was filled in, so adding a name
+    that's already a favourite never wipes its link or notes)."""
     clean = _meal_name(name)
     if clean is None:
         return admin_error("meal-name")
+    # FastAPI gives a blank field as None; only the add form leaves things as they are.
+    link = (url or None) if add else (url or "")
     async with get_db() as db:
         try:
-            await meals.set_recipe(db, clean, url, notes)
+            await meals.set_recipe(db, clean, link, None if add else (notes or ""))
         except ValueError as exc:
             return admin_error(str(exc))
     return RedirectResponse(url=admin_url("meals"), status_code=303)

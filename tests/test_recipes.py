@@ -94,7 +94,8 @@ def test_clean_url_refuses_the_rest(url):
 @pytest.mark.parametrize(
     "address",
     ["127.0.0.1", "10.1.2.3", "192.168.1.1", "172.16.0.9", "169.254.169.254", "100.64.0.1", "0.0.0.0", "::1",  # noqa: S104 - an address to refuse, not bind
-     "fc00::1", "fe80::1", "::ffff:192.168.1.1", "224.0.0.1"],
+     "fc00::1", "fe80::1", "::ffff:192.168.1.1", "224.0.0.1",
+     "64:ff9b::c0a8:101", "64:ff9b::7f00:1", "::7f00:1", "2002:c0a8:101::1", "2001:0:4136:e378::1"],
 )  # fmt: skip
 def test_inward_addresses_are_not_public(address):
     assert not recipes._public(address)
@@ -215,3 +216,43 @@ def test_parse_caps_long_recipes():
     card = recipes.parse_recipe(page(data))
     assert len(card["ingredients"]) == recipes.MAX_INGREDIENTS and len(card["steps"]) == recipes.MAX_STEPS
     assert len(card["steps"][0]["text"]) == recipes.MAX_TEXT
+
+
+# --- Hostile pages (review: decompression, deadline, backtracking) ---
+
+
+async def test_a_compressed_answer_is_refused_never_inflated(google, dns):
+    import gzip
+
+    bomb = gzip.compress(gzip.compress(b"<html>" + b" " * 5_000_000))
+    route = google.get(TARGET).respond(
+        200, content=bomb, headers={"Content-Type": "text/html", "Content-Encoding": "gzip, gzip"}
+    )
+    with pytest.raises(recipes.RecipeError, match="encoded"):
+        await recipes.fetch_card(PAGE_URL)
+    assert route.calls.last.request.headers["accept-encoding"] == "identity"
+
+
+async def test_the_whole_fetch_has_one_deadline(google, dns, monkeypatch):
+    import asyncio
+
+    async def slow(host, port):
+        await asyncio.sleep(5)
+        return [PUBLIC]
+
+    monkeypatch.setattr(recipes, "_resolve", slow)
+    monkeypatch.setattr(recipes, "DEADLINE", 0.2)
+    with pytest.raises(recipes.RecipeError, match="offline"):
+        await recipes.fetch_card(PAGE_URL)
+
+
+def test_parsing_a_hostile_page_stays_fast():
+    import time
+
+    started = time.monotonic()
+    with pytest.raises(recipes.RecipeError, match="no_recipe"):
+        recipes.parse_recipe("<script type=application/ld+json>" * 60_000)  # ~2 MB, never closed
+    assert recipes._text("<" * 2_000_000) == "<" * recipes.MAX_TEXT
+    big = {"@type": "Recipe", "name": "<" * 1_000_000, "recipeIngredient": ["x"]}
+    assert recipes.parse_recipe(page(big))["title"] == "<" * 120
+    assert time.monotonic() - started < 2
