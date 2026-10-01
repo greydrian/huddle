@@ -117,7 +117,7 @@ in the box. It replaces the Tab A9+.
 ### 4.5 Appearance
 - The "Calm modern" design. **Night mode switches on automatically from 19:00 to 07:00** in the
   family's timezone, with no reload needed. Admin → Appearance can set Auto, Always light or
-  Always dark. *Changing to sunset-based, with 19:00–07:00 as the fallback: see 11.4.*
+  Always dark. *Now sunset-based, with 19:00–07:00 as the fallback: see 11.4 (built).*
 - All text meets WCAG AA contrast in both modes. Minimum text size is 1 rem, and 0.8 rem for
   secondary text.
 - Fonts (Figtree, Playwrite GB) and icons (Lucide, Meteocons) are bundled with the app. Nothing
@@ -581,9 +581,12 @@ alone doesn't close the gap or skip their data (see below).
   it too. Google Tasks notes only show as a truncated preview, so notes weren't chosen. Huddle
   parses `x2`, `×2` and `2x` at either end ("2x milk", "Milk x 2", "Milk 2x"); the wall shows the
   quantity as a small "×2" badge. Items added on the wall are written as "Milk ×2"; titles typed
-  on a phone are read as they are, never rewritten. Adding something already on the list adds to
-  its quantity instead of a second row ("Milk" twice is "Milk ×2"); a ticked one comes back
-  unticked.
+  on a phone are read as they are and left alone, until something is added onto them from the
+  wall. Adding something already on the list (unticked) adds to its quantity instead of a second
+  row ("Milk" twice is "Milk ×2", and that row is rewritten in Huddle's form); a ticked one stays
+  in the basket and the new one is a row of its own. If that item was deleted on a phone
+  meanwhile, it comes back as a new task rather than being lost. A number with an x at the end of
+  a name is read as a quantity, so a pack size like "Paracetamol 16x" shows as ×16.
 - **Admin display options** (Admin → Display → Shopping list). Choose between a **simple list**
   (today's) and a **grouped by category/aisle** layout: fruit & veg, bakery, dairy & eggs, meat &
   fish, chilled, frozen, cupboard, drinks, snacks & sweets, household, health & beauty, baby,
@@ -768,7 +771,7 @@ answer; they're decided in outline and settled in detail when built.
     the family's behalf: no public API for either was found, and storing a parent's password
     there would be a new and larger risk.
 
-### 11.4 Sunset-based night mode (changes 4.5)
+### 11.4 Sunset-based night mode (changes 4.5) — built
 - **Decided:** Auto appearance follows **sunset and sunrise** for the weather location, with
   **19:00–07:00 as the fallback**.
 - *Proposed design:*

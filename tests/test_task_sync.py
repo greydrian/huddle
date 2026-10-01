@@ -135,3 +135,32 @@ async def test_linking_a_new_list_backfills_instead_of_wiping(db, connected, goo
 
     rows = await (await db.execute("SELECT title, google_task_id FROM shopping_items")).fetchall()
     assert [(r["title"], r["google_task_id"]) for r in rows] == [("Tea", "new-tea")]
+
+
+async def test_adding_to_an_item_deleted_in_google_meanwhile_brings_it_back(db, connected, client, google):
+    """Milk was deleted in Google Tasks at the shop; before the next sync
+    someone adds "Milk" on the wall, which adds to the stale row. The push
+    gets 404 and re-creates the task, so the new Milk isn't lost."""
+    await task_sync.set_shopping_tasklist(db, SHOP_LIST)
+    await db.execute("INSERT INTO shopping_items (title, google_task_id) VALUES ('Milk', 'g-old')")
+    await db.commit()
+    google.patch(f"{TASKS_API}/shop/tasks/g-old").respond(404)
+    insert = google.post(f"{TASKS_API}/shop/tasks").respond(200, json={"id": "g-new"})
+
+    await client.post("/api/shopping", data={"title": "Milk"})
+    await task_sync.push_pending_changes(db, "tok")
+
+    assert json.loads(insert.calls.last.request.content)["title"] == "Milk ×2"
+    row = await (await db.execute("SELECT title, google_task_id FROM shopping_items")).fetchone()
+    assert (row["title"], row["google_task_id"]) == ("Milk ×2", "g-new")
+    assert await _queue_rows(db) == []
+
+
+async def test_a_plain_change_to_a_deleted_task_is_still_dropped(db, connected, client, google):
+    await task_sync.set_shopping_tasklist(db, SHOP_LIST)
+    cur = await db.execute("INSERT INTO shopping_items (title, google_task_id) VALUES ('Milk', 'g-old')")
+    await db.commit()
+    google.patch(f"{TASKS_API}/shop/tasks/g-old").respond(404)
+    await client.post(f"/api/shopping/{cur.lastrowid}/toggle")
+    await task_sync.push_pending_changes(db, "tok")
+    assert await _queue_rows(db) == []  # no re-create: reconcile removes the row

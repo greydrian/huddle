@@ -129,7 +129,10 @@ to run with local changes in the checkout, checks out the tag, takes a backup
 through the running app (the same as Admin's "Back up now"), rebuilds and
 restarts in production mode (`docker-compose.yml` only, never the override),
 and waits for `/health`. If the app doesn't come up it prints the log and the
-exact command to go back to what was running before. On top of that, the app
+exact command to go back to what was running before. The tablet needs no visit:
+`/health` and `/api/rev` report the running build (a hash of the app's files),
+and the wall reloads itself within about 30 seconds of a new one, once nobody is
+using it. On top of that, the app
 itself takes a verified snapshot at startup whenever database migrations are
 pending (see "Backups and restore"), so a wrong-but-successful migration can
 always be undone. The checkout is left at the tag (detached HEAD): that is

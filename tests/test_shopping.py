@@ -64,12 +64,17 @@ async def test_adding_from_the_wall_writes_the_suffix_and_merges_repeats(db):
     assert await titles(db) == ["milk ×3", "Bread ×3"]
     assert await queued(db) == 4  # every change goes to Google
 
-    # A ticked one comes back unticked with just the new amount.
+    # A ticked one stays in the basket: the new one is a row of its own.
     (bread,) = [i for i in await shopping.get_shopping_items(db) if i["name"] == "Bread"]
     await shopping.toggle_item(db, bread["id"])
     await shopping.add_item(db, "Bread")
-    items = {i["name"]: i for i in await shopping.get_shopping_items(db)}
-    assert (items["Bread"]["title"], items["Bread"]["is_checked"]) == ("Bread", 0)
+    rows = [(i["title"], i["is_checked"]) for i in await shopping.get_shopping_items(db) if i["name"] == "Bread"]
+    assert rows == [("Bread", 0), ("Bread ×3", 1)]
+
+    # With a ticked and an unticked copy, the unticked one gets the extra.
+    await shopping.add_item(db, "Bread")
+    rows = [(i["title"], i["is_checked"]) for i in await shopping.get_shopping_items(db) if i["name"] == "Bread"]
+    assert rows == [("Bread ×2", 0), ("Bread ×3", 1)]
 
 
 async def test_titles_from_google_are_read_not_rewritten(db):
@@ -146,6 +151,10 @@ async def test_aisle_order_moves_and_survives_odd_settings(db):
     await db.commit()
     fixed = await shopping.get_order(db)
     assert fixed[0] == "dairy" and sorted(fixed) == sorted(shopping.CATEGORIES)
+    for odd in ("5", "true", '{"a": 1}', "not json"):
+        await db.execute("UPDATE app_settings SET value = ? WHERE key = ?", (odd, shopping.ORDER_SETTING))
+        await db.commit()
+        assert await shopping.get_order(db) == list(shopping.CATEGORIES)
 
 
 # --- The widget ---
