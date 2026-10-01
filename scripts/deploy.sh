@@ -100,8 +100,9 @@ if [ "${DRY_RUN:-0}" = "1" ]; then
   exit 0
 fi
 for ((i = 1; i <= HEALTH_WAIT_SECONDS; i++)); do
-  if curl -sf --max-time 3 "$HEALTH_URL" >/dev/null; then
-    echo "Healthy after ${i}s."
+  if HEALTH="$(curl -sf --max-time 3 "$HEALTH_URL")"; then
+    BUILD="$(printf '%s' "$HEALTH" | sed -n 's/.*"build":"\([0-9a-f]*\)".*/\1/p')"
+    echo "Healthy after ${i}s. Build ${BUILD:-unknown}; the wall reloads itself within about 30 s."
     if "${COMPOSE[@]}" logs --since 10m "$SERVICE" 2>/dev/null | grep -q "Snapshot .* taken before migration"; then
       echo "The app took a pre-migration snapshot; it is in data/family-display/backups/."
     fi

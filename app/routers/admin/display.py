@@ -25,6 +25,7 @@ async def display_context(db, base: dict, extra: dict) -> dict:
         "weather_location": await weather.get_location(db),
         "weather_error": extra.get("weather_error"),
         "appearance_setting": await appearance.get_appearance(db),
+        "night_source": await appearance.night_source(db),
         "appearances": appearance.APPEARANCES,
         "widget_settings": await layout.admin_widgets(db),
         "school_day_today": await term_dates.is_school_day(db, await common.family_today(db)),
@@ -53,6 +54,10 @@ async def save_weather_location(place: str = Form(...)):
         return RedirectResponse(url=admin_url("weather", weather_error="notfound"), status_code=303)
     async with get_db() as db:
         await weather.set_location(db, location)
+        # Fetch the new place's forecast now (it has its own short deadline
+        # and outage handling), so Auto night follows its sunset straight
+        # away even with the Weather widget hidden.
+        await weather.refresh(db)
     return RedirectResponse(url=admin_url("weather"), status_code=303)
 
 
