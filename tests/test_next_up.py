@@ -157,3 +157,14 @@ def test_in_words():
 async def test_setting_default_is_on(db):
     assert await next_up.is_enabled(db)
     assert json.loads(json.dumps(await next_up.context(db, datetime(2026, 10, 5, 9, tzinfo=TZ))))["next_up_enabled"]
+
+
+async def test_today_is_the_familys_day_whatever_googles_offset(db, calendars):
+    """An event Google gives in a zone ahead of the family's: its own date
+    is tomorrow, but here it's tonight. And one that's tomorrow here."""
+    tonight = {"id": "a", "summary": "Riley: Call Gran", "start": {"dateTime": "2026-10-06T00:30:00+02:00"}}
+    tonight["end"] = tonight["start"]
+    tomorrow = {"id": "b", "summary": "Mum: Early train", "start": {"dateTime": "2026-10-06T01:30:00+02:00"}}
+    tomorrow["end"] = tomorrow["start"]
+    await calendars({CAL["id"]: [tonight, tomorrow]})
+    assert summary(await next_up.items(db, at(23, 0))) == [("Riley", "Call Gran", "00:30", "in 30 min")]
