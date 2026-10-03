@@ -81,7 +81,7 @@ async def get_shopping_tasklist(db) -> dict | None:
 
 
 async def set_shopping_tasklist(db, tasklist: dict):
-    """{"account", "id", "title"}: the list and the Google account it's in."""
+    """{"id", "title", "account_id"}: the list and the Google account it's in."""
     await set_setting(db, SHOPPING_TASKLIST_SETTING, json.dumps(tasklist))
     await db.commit()
 
@@ -142,13 +142,52 @@ async def detach_from_profile_list(db, task_id: int):
     await db.execute("UPDATE tasks SET google_task_id = NULL WHERE id = ?", (task_id,))
 
 
+# --- Dormant lists (spec 12.6) ---------------------------------------------
+# A list stays linked to the account it lives in, with every item's Google
+# id, while that account has Tasks & shopping unticked or has been removed
+# (google_accounts.soft_remove). Sync skips it and keeps its queued changes;
+# ticking the job again, or adding the same account back, carries on where
+# it left off, with nothing pushed or pulled twice. relink_* forgets every
+# Google id, so it's only for linking a different list.
+
+
+class _Dormant(Exception):
+    """A queued change for a dormant list: kept in the queue until it's back."""
+
+
+def _is_dormant(list_account_id: int | None, active_account_id: int | None) -> bool:
+    """A list in an account other than the one syncing now. A list linked
+    before accounts (no account) belongs to whichever account does Tasks."""
+    return active_account_id is not None and list_account_id is not None and list_account_id != active_account_id
+
+
+async def lists_in(db, account: dict) -> tuple[list[dict], dict | None]:
+    """(profiles whose task list is in this account, the shopping list if it
+    is). Lists linked before accounts belong to the account doing Tasks."""
+    does_tasks = "tasks" in account["jobs"]
+    profiles = await (
+        await db.execute(
+            """SELECT id, name, google_tasklist_id FROM profiles WHERE google_tasklist_id IS NOT NULL
+                 AND (google_account_id = ? OR (google_account_id IS NULL AND ?))
+               ORDER BY sort_order""",
+            (account["id"], int(does_tasks)),
+        )
+    ).fetchall()
+    shopping = await get_shopping_tasklist(db)
+    if shopping and shopping.get("account_id", account["id"] if does_tasks else None) != account["id"]:
+        shopping = None
+    return [dict(p) for p in profiles], shopping
+
+
 # --- Push: local mutation -> Google -------------------------------------
 
 
-async def _push_shopping_change(db, access_token: str, payload: dict):
+async def _push_shopping_change(db, access_token: str, payload: dict, account_id: int | None = None):
     tasklist = await get_shopping_tasklist(db)
     if not tasklist:
         return  # not linked — relink_shopping backfills everything on link
+    if _is_dormant(tasklist.get("account_id"), account_id):
+        raise _Dormant
 
     if payload.get("action") == "delete":
         gid = payload.get("google_task_id")
@@ -193,18 +232,22 @@ async def _push_shopping_change(db, access_token: str, payload: dict):
         await db.execute("UPDATE shopping_items SET google_task_id = ? WHERE id = ?", (remote["id"], item_id))
 
 
-async def _push_task_change(db, access_token: str, payload: dict):
+async def _push_task_change(db, access_token: str, payload: dict, account_id: int | None = None):
     task_id = payload.get("task_id")
     task = await (await db.execute("SELECT * FROM tasks WHERE id = ?", (task_id,))).fetchone()
     if task is None:
         return
 
     profile = await (
-        await db.execute("SELECT google_tasklist_id FROM profiles WHERE id = ?", (task["profile_id"],))
+        await db.execute(
+            "SELECT google_tasklist_id, google_account_id FROM profiles WHERE id = ?", (task["profile_id"],)
+        )
     ).fetchone()
     tasklist_id = profile["google_tasklist_id"] if profile else None
     if not tasklist_id:
         return  # not linked — relink_profile backfills on link
+    if _is_dormant(profile["google_account_id"], account_id):
+        raise _Dormant
 
     if task["archived"]:
         if task["google_task_id"]:
@@ -236,19 +279,23 @@ def _is_transient(exc: httpx.HTTPError) -> bool:
     return status in (401, 403, 408, 429) or status >= 500
 
 
-async def push_pending_changes(db, access_token: str):
+async def push_pending_changes(db, access_token: str, account_id: int | None = None):
     """Raises _StopCycle (queue untouched) when Google is unreachable,
     rate-limiting, or refusing auth — those are never counted as retries,
-    so an outage can't burn through MAX_RETRY and silently drop changes."""
+    so an outage can't burn through MAX_RETRY and silently drop changes.
+    `account_id` is the account syncing: changes for lists in another
+    (dormant) account stay queued."""
     rows = await (await db.execute("SELECT * FROM sync_queue ORDER BY id")).fetchall()
     for row in rows:
         payload = json.loads(row["payload_json"])
         try:
             if row["service"] == "shopping":
-                await _push_shopping_change(db, access_token, payload)
+                await _push_shopping_change(db, access_token, payload, account_id)
             elif row["service"] == "tasks":
-                await _push_task_change(db, access_token, payload)
+                await _push_task_change(db, access_token, payload, account_id)
             await db.execute("DELETE FROM sync_queue WHERE id = ?", (row["id"],))
+        except _Dormant:
+            continue
         except httpx.HTTPError as exc:
             if _is_transient(exc):
                 await db.commit()
@@ -274,9 +321,9 @@ async def push_pending_changes(db, access_token: str):
 # --- Reconcile: Google -> local -------------------------------------------
 
 
-async def reconcile_shopping(db, access_token: str):
+async def reconcile_shopping(db, access_token: str, account_id: int | None = None):
     tasklist = await get_shopping_tasklist(db)
-    if not tasklist:
+    if not tasklist or _is_dormant(tasklist.get("account_id"), account_id):
         return
 
     remote_tasks = await google_tasks.fetch_tasks(access_token, tasklist["id"])
@@ -429,16 +476,23 @@ async def _run_cycle(db):
     "Sync now" both just want the cycle done and its outcome recorded."""
     account = None
     try:
-        # Stage 1 of spec 12: one account does Tasks & shopping, and every
-        # linked list is in it (moving the job away unlinks them: services/accounts).
+        # Stage 1 of spec 12: one account does Tasks & shopping. Lists in any
+        # other account are dormant (see above): their changes wait, unpushed.
+        # Ticked AND granted: Google may still hold an old grant for an unticked job.
         account = await google_accounts.job_account(db, "tasks")
-        access_token = await google_oauth.get_valid_access_token(db, account["id"]) if account else None
-        if access_token:
-            await push_pending_changes(db, access_token)
+        ready = account is not None and google_accounts.job_ready(account, "tasks")
+        access_token = await google_oauth.get_valid_access_token(db, account["id"]) if account and ready else None
+        if account and access_token:
+            # Waiting changes first (a list back from dormant included), then reconcile.
+            await push_pending_changes(db, access_token, account["id"])
 
-            await reconcile_shopping(db, access_token)
+            await reconcile_shopping(db, access_token, account["id"])
             profiles = await (
-                await db.execute("SELECT id, google_tasklist_id FROM profiles WHERE google_tasklist_id IS NOT NULL")
+                await db.execute(
+                    """SELECT id, google_tasklist_id FROM profiles WHERE google_tasklist_id IS NOT NULL
+                         AND (google_account_id IS NULL OR google_account_id = ?)""",
+                    (account["id"],),
+                )
             ).fetchall()
             for profile in profiles:
                 await reconcile_profile_tasks(db, access_token, profile)

@@ -422,7 +422,7 @@ async def _insert(db, key: str, family: dict, summary: str, day: date, start, en
     added, or by a different one (the form was changed after a failure
     under the same key, or the event was deleted in Google), which is
     retried once under an id derived from the key and the new content."""
-    access_token, offline = await google_oauth.connect(db, family["account"])
+    access_token, offline = await google_oauth.connect(db, family["account_id"])
     if offline:
         raise AddEventError("offline")
     if not access_token:  # disconnected since (e.g. a revoked grant)

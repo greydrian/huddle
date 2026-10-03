@@ -435,6 +435,16 @@ async def get_checkpoint(db) -> int | None:
         return None
 
 
+async def clamp_checkpoint(db, now: datetime) -> None:
+    """School email ticked again (spec 12.5): read from the later of the
+    kept checkpoint and BACKFILL_DAYS ago, so a long pause never sends
+    months of backlog to Claude. No checkpoint: the first check looks back
+    BACKFILL_DAYS anyway."""
+    checkpoint = await get_checkpoint(db)
+    if checkpoint is not None:
+        await _advance_checkpoint(db, checkpoint, int((now - timedelta(days=BACKFILL_DAYS)).timestamp()))
+
+
 async def _advance_checkpoint(db, old: int | None, to: int):
     if old is None or to > old:
         await set_setting(db, CHECKPOINT_SETTING, str(to))

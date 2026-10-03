@@ -494,7 +494,7 @@ async def save_school_events_calendar(calendar_id: str = Form("")):
         match = next((c for c in available if split and c["id"] == split[1] and c["writable"]), None)
         if match is None or writer is None:
             return admin_error("school-calendar")
-        await school_events.set_target_calendar(db, {**match, "account": writer["id"]})
+        await school_events.set_target_calendar(db, {**match, "account_id": writer["id"]})
         await google_accounts.clear_removed_notice(db, "school_events")
     return RedirectResponse(url=admin_url("school-email"), status_code=303)
 

@@ -110,7 +110,7 @@
       <form class="admin-form" method="post" action="/admin/school-email/calendar">
         <select name="calendar_id" aria-label="Calendar for school events">
           <option value="">Don't add events (discard only)</option>
-          {% for cal in writable_calendars %}<option value="{{ cal.key }}" {{ 'selected' if event_setup.calendar and event_setup.calendar.account == cal.account and event_setup.calendar.id == cal.id else '' }}>{{ cal.summary }}{% if cal.primary %} (primary){% endif %}</option>{% endfor %}
+          {% for cal in writable_calendars %}<option value="{{ cal.key }}" {{ 'selected' if event_setup.calendar and event_setup.calendar.account_id == cal.account_id and event_setup.calendar.id == cal.id else '' }}>{{ cal.summary }}{% if cal.primary %} (primary){% endif %}</option>{% endfor %}
         </select>
         <button type="submit" class="btn btn-small">Save</button>
       </form>

@@ -298,7 +298,7 @@ async def google_lists(db, accounts: list[dict], tasklists: bool = True) -> dict
                     account.update(state=google_accounts.OFFLINE, state_label=google_accounts.STATE_LABELS["offline"])
             continue
         for cal in calendars:
-            cal.update(account=account["id"], key=google_oauth.calendar_key(account["id"], cal["id"]))
+            cal.update(account_id=account["id"], key=google_oauth.calendar_key(account["id"], cal["id"]))
         group["calendars"] = calendars
         found["available_calendars"].extend(calendars)
 

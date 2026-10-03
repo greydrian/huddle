@@ -32,7 +32,7 @@ from app.services.imports import CandidateError, _pending_candidate
 
 logger = logging.getLogger(__name__)
 
-CALENDAR_SETTING = "school_events_calendar"
+CALENDAR_SETTING = calendar_prefs.SCHOOL_EVENTS_KEY
 CREATED_TABLE = "google_calendar"
 NOTE = "Added from the school inbox on the family display."
 DEFAULT_LENGTH = timedelta(hours=1)
@@ -40,7 +40,7 @@ _TIME = re.compile(r"([01]?\d|2[0-3]):([0-5]\d)")
 
 
 async def get_target_calendar(db) -> dict | None:
-    """{"account", "id", "summary"} of the calendar school events go to, or None."""
+    """{"account_id", "id", "summary"} of the calendar school events go to, or None."""
     try:
         target = json.loads(await get_setting(db, CALENDAR_SETTING) or "null")
     except ValueError:
@@ -59,8 +59,8 @@ async def _can_write(db, target: dict) -> bool:
     writer = await google_accounts.job_account(db, "write_events")
     return (
         writer is not None
-        and writer["id"] == target["account"]
-        and google_oauth.CALENDAR_EVENTS_SCOPE in writer["scopes"]
+        and google_accounts.job_ready(writer, "write_events")
+        and writer["id"] == target["account_id"]
     )
 
 
@@ -159,7 +159,7 @@ async def approve_event(db, candidate_id: int, form: dict) -> str:
     if not await _can_write(db, target):
         raise CandidateError("import-calendar-scope")
     fields = event_fields(form)
-    access_token, offline = await google_oauth.connect(db, target["account"])
+    access_token, offline = await google_oauth.connect(db, target["account_id"])
     if offline:
         raise CandidateError("import-calendar-offline")
     if not access_token:  # disconnected since (e.g. a revoked grant)
@@ -211,8 +211,8 @@ async def approve_event(db, candidate_id: int, form: dict) -> str:
                external_id = ?, updated_at = datetime('now') WHERE id = ? AND status = 'approving'""",
         (json.dumps(payload), CREATED_TABLE, created_id, candidate_id),
     )
-    # The wall's saved copy predates the new event: drop it and fetch again.
-    await calendar_cache.clear(db)
+    # The wall's saved copy of that account's calendars predates the new event: drop it and fetch again.
+    await calendar_cache.clear_account(db, target["account_id"])
     await db.commit()
     try:
         await google_calendar.refresh_cache(db)

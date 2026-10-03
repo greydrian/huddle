@@ -52,9 +52,11 @@ CALENDAR_LIST_ENDPOINT = "https://www.googleapis.com/calendar/v3/users/me/calend
 # it's stored per-calendar in the selection setting and inlined on each bar.
 DEFAULT_EVENT_COLOR = "#D6A02C"
 
-# [{"account": account id, "id", "summary", "color", "primary"}]: a calendar
-# is its account and its id together ("primary" is a different calendar in
-# each account). Unset = the oldest calendar account's primary calendar.
+# [{"account_id", "id", "summary", "color", "primary", "writable"}]: each
+# calendar shown and the account it's read through. Calendar ids are the same
+# in every account, except the "primary" alias (a different calendar in each,
+# resolved to its real id once a second account does Calendars: google_calendar).
+# Unset = the oldest calendar account's primary calendar.
 SELECTED_CALENDARS_SETTING = "google_selected_calendars"
 DEFAULT_CALENDAR = {"id": "primary", "summary": "Calendar", "color": DEFAULT_EVENT_COLOR}
 
@@ -70,15 +72,20 @@ def is_configured() -> bool:
 
 
 def build_auth_url(state: str, redirect_uri: str, jobs, login_hint: str | None = None) -> str:
-    """Google's consent screen for `jobs`' scopes only. login_hint (an
-    account's address) is for Reconnect."""
+    """Google's consent screen for the scopes of every ticked job (plus
+    openid email). include_granted_scopes keeps what the account granted
+    before: without it a new token covers only the new scopes and the
+    account silently loses the others. With login_hint (Reconnect: that
+    account's address) it goes straight to that account; without it (Add
+    account) Google always shows its account chooser."""
     params = {
         "client_id": GOOGLE_CLIENT_ID,
         "redirect_uri": redirect_uri,
         "response_type": "code",
         "scope": google_accounts.scope_request(jobs),
         "access_type": "offline",
-        "prompt": "consent",  # always return a refresh_token, even on re-auth
+        # consent: always return a refresh_token, even on re-auth.
+        "prompt": "consent" if login_hint else "select_account consent",
         "include_granted_scopes": "true",
         "state": state,
     }
@@ -181,13 +188,15 @@ async def fetch_calendar_list(access_token: str) -> list[dict]:
 
 
 def calendar_key(account_id: int, calendar_id: str) -> str:
-    """One calendar across accounts: "<account id>:<calendar id>"."""
+    """A calendar through one account, as Admin's forms name it:
+    "<account id>:<calendar id>". Only forms use it; settings, the cache
+    and person links keep the calendar id with a separate account id."""
     return f"{account_id}:{calendar_id}"
 
 
 def split_calendar_key(key: str) -> tuple[int, str] | None:
-    """(account id, calendar id), or None for anything else (e.g. a link
-    saved before accounts existed). Calendar ids may contain colons."""
+    """(account id, calendar id) from a form value, or None for anything
+    else. Calendar ids may contain colons."""
     account, sep, calendar_id = key.partition(":")
     if not sep or not account.isdigit() or not calendar_id:
         return None
@@ -195,8 +204,8 @@ def split_calendar_key(key: str) -> tuple[int, str] | None:
 
 
 async def get_saved_calendars(db) -> list[dict] | None:
-    """The saved selection as stored (entries with an account), or None if
-    nothing was ever saved."""
+    """The saved selection's entries that name an account, or None if
+    there are none (nothing saved, or saved before accounts)."""
     raw = await get_setting(db, SELECTED_CALENDARS_SETTING)
     if not raw:
         return None
@@ -210,40 +219,54 @@ async def get_saved_calendars(db) -> list[dict] | None:
         cal
         for cal in parsed
         if isinstance(cal, dict)
-        and isinstance(cal.get("account"), int)
+        and isinstance(cal.get("account_id"), int)
         and isinstance(cal.get("id"), str)
         and cal["id"]
     ]
     return valid or None
 
 
+def shown_once(calendars: list[dict], writer_id: int | None) -> list[dict]:
+    """A calendar reachable through two accounts is shown once: through the
+    account doing Writing events if it can edit it there (so it can still
+    be the Family or school-events calendar), else through the first.
+    "primary" is a different calendar in each account, so it's never merged."""
+    best: dict[str, dict] = {}
+    for cal in calendars:
+        if cal["id"] == "primary":
+            continue
+        current = best.get(cal["id"])
+        if current is None or (
+            cal["account_id"] == writer_id and cal.get("writable") and current["account_id"] != writer_id
+        ):
+            best[cal["id"]] = cal
+    return [cal for cal in calendars if cal["id"] == "primary" or best[cal["id"]] is cal]
+
+
 async def get_selected_calendars(db) -> list[dict]:
-    """The calendars shown on the wall: the saved ones whose account still
-    does Calendars, each with its "key" (calendar_key). Nothing saved: the
-    oldest calendar account's primary calendar. A calendar shared into two
-    accounts is shown once, through the first."""
-    calendar_accounts = [a["id"] for a in await google_accounts.list_accounts(db) if "calendars" in a["jobs"]]
+    """The calendars shown on the wall: the saved ones whose account has
+    Calendars ticked, each with its form "key" (calendar_key). Nothing
+    saved: the oldest calendar account's primary calendar."""
+    accounts = await google_accounts.list_accounts(db)
+    calendar_accounts = [a["id"] for a in accounts if "calendars" in a["jobs"]]
+    writer = next((a["id"] for a in accounts if "write_events" in a["jobs"]), None)
     saved = await get_saved_calendars(db)
     if saved is None:
-        saved = [{**DEFAULT_CALENDAR, "account": calendar_accounts[0]}] if calendar_accounts else []
-    shown: list[dict] = []
-    seen: set[str] = set()
-    for cal in saved:
-        if cal["account"] not in calendar_accounts:
-            continue
-        if cal["id"] != "primary":
-            if cal["id"] in seen:
-                continue
-            seen.add(cal["id"])
-        shown.append({**cal, "key": calendar_key(cal["account"], cal["id"])})
-    return shown
+        saved = [{**DEFAULT_CALENDAR, "account_id": calendar_accounts[0]}] if calendar_accounts else []
+    shown = shown_once([cal for cal in saved if cal["account_id"] in calendar_accounts], writer)
+    return [{**cal, "key": calendar_key(cal["account_id"], cal["id"])} for cal in shown]
 
 
 async def set_selected_calendars(db, calendars: list[dict]):
-    stored = [{k: v for k, v in cal.items() if k not in ("key", "writable")} for cal in calendars]
+    """Saves the selection. Only accounts whose own calendars changed lose
+    their cached events (calendar_cache is per account)."""
+    before = calendar_cache.selection_keys(await get_saved_calendars(db) or [])
+    stored = [{k: v for k, v in cal.items() if k != "key"} for cal in calendars]
+    after = calendar_cache.selection_keys(stored)
     await set_setting(db, SELECTED_CALENDARS_SETTING, json.dumps(stored))
-    # Cached events carry the old selection's calendars and colours.
-    await calendar_cache.clear(db)
+    for account_id in set(before) | set(after):
+        if before.get(account_id) != after.get(account_id):
+            await calendar_cache.clear_account(db, account_id)
     await db.commit()
 
 
@@ -307,8 +330,8 @@ async def has_scope(db, scope: str) -> bool:
     """Whether the account doing `scope`'s job (Writing events for
     calendar.events, School email for gmail.readonly, ...) granted it.
     False with no such account."""
-    account = await google_accounts.job_account(db, google_accounts.SCOPE_JOBS[scope])
-    return account is not None and scope in account["scopes"]
+    job = google_accounts.SCOPE_JOBS[scope]
+    return google_accounts.job_ready(await google_accounts.job_account(db, job), job)
 
 
 async def connect(db, account_id: int) -> tuple[str | None, bool]:
@@ -357,10 +380,13 @@ async def revoke(tokens: dict | None) -> None:
         logger.warning("Couldn't revoke the Google token: %s", http_client.describe(exc))
 
 
-async def store_tokens(db, tokens: dict, account_email: str, owner_id: int | None = None) -> int:
+async def store_tokens(
+    db, tokens: dict, account_email: str, owner_id: int | None = None, sub: str | None = None
+) -> int:
     """Connects an account straight from a token response, with every job
     its granted scopes allow (exclusive ones only if no other account has
     them): tests and seed scripts. The OAuth callback goes through Add
     account / Reconnect (routers/calendar.py)."""
     jobs = google_accounts.jobs_from_scopes(scopes_of(tokens))
-    return await google_accounts.add_or_merge(db, account_email, tokens, owner_id, jobs)
+    account_id, _merged = await google_accounts.add_or_merge(db, sub, account_email, tokens, owner_id, jobs)
+    return account_id

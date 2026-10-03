@@ -22,10 +22,19 @@ async def admin_home(
     weather_error: str | None = None,
     error: str | None = None,
     remove: str | None = None,
+    merged: str | None = None,
 ):
-    """`remove` (an account id) shows that Google account's Remove confirm step."""
-    google_remove = int(remove) if remove and remove.isdigit() else None
-    return await render_admin(request, tab=tab, weather_error=weather_error, error=error, google_remove=google_remove)
+    """`remove` (an account id) shows that Google account's Remove confirm
+    step; `merged` (an account id) says an Add came back with an account
+    that was already connected."""
+    return await render_admin(
+        request,
+        tab=tab,
+        weather_error=weather_error,
+        error=error,
+        google_remove=int(remove) if remove and remove.isdigit() else None,
+        google_merged=int(merged) if merged and merged.isdigit() else None,
+    )
 
 
 def _tab_from_query(request: Request, form_error: dict | None, weather_error: str | None) -> str:
@@ -53,6 +62,7 @@ async def render_admin(
     term_form: dict | None = None,
     error_message: str | None = None,
     google_remove: int | None = None,
+    google_merged: int | None = None,
     status_code: int = 200,
 ):
     """Renders one Admin tab (app/admin_tabs.py), loading only what that
@@ -78,6 +88,7 @@ async def render_admin(
         "inbox_error": inbox_error,
         "term_form": term_form,
         "google_remove": google_remove,
+        "google_merged": google_merged,
     }
     context: dict = {
         "admin_tab": tab,

@@ -135,6 +135,7 @@ def _account(row) -> dict:
         state = CONNECTED
     return {
         "id": row["id"],
+        "sub": row["google_sub"],
         "email": row["email"],
         "owner_id": row["owner_profile_id"],
         "jobs": jobs,
@@ -149,24 +150,48 @@ def _account(row) -> dict:
 
 
 async def list_accounts(db) -> list[dict]:
-    """Every account, oldest first."""
-    rows = await (await db.execute("SELECT * FROM google_accounts ORDER BY id")).fetchall()
+    """Every account, oldest first (not removed ones: see soft_remove)."""
+    rows = await (await db.execute("SELECT * FROM google_accounts WHERE removed_at IS NULL ORDER BY id")).fetchall()
     return [_account(row) for row in rows]
 
 
 async def get(db, account_id: int) -> dict | None:
-    row = await (await db.execute("SELECT * FROM google_accounts WHERE id = ?", (account_id,))).fetchone()
+    row = await (
+        await db.execute("SELECT * FROM google_accounts WHERE id = ? AND removed_at IS NULL", (account_id,))
+    ).fetchone()
     return _account(row) if row else None
 
 
-async def by_email(db, email: str) -> dict | None:
-    row = await (await db.execute("SELECT * FROM google_accounts WHERE email = ?", (email,))).fetchone()
-    return _account(row) if row else None
+def same_account(account: dict, sub: str | None, email: str | None) -> bool:
+    """Whether a Google identity is this account. By OpenID `sub` once the
+    row knows it. Only a row migrated from the single connection lacks one,
+    until its first reconnect or refresh: it matches by the address it was
+    migrated with. A row with neither never matches, so it can't adopt an
+    arbitrary account."""
+    if account["sub"]:
+        return account["sub"] == sub
+    return bool(email and account["email"] and account["email"].lower() == email.lower())
+
+
+async def by_identity(db, sub: str | None, email: str | None, removed: bool = False) -> dict | None:
+    """The account this identity is; with `removed`, also a removed one."""
+    rows = await (await db.execute("SELECT * FROM google_accounts ORDER BY removed_at IS NOT NULL, id")).fetchall()
+    for row in rows:
+        if (removed or row["removed_at"] is None) and same_account(_account(row), sub, email):
+            return {**_account(row), "removed": row["removed_at"] is not None}
+    return None
 
 
 async def job_account(db, job: str) -> dict | None:
-    """The account doing `job` (the oldest, if more than one), or None."""
+    """The account with `job` ticked (the oldest, if more than one), or None.
+    A feature runs only when its job is ticked AND its scope granted
+    (job_ready): with include_granted_scopes Google returns old grants too."""
     return next((a for a in await list_accounts(db) if job in a["jobs"]), None)
+
+
+def job_ready(account: dict | None, job: str) -> bool:
+    """`job` is ticked on the account and Google granted its scope."""
+    return bool(account and job in account["jobs"] and JOB_SCOPES[job] in account["scopes"])
 
 
 async def any_connected(db) -> bool:
@@ -252,12 +277,28 @@ async def allowed_jobs(
     return [job for job in wanted if job not in refused], refused
 
 
-async def add_or_merge(db, email: str, tokens: dict, owner_id: int | None, jobs: Iterable[str]) -> int:
-    """Stores a fresh grant. An address already connected isn't added
-    twice: its jobs are merged in and its token replaced (spec 12.2), and its
-    owner stays as it is. Returns the account id. Exclusive jobs held by
-    another account are dropped, never doubled up."""
-    existing = await by_email(db, email)
+async def add_or_merge(
+    db, sub: str | None, email: str, tokens: dict, owner_id: int | None, jobs: Iterable[str]
+) -> tuple[int, bool]:
+    """Stores a fresh grant. An account already connected (same `sub`) isn't
+    added twice: its jobs are merged in and its token replaced (spec 12.2),
+    and its owner stays as it is. A removed account added again gets its
+    row back, with every list link and Google id it had (soft_remove), and
+    this owner and these jobs. Returns (account id, whether it was already
+    connected). Exclusive jobs held by another account are dropped, never
+    doubled up."""
+    existing = await by_identity(db, sub, email, removed=True)
+    if existing is not None and existing["removed"]:
+        kept, _ = await allowed_jobs(db, jobs, owner_id, existing["id"])
+        await db.execute(
+            "UPDATE google_accounts SET removed_at = NULL, owner_profile_id = ?, jobs = ?, encrypted_token_json = ?, "
+            "check_state = 'ok', offline_since = NULL WHERE id = ?",
+            (owner_id, " ".join(kept), encrypt_token_json(tokens), existing["id"]),
+        )
+        await db.commit()
+        await set_identity(db, existing["id"], sub, email)
+        logger.info("Google account %d added back", existing["id"])
+        return existing["id"], False
     if existing is not None:
         merged, _ = await allowed_jobs(db, [*existing["jobs"], *jobs], existing["owner_id"], existing["id"])
         await db.execute(
@@ -266,21 +307,26 @@ async def add_or_merge(db, email: str, tokens: dict, owner_id: int | None, jobs:
             (" ".join(merged), encrypt_token_json(tokens), existing["id"]),
         )
         await db.commit()
-        return existing["id"]
+        await set_identity(db, existing["id"], sub, email)
+        return existing["id"], True
     kept, _ = await allowed_jobs(db, jobs, owner_id)
     cursor = await db.execute(
-        "INSERT INTO google_accounts (email, owner_profile_id, jobs, encrypted_token_json, check_state) "
-        "VALUES (?, ?, ?, ?, 'ok')",
-        (email, owner_id, " ".join(kept), encrypt_token_json(tokens)),
+        "INSERT INTO google_accounts (google_sub, email, owner_profile_id, jobs, encrypted_token_json, check_state) "
+        "VALUES (?, ?, ?, ?, ?, 'ok')",
+        (sub, email, owner_id, " ".join(kept), encrypt_token_json(tokens)),
     )
     await db.commit()
     logger.info("Google account %d added", cursor.lastrowid)
-    return int(cursor.lastrowid or 0)
+    return int(cursor.lastrowid or 0), False
 
 
-async def set_address(db, account_id: int, email: str) -> None:
-    """A row migrated without an address learns it on Reconnect."""
-    await db.execute("UPDATE google_accounts SET email = ? WHERE id = ? AND email IS NULL", (email, account_id))
+async def set_identity(db, account_id: int, sub: str | None, email: str | None) -> None:
+    """Learns the `sub` of a row migrated without one, and keeps the
+    displayed address current (it can be changed in Google)."""
+    await db.execute(
+        "UPDATE google_accounts SET google_sub = COALESCE(google_sub, ?), email = COALESCE(?, email) WHERE id = ?",
+        (sub, email, account_id),
+    )
     await db.commit()
 
 
@@ -293,9 +339,18 @@ async def update(db, account_id: int, owner_id: int | None, jobs: Iterable[str])
     await db.commit()
 
 
-async def delete(db, account_id: int) -> None:
-    """The caller commits."""
-    await db.execute("DELETE FROM google_accounts WHERE id = ?", (account_id,))
+async def soft_remove(db, account_id: int) -> None:
+    """Remove: the row stays, dormant (no token, no jobs), so everything
+    still pointing at it (a person's task list, the shopping list, their
+    items' Google ids) is left alone. Sync skips lists in an account that
+    isn't doing Tasks & shopping, and the same account added again
+    (add_or_merge, by `sub`) picks them all up with nothing pushed or pulled
+    twice. Admin and every feature no longer see it. The caller commits."""
+    await db.execute(
+        "UPDATE google_accounts SET removed_at = ?, encrypted_token_json = NULL, jobs = '', check_state = NULL, "
+        "offline_since = NULL WHERE id = ?",
+        (_now(), account_id),
+    )
 
 
 # --- What a removal left to be re-picked (spec 12.6) --------------------------------------

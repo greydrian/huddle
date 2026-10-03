@@ -7,12 +7,13 @@ routers/sync.py."""
 import logging
 import secrets
 import time
+from datetime import UTC, datetime
 
 import httpx
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import RedirectResponse
 
-from app import google_accounts, google_oauth, google_tasks, http_client, sync_status, task_sync
+from app import google_accounts, google_oauth, google_tasks, http_client, school_email, sync_status, task_sync
 from app.admin_tabs import admin_url
 from app.auth import require_admin
 from app.database import get_db
@@ -39,7 +40,7 @@ async def google_context(db, base: dict, extra: dict) -> dict:
     selected = await google_oauth.get_selected_calendars(db)
     selected_keys = {c["key"] for c in selected}
     emails = {a["id"]: a["email"] or f"Account {a['id']}" for a in accounts_list}
-    through = {c["id"]: c["account"] for c in selected if c["id"] != "primary"}
+    through = {c["id"]: c["account_id"] for c in selected if c["id"] != "primary"}
     notice = await google_accounts.removed_notice(db)
     for group in context["calendar_groups"]:
         account_id = group["account"]["id"]
@@ -66,6 +67,7 @@ async def google_context(db, base: dict, extra: dict) -> dict:
             "account_emails": emails,
             "removal": removal,
             "removed_notice": notice,
+            "merged_account": await _merged_account(db, extra.get("google_merged")),
             "selected_calendars": selected,
             "shopping_tasklist": await task_sync.get_shopping_tasklist(db),
             # Calendar options (spec 10.5): the Family calendar is picked from the
@@ -74,7 +76,7 @@ async def google_context(db, base: dict, extra: dict) -> dict:
             "family_choices": [
                 c
                 for c in context["available_calendars"]
-                if writer and c["account"] == writer["id"] and c.get("writable") and c["key"] in selected_keys
+                if writer and c["account_id"] == writer["id"] and c.get("writable") and c["key"] in selected_keys
             ],
             "family_calendar": await calendar_prefs.get_family_setting(db),
             "family_calendar_active": await calendar_prefs.get_family_calendar(db),
@@ -85,6 +87,12 @@ async def google_context(db, base: dict, extra: dict) -> dict:
         }
     )
     return context
+
+
+async def _merged_account(db, account_id: int | None) -> dict | None:
+    """The account an Add came back with that was already connected
+    (?merged=<id>): the page says so instead of merging silently."""
+    return await google_accounts.get(db, account_id) if account_id is not None else None
 
 
 # --- Google accounts (spec 12.2) ----------------------------------------------------------
@@ -187,8 +195,8 @@ async def google_callback(
     except httpx.HTTPError as exc:
         logger.warning("Google OAuth callback failed: %s", http_client.describe(exc))
         return back("google-signin")
-    email = userinfo.get("email")
-    if not isinstance(email, str) or not email:
+    email, sub = userinfo.get("email"), userinfo.get("sub")
+    if not isinstance(email, str) or not email or not isinstance(sub, str) or not sub:
         await google_oauth.revoke(tokens)
         return back("google-signin")
 
@@ -198,24 +206,38 @@ async def google_callback(
             if account is None:
                 await google_oauth.revoke(tokens)
                 return back("google-missing")
-            if account["email"] and account["email"].lower() != email.lower():
-                # Never another account's grant under this row: withdraw it again.
-                await google_oauth.revoke(tokens)
+            if not google_accounts.same_account(account, sub, email):
+                # Never another account's grant under this row. Withdraw the
+                # token Google just issued, unless that identity is another
+                # connected account here: revoking would end its grant too.
+                other = await google_accounts.by_identity(db, sub, email)
+                if other is None or not other["connected"]:
+                    await google_oauth.revoke(tokens)
                 return back("google-wrong-account")
             old = await google_accounts.load_tokens(db, account["id"]) or {}
             if not tokens.get("refresh_token") and old.get("refresh_token"):
                 tokens["refresh_token"] = old["refresh_token"]
             await google_accounts.save_tokens(db, account["id"], tokens)
-            await google_accounts.set_address(db, account["id"], email)
+            await google_accounts.set_identity(db, account["id"], sub, email)
             await google_accounts.note_check(db, account["id"], ok=True)
-            account_id = account["id"]
+            account_id, merged = account["id"], False
             logger.info("Google account %d reconnected", account_id)
         else:
-            account_id = await google_accounts.add_or_merge(db, email, tokens, intent["owner"], intent["jobs"])
+            before = await google_accounts.by_identity(db, sub, email)
+            account_id, merged = await google_accounts.add_or_merge(
+                db, sub, email, tokens, intent["owner"], intent["jobs"]
+            )
+            after = await google_accounts.get(db, account_id)
+            if after and "school_email" in after["jobs"] and not (before and "school_email" in before["jobs"]):
+                await school_email.clamp_checkpoint(db, datetime.now(UTC))
         connected = await google_accounts.get(db, account_id)
         if connected and "tasks" in connected["jobs"]:
             # A fresh grant: whatever the old one's sync failures were, they're over.
             await sync_status.reset(db)
+    if merged:
+        response = RedirectResponse(url=admin_url("google", merged=str(account_id)), status_code=303)
+        response.delete_cookie(STATE_COOKIE)
+        return response
     return back()
 
 
@@ -273,14 +295,19 @@ async def save_selected_calendars(calendar_id: list[str] = Form(default=[])):
             saved = [{k: v for k, v in c.items() if k != "key"} for c in await google_oauth.get_selected_calendars(db)]
         lists = await common.google_lists(db, await google_accounts.list_accounts(db), tasklists=False)
         loaded = {group["account"]["id"] for group in lists["calendar_groups"] if not group["error"]}
-        selected: list[dict] = [cal for cal in saved if cal["account"] not in loaded]
-        seen = {cal["id"] for cal in selected if cal["id"] != "primary"}
-        for cal in lists["available_calendars"]:
-            if cal["key"] in ticked and cal["id"] not in seen:
-                seen.add(cal["id"])
-                selected.append({k: cal[k] for k in ("account", "id", "summary", "color", "primary")})
-        selected.sort(key=lambda cal: cal["account"])  # stable: each account's in Google's order
-        if any(cal["account"] in loaded for cal in selected):
+        selected: list[dict] = [cal for cal in saved if cal["account_id"] not in loaded]
+        ticked_ids = {cal["id"] for cal in lists["available_calendars"] if cal["key"] in ticked}
+        # Every copy Huddle can reach of each ticked calendar, so a shared one
+        # goes through the Writing events account when it can edit it there.
+        copies = [
+            {k: cal[k] for k in ("account_id", "id", "summary", "color", "primary", "writable")}
+            for cal in lists["available_calendars"]
+            if cal["id"] in ticked_ids
+        ]
+        writer = await google_accounts.job_account(db, "write_events")
+        selected = google_oauth.shown_once([*selected, *copies], writer["id"] if writer else None)
+        selected.sort(key=lambda cal: cal["account_id"])  # stable: each account's in Google's order
+        if any(cal["account_id"] in loaded for cal in selected):
             await google_oauth.set_selected_calendars(db, selected)
             await google_accounts.clear_removed_notice(db, "calendars")
     return RedirectResponse(url=admin_url("calendars"), status_code=303)
@@ -299,7 +326,7 @@ async def save_family_calendar(calendar_id: str = Form("")):
             await calendar_prefs.set_family_calendar(db, None)
             return RedirectResponse(url=admin_url("calendar-options"), status_code=303)
         selected = {cal["key"] for cal in await google_oauth.get_selected_calendars(db)}
-        match = await _writable_calendar(db, calendar_id)
+        match = await _writable_calendar(db, calendar_id)  # a form key: "<account>:<calendar id>"
         if match is None or match["key"] not in selected:
             return admin_error("calendar-family")
         await calendar_prefs.set_family_calendar(db, match)
@@ -320,7 +347,7 @@ async def _writable_calendar(db, key: str) -> dict | None:
     except httpx.HTTPError:
         available = []
     cal = next((c for c in available if c["id"] == split[1] and c["writable"]), None)
-    return {**cal, "account": writer["id"], "key": key} if cal else None
+    return {**cal, "account_id": writer["id"], "key": key} if cal else None
 
 
 @router.post("/google/calendar-view", dependencies=[Depends(require_admin)])
@@ -336,9 +363,9 @@ async def save_calendar_view(view: str = Form("")):
 @router.post("/google/calendar-people", dependencies=[Depends(require_admin)])
 async def save_calendar_people(request: Request):
     """Whose events each shown calendar holds: owner_<n> is a profile id or
-    "everyone" for calendar_<n> (a calendar key). Only calendars shown on
-    the wall and profiles that exist are kept; anything else counts as
-    Everyone."""
+    "everyone" for calendar_<n> ("<account>:<calendar id>"). Only calendars
+    shown on the wall and profiles that exist are kept; anything else counts
+    as Everyone."""
     form = await request.form()
     async with get_db() as db:
         selected = {cal["key"] for cal in await google_oauth.get_selected_calendars(db)}
@@ -372,7 +399,7 @@ async def save_shopping_tasklist(tasklist_id: str = Form(...)):
         match = next((t for t in available if t["id"] == tasklist_id), None)
         current = await task_sync.get_shopping_tasklist(db)
         if match and account and (current is None or current["id"] != match["id"]):
-            await task_sync.set_shopping_tasklist(db, {**match, "account": account["id"]})
+            await task_sync.set_shopping_tasklist(db, {**match, "account_id": account["id"]})
             await task_sync.relink_shopping(db)
     return RedirectResponse(url=admin_url("task-lists"), status_code=303)
 
@@ -393,6 +420,6 @@ async def save_profile_tasklists(request: Request):
                 "UPDATE profiles SET google_tasklist_id = ?, google_account_id = ? WHERE id = ?",
                 (tasklist_id, account["id"] if tasklist_id and account else None, profile["id"]),
             )
-            await task_sync.relink_profile(db, profile["id"])
+            await task_sync.relink_profile(db, profile["id"])  # only for a different list
         await db.commit()
     return RedirectResponse(url=admin_url("task-lists"), status_code=303)
