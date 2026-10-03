@@ -241,3 +241,20 @@ async def test_picker_saves_while_offline_change_nothing(admin_client, db, googl
     assert resp.headers["location"] in ("/admin?tab=google#calendars", "/admin?tab=google#task-lists")
     assert await google_oauth.get_selected_calendars(db) == before
     assert await task_sync.get_shopping_tasklist(db) is None
+
+
+async def test_add_account_explains_jobs_another_account_does(admin_client, google_lists):
+    """Stage 1: a one-at-a-time job another account does is greyed out in
+    Add account, and the form says who does it and how to move it, rather
+    than leaving a box that looks broken."""
+    html = (await admin_client.get("/admin?tab=google")).text
+    add = html[html.index('class="task-edit google-account-add"') :]
+    note = re.search(r'<p class="admin-note account-jobs-taken"[^>]*>(.*?)</p>', add, re.S)
+    assert note is not None
+    text = " ".join(re.sub(r"<[^>]+>", "", note.group(1)).split())
+    assert "only one account at a time" in text
+    assert "family@example.com does Tasks &amp; shopping" in text
+    assert "first Edit the account that does it and untick it there" in text
+    assert re.search(r'<input type="checkbox" name="job" value="tasks"\s+disabled>', add)
+    assert "Done by family@example.com. Untick it there first to move it here." in add
+    assert not re.search(r'<input type="checkbox" name="job" value="calendars"\s+disabled>', add)

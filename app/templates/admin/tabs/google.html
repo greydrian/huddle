@@ -8,16 +8,31 @@
 {#- One account's job checkboxes, for Add account (acct none) and Edit. An
     exclusive job another account does can't be ticked here (stage 1). -#}
 {% macro job_checks(acct=none) %}
+  {#- Which other accounts do the one-at-a-time jobs, said up front so the
+      greyed-out boxes don't look broken. -#}
+  {% set others = [] %}
+  {% for job, holder in job_holders.items() %}{% if (acct is none or holder.id != acct.id) and holder not in others %}{% set _ = others.append(holder) %}{% endif %}{% endfor %}
+  {% if others %}
+  <p class="admin-note account-jobs-taken" role="note">
+    For now, only one account at a time can do Tasks &amp; shopping, School email or Writing events.
+    {% for holder in others %}
+    <strong>{{ holder.email or "Another account" }}</strong> does
+    {% set held = [] %}{% for job, h in job_holders.items() %}{% if h.id == holder.id %}{% set _ = held.append(jobs[job]) %}{% endif %}{% endfor %}
+    {{- " " }}{% for name in held %}{{ name }}{{ ", " if loop.revindex > 2 else (" and " if loop.revindex == 2 else "") }}{% endfor %}.
+    {% endfor %}
+    To give one of these to {{ "this" if acct else "the new" }} account, first <strong>Edit</strong> the account that does it and untick it there.
+  </p>
+  {% endif %}
   <div class="account-jobs" role="group" aria-label="Jobs">
     {% for job, label in jobs.items() %}
     {% set holder = job_holders.get(job) %}
     {% set taken = holder and (acct is none or holder.id != acct.id) %}
-    <label class="admin-check account-job-check">
+    <label class="admin-check account-job-check{{ ' is-taken' if taken else '' }}">
       <input type="checkbox" name="job" value="{{ job }}" {{ 'checked' if acct and job in acct.jobs else '' }}{{ ' disabled' if taken else '' }}>
       <span><strong>{{ label }}</strong> <span class="admin-meta">· {{ job_hints[job] }}
         {%- if job == "write_events" %} (ticks Calendars too){% endif %}
-        {%- if job in parent_jobs %} (a parent's or Family account only){% endif %}
-        {%- if taken %}. Done by {{ holder.email or "another account" }} for now: one account at a time until doing it in several is added{% endif %}</span></span>
+        {%- if job in parent_jobs %} (a parent's or Family account only){% endif %}</span>
+        {%- if taken %}<span class="account-job-taken">Done by {{ holder.email or "another account" }}. Untick it there first to move it here.</span>{% endif %}</span>
     </label>
     {% endfor %}
   </div>
