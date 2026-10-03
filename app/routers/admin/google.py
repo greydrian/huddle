@@ -209,8 +209,10 @@ async def google_callback(
             if not google_accounts.same_account(account, sub, email):
                 # Never another account's grant under this row. Withdraw the
                 # token Google just issued, unless that identity is another
-                # account here: revoking would end that account's grant too.
-                if await google_accounts.by_identity(db, sub, email, removed=True) is None:
+                # account here holding a grant: revoking would end it too. A
+                # removed account holds none, so its stray grant is withdrawn.
+                match = await google_accounts.by_identity(db, sub, email, removed=True)
+                if match is None or match["removed"]:
                     await google_oauth.revoke(tokens)
                 return back("google-wrong-account")
             old = await google_accounts.load_tokens(db, account["id"]) or {}
@@ -228,7 +230,7 @@ async def google_callback(
             )
             after = await google_accounts.get(db, account_id)
             if after and "school_email" in after["jobs"] and not (before and "school_email" in before["jobs"]):
-                await school_email.clamp_checkpoint(db, datetime.now(UTC))
+                await school_email.clamp_checkpoint(db, datetime.now(UTC), account_id)
         connected = await google_accounts.get(db, account_id)
         if connected and "tasks" in connected["jobs"]:
             # A fresh grant: whatever the old one's sync failures were, they're over.

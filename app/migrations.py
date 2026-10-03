@@ -803,9 +803,13 @@ def _m13_json(raw):
 
 
 async def _m13_set(db, key: str, value) -> None:
+    await _m13_set_raw(db, key, json.dumps(value))
+
+
+async def _m13_set_raw(db, key: str, value: str) -> None:
     await db.execute(
         "INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-        (key, json.dumps(value)),
+        (key, value),
     )
 
 
@@ -897,6 +901,12 @@ async def m0013_google_accounts(db):
         value = _m13_json(settings.get(key))
         if isinstance(value, dict) and value.get("id"):
             await _m13_set(db, key, {**value, "account_id": 1})
+    # The school email checkpoint, and the failed emails waiting for a
+    # retry, are account 1's (school_email: each account has its own).
+    if settings.get("school_email_checkpoint") is not None:
+        await _m13_set_raw(db, "school_email_checkpoint_account", "1")
+    if settings.get("school_email_checkpoint") is not None or settings.get("school_email_status") is not None:
+        await _m13_set_raw(db, "school_email_reader", "1")
     # Person links move to a new setting keyed by account and calendar; the
     # old one is left exactly as it is for a rollback.
     people = _m13_json(settings.get("calendar_people"))

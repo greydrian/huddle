@@ -268,6 +268,9 @@ async def test_migration_fallback_counts_school_email_once_a_check_ran(tmp_path,
     await _upgrade(tmp_path, monkeypatch, None, encrypted="gAAAA-not-ours", settings={"school_email_checkpoint": 1})
     async with database.get_db() as db:
         assert (await google_accounts.get(db, 1))["jobs"] == ["calendars", "tasks", "school_email"]
+        # The existing checkpoint, and any failed emails awaiting a retry, are account 1's.
+        assert await school_email.checkpoint_account(db) == 1
+        assert await database.get_setting(db, school_email.READER_SETTING) == "1"
 
 
 async def test_migration_copes_with_an_unreadable_token_and_odd_settings(tmp_path, monkeypatch):
@@ -309,7 +312,7 @@ async def test_calendars_from_every_account_show_together(db, google, two_accoun
     assert _titles(grid) == {"Bins out": "#123456", "Swimming": "#654321"}
     assert route.call_count == 2  # each with its own account's token
     # A calendar's person defaults to its account's owner (Riley); Family = everyone.
-    assert await calendar_prefs.get_people_links(db) == {"riley@example.com": RILEY}
+    assert await calendar_prefs.get_people_links(db) == {"2:riley@example.com": RILEY}
     rows = await (await db.execute("SELECT account_id, calendar_id FROM calendar_cache ORDER BY 1")).fetchall()
     assert [tuple(r) for r in rows] == [(1, FAMILY_CAL), (2, "riley@example.com")]
 
@@ -671,6 +674,36 @@ async def test_reconnect_asks_for_the_same_account_and_refuses_another(admin_cli
     assert "different account. Use Add account for it." in page
 
 
+async def test_a_refused_reconnect_as_a_removed_account_withdraws_the_grant(admin_client, db, google, two_accounts):
+    """A removed account holds no token, so the stray grant is revoked."""
+    google.post(url__startswith=google_oauth.REVOKE_ENDPOINT).respond(200)
+    await accounts.remove(db, 1)
+    start = await admin_client.get("/admin/google/accounts/2/reconnect")
+    resp, revoke = await _callback(admin_client, google, start, "family@example.com", FAMILY_SUB)
+    assert "error=google-wrong-account" in resp.headers["location"]
+    assert revoke.called and "new-refresh" in str(revoke.calls.last.request.url)
+
+
+async def test_unresolved_primary_aliases_keep_their_own_person_links(db, google, two_accounts):
+    """Resolving offline failed: each account's "primary" is still its own
+    calendar, with its own person link."""
+    await google_oauth.set_selected_calendars(
+        db,
+        [
+            {"account_id": 1, "id": "primary", "summary": "Family", "color": "#123456"},
+            {"account_id": 2, "id": "primary", "summary": "Riley", "color": "#654321"},
+        ],
+    )
+    await calendar_prefs.set_people_links(db, {"1:primary": "everyone"})
+    links = await calendar_prefs.get_people_links(db)
+    assert links == {"1:primary": "everyone", "2:primary": RILEY}  # account 2's: its owner
+    profiles = [{"id": RILEY, "name": "Riley"}, {"id": JAMIE, "name": "Jamie"}]
+    riley_event = {"title": "Swim", "calendar_id": "primary", "account_id": 2}
+    family_event = {"title": "Bins", "calendar_id": "primary", "account_id": 1}
+    assert calendar_view.event_owners(riley_event, links, profiles) == {RILEY}
+    assert calendar_view.event_owners(family_event, links, profiles) is None
+
+
 async def test_a_refused_reconnect_as_another_connected_account_keeps_its_grant(admin_client, db, google, two_accounts):
     """Signing in as account 1 on account 2's Reconnect: refused, and the
     token isn't revoked, since that would end account 1's grant too."""
@@ -728,7 +761,7 @@ async def test_reconnect_restores_a_revoked_account_with_everything_linked(admin
     riley = await google_accounts.get(db, 2)
     assert riley["state"] == google_accounts.CONNECTED and riley["owner_id"] == RILEY
     assert "2:riley@example.com" in {c["key"] for c in await google_oauth.get_selected_calendars(db)}
-    assert (await calendar_prefs.get_people_links(db))["riley@example.com"] == JAMIE
+    assert (await calendar_prefs.get_people_links(db))["2:riley@example.com"] == JAMIE
 
 
 async def test_reconnecting_a_missing_account(admin_client):

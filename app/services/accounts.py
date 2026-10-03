@@ -10,8 +10,10 @@ back (spec 12.2, 12.6). The table, jobs and states are app/google_accounts.py.
   then reconciles, so nothing is duplicated or resurrected.
 - Unticking School email keeps its checkpoint; ticking it again reads from
   the later of that and BACKFILL_DAYS ago, so an old checkpoint never sends
-  months of backlog to Claude. Removing the account deletes its checkpoint
-  and status. Approved and pending School inbox items are always kept.
+  months of backlog to Claude. The checkpoint is the account's own: another
+  account taking the job looks back BACKFILL_DAYS (school_email). Removing
+  the account deletes its checkpoint and status. Approved and pending School
+  inbox items are always kept.
 - Removing an account also takes its calendars off the wall (and its cached
   events), clears the Family or school events calendar if it was in it
   (Admin warns until another is picked), and revokes and deletes its token.
@@ -32,13 +34,6 @@ from app.services import calendar_prefs, school_events
 logger = logging.getLogger(__name__)
 
 
-async def _forget_school_email(db) -> None:
-    await db.execute(
-        "DELETE FROM app_settings WHERE key IN (?, ?)", (school_email.CHECKPOINT_SETTING, school_email.STATUS_SETTING)
-    )
-    await db.commit()
-
-
 async def apply_job_changes(db, account: dict, new_jobs: list[str], now: datetime | None = None) -> list[str]:
     """When an Edit changes `account`'s jobs: what that changes. Returns the
     jobs dropped (Admin says the permission stays until the account is removed)."""
@@ -46,7 +41,7 @@ async def apply_job_changes(db, account: dict, new_jobs: list[str], now: datetim
     if "tasks" in dropped or ("tasks" in new_jobs and "tasks" not in account["jobs"]):
         await sync_status.reset(db)  # another account's (or no) sync history from here
     if "school_email" in new_jobs and "school_email" not in account["jobs"]:
-        await school_email.clamp_checkpoint(db, now or datetime.now(UTC))
+        await school_email.clamp_checkpoint(db, now or datetime.now(UTC), account["id"])
     return dropped
 
 
@@ -74,8 +69,7 @@ async def remove(db, account_id: int) -> bool:
     preview = await removal_preview(db, account)
     await google_oauth.revoke(await google_accounts.load_tokens(db, account_id))
 
-    if "school_email" in account["jobs"]:
-        await _forget_school_email(db)
+    await school_email.forget_account(db, account_id)
     if "tasks" in account["jobs"]:
         await sync_status.reset(db)
 

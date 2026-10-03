@@ -17,7 +17,7 @@ import httpx
 import pytest
 from PIL import Image
 
-from app import calendar_cache, google_accounts, google_gmail, google_oauth, school_email
+from app import calendar_cache, database, google_accounts, google_gmail, google_oauth, school_email
 from app.routers import admin
 from app.security import create_session_token
 from app.services import extraction, imports, school_events, schools
@@ -661,6 +661,93 @@ async def test_nothing_sensitive_is_logged_even_at_debug(db, claude, mailbox, ca
         "year4@",
     ):
         assert secret not in logged  # ...but none of this
+
+
+# --- The School email job moving between accounts (spec 12.2, 12.5) ---
+
+
+async def _move_school_email_to_mum(db):
+    """Untick School email on the family account and connect Mum's with it."""
+    await google_accounts.update(db, 1, None, ["calendars", "tasks", "write_events"])
+    tokens = {"access_token": "mum-token", "refresh_token": "mum-r", "expires_at": time.time() + 3600}
+    await google_oauth.store_tokens(db, {**tokens, "scope": ALL_SCOPES}, "mum@example.com")
+    mum = await google_accounts.job_account(db, "school_email")
+    assert mum is not None and mum["id"] == 2
+    await school_email.clamp_checkpoint(db, NOW, 2)  # what the callback does: not Mum's checkpoint
+    return mum
+
+
+async def test_another_account_taking_school_email_looks_back_14_days(db, gmail, claude, mailbox):
+    """The family account's checkpoint (yesterday) is its own: Mum's first
+    check still reads her last 14 days."""
+    mailbox.add("m1")
+    assert (await school_email.check_now(db, NOW)).result == "ok"
+    assert await school_email.checkpoint_account(db) == 1
+
+    await _move_school_email_to_mum(db)
+    later = NOW + timedelta(hours=2)
+    await school_email.check_now(db, later)
+
+    after = int((later - timedelta(days=school_email.BACKFILL_DAYS)).timestamp())
+    assert mailbox.queries[-1].endswith(f"after:{after}")
+    assert mailbox.list_route.calls.last.request.headers["authorization"] == "Bearer mum-token"
+    assert await school_email.checkpoint_account(db) == 2
+
+
+async def test_re_ticking_clamps_only_its_own_checkpoint(db, gmail, claude, mailbox):
+    mailbox.add("m1", received=NOW - timedelta(days=60))
+    assert (await school_email.check_now(db, NOW - timedelta(days=60))).result == "ok"
+    old = await school_email.get_checkpoint(db, 1)
+    await school_email.clamp_checkpoint(db, NOW, 2)  # another account: untouched
+    assert await school_email.get_checkpoint(db) == old
+    await school_email.clamp_checkpoint(db, NOW, 1)
+    assert await school_email.get_checkpoint(db, 1) == int(
+        (NOW - timedelta(days=school_email.BACKFILL_DAYS)).timestamp()
+    )
+
+
+async def test_failed_emails_wait_for_their_own_account(db, gmail, claude, mailbox, monkeypatch):
+    """A failed email from the family's mailbox is never fetched with Mum's
+    token (it would 404 and be given up as gone): it's parked, and read
+    again once the family account does School email again."""
+    mailbox.add("m1")
+
+    async def offline(*args):
+        raise extraction.ExtractionFailed("offline")
+
+    real_extract = imports.extract
+    monkeypatch.setattr(imports, "extract", offline)
+    assert (await school_email.check_now(db, NOW)).result == "extract_failed"
+    monkeypatch.setattr(imports, "extract", real_extract)
+
+    await _move_school_email_to_mum(db)
+    mailbox.list_ids = []  # Mum's own mailbox has nothing new
+    fetched_before = list(mailbox.full_fetches)
+    await school_email.check_now(db, NOW + timedelta(hours=2))
+
+    assert mailbox.full_fetches == fetched_before  # m1 not fetched with Mum's token
+    (source,) = await _sources(db)
+    assert source["status"] == "failed" and source["error_code"] != "gone"
+    assert json.loads(await database.get_setting(db, school_email.PARKED_RETRIES_SETTING)) == {"1": ["m1"]}
+
+    # School email back on the family account: m1 is read again, with its token.
+    await google_accounts.update(db, 2, None, ["calendars"])
+    await google_accounts.update(db, 1, None, ["calendars", "tasks", "school_email", "write_events"])
+    mailbox.list_ids = None
+    result = await school_email.check_now(db, NOW + timedelta(hours=4))
+    assert (result.result, result.items) == ("ok", 1)
+    (source,) = await _sources(db)
+    assert source["status"] == "extracted"
+    assert mailbox.message_route.calls.last.request.headers["authorization"] == f"Bearer {ACCESS}"
+
+
+async def test_removing_the_reading_account_forgets_only_its_own_checkpoint(db, gmail, claude, mailbox):
+    mailbox.add("m1")
+    await school_email.check_now(db, NOW)
+    await school_email.forget_account(db, 2)  # not the checkpoint's account
+    assert await school_email.get_checkpoint(db) is not None
+    await school_email.forget_account(db, 1)
+    assert await school_email.get_checkpoint(db) is None and await school_email.get_status(db) == {}
 
 
 # --- Scope detection ---
