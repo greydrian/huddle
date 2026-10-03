@@ -3,34 +3,38 @@ import time
 import httpx
 import pytest
 
-from app import google_calendar, google_oauth
+from app import google_accounts, google_calendar, google_oauth
 
 TOKEN_URL = "https://oauth2.googleapis.com/token"
 EVENTS_URL_PATTERN = r"https://www\.googleapis\.com/calendar/v3/calendars/.+/events"
 
 
 async def _expire_token(db):
-    await google_oauth.store_tokens(
-        db, {"access_token": "old", "refresh_token": "refresh", "expires_at": time.time() - 10}
+    return await google_oauth.store_tokens(
+        db, {"access_token": "old", "refresh_token": "refresh", "expires_at": time.time() - 10}, "f@example.com"
     )
 
 
 async def test_refresh_outage_keeps_the_stored_login(db, google):
-    await _expire_token(db)
+    account_id = await _expire_token(db)
     google.post(TOKEN_URL).respond(503)
 
     with pytest.raises(httpx.HTTPError):
-        await google_oauth.get_valid_access_token(db)
+        await google_oauth.get_valid_access_token(db, account_id)
 
-    assert await google_oauth._load_stored_tokens(db) is not None
+    assert await google_accounts.load_tokens(db, account_id) is not None
 
 
-async def test_revoked_refresh_token_disconnects(db, google):
-    await _expire_token(db)
+async def test_revoked_refresh_token_drops_only_the_token(db, google):
+    """Spec 12.6: the row, its jobs and links stay; it shows Reconnect needed."""
+    account_id = await _expire_token(db)
     google.post(TOKEN_URL).respond(400, json={"error": "invalid_grant"})
 
-    assert await google_oauth.get_valid_access_token(db) is None
-    assert await google_oauth._load_stored_tokens(db) is None
+    assert await google_oauth.get_valid_access_token(db, account_id) is None
+    assert await google_accounts.load_tokens(db, account_id) is None
+    account = await google_accounts.get(db, account_id)
+    assert account["email"] == "f@example.com" and account["jobs"] == ["calendars", "tasks"]
+    assert account["state"] == google_accounts.RECONNECT
 
 
 async def test_dashboard_still_renders_when_google_is_unreachable(connected, client, google):

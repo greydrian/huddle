@@ -15,7 +15,7 @@ import httpx
 import pytest
 from PIL import Image
 
-from app import database, google_oauth, google_photos, migrations
+from app import database, google_accounts, google_photos, migrations
 from app.admin_tabs import admin_url
 from app.routers import admin, photos
 from app.security import create_session_token, decrypt_token_json
@@ -140,7 +140,7 @@ async def test_connect_asks_only_for_the_picker_scope(admin_client, configured):
 async def test_callback_stores_the_token_encrypted_and_apart_then_starts_picking(
     admin_client, db, configured, connected, google
 ):
-    main_before = await (await db.execute("SELECT * FROM auth_tokens WHERE service_name = 'google'")).fetchone()
+    main_before = await (await db.execute("SELECT * FROM google_accounts")).fetchone()
     google.post(google_photos.TOKEN_ENDPOINT).respond(
         200,
         json={
@@ -162,9 +162,9 @@ async def test_callback_stores_the_token_encrypted_and_apart_then_starts_picking
     assert (stored["access_token"], stored["refresh_token"]) == (ACCESS, REFRESH)
     assert row["account_email"] is None
     # The main Google connection is untouched.
-    main_after = await (await db.execute("SELECT * FROM auth_tokens WHERE service_name = 'google'")).fetchone()
+    main_after = await (await db.execute("SELECT * FROM google_accounts")).fetchone()
     assert dict(main_after) == dict(main_before)
-    assert await google_oauth.get_connected_account(db) == "family@example.com"
+    assert (await google_accounts.get(db, 1))["email"] == "family@example.com"
 
     # ...and picking has started: a 30-photo session, shown as a QR code and a link.
     assert json.loads(create.calls.last.request.content) == {"pickingConfig": {"maxItemCount": "30"}}
@@ -221,7 +221,7 @@ async def test_sign_out_revokes_and_forgets_only_the_photos_token(admin_client, 
     await admin_client.post("/admin/photos/sign-out")
     assert revoke.called and REFRESH.encode() in revoke.calls.last.request.content
     assert not await google_photos.is_signed_in(db)
-    assert await google_oauth.get_connected_account(db) == "family@example.com"
+    assert (await google_accounts.get(db, 1))["email"] == "family@example.com"
 
 
 # --- Picking and importing ---

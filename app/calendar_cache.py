@@ -7,11 +7,14 @@ google_calendar formatted them from that calendar's last successful fetch
 — Google's own offsets and time labels, the calendar colour. Per calendar,
 so one persistently failing calendar (e.g. unshared, 404) only falls back
 to its own copy while the healthy ones stay live and keep their copies
-fresh. `selection` is a hash of the connected account and the Admin
-calendar selection: rows written by a fetch that started before the
-selection changed can never be read under the new one. Only event data
-lives here, never tokens. The cache is also cleared outright whenever the
-selection changes or Google is disconnected (google_oauth).
+fresh. A calendar is its account and its id together
+(google_oauth.calendar_key, "2:primary"), so an account that's offline or
+needs reconnecting is served from here while the others stay live.
+`selection` is a hash of the Admin calendar selection: rows written by a
+fetch that started before the selection changed can never be read under
+the new one. Only event data lives here, never tokens. The cache is also
+cleared outright whenever the selection changes (google_oauth), and an
+account's rows go when it's removed (services/accounts).
 """
 
 import hashlib
@@ -21,8 +24,8 @@ from datetime import date, datetime, timezone
 KEEP_RANGES = 12  # most recently fetched date ranges kept (months someone browsed to)
 
 
-def selection_key(account: str | None, calendars: list[dict]) -> str:
-    payload = json.dumps([account, [[c.get("id"), c.get("color")] for c in calendars]])
+def selection_key(calendars: list[dict]) -> str:
+    payload = json.dumps([[c.get("account"), c.get("id"), c.get("color")] for c in calendars])
     return hashlib.sha1(payload.encode(), usedforsecurity=False).hexdigest()[:16]
 
 
@@ -75,3 +78,8 @@ async def load(db, selection: str, start: date, end: date, calendar_id: str) -> 
 async def clear(db) -> None:
     """Drop every cached range. The caller commits."""
     await db.execute("DELETE FROM calendar_cache")
+
+
+async def clear_account(db, account_id: int) -> None:
+    """Drop one account's calendars (keys "<account id>:..."). The caller commits."""
+    await db.execute("DELETE FROM calendar_cache WHERE calendar_id LIKE ?", (f"{account_id}:%",))

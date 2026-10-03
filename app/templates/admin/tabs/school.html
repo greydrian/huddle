@@ -54,12 +54,17 @@
     {{ section_error("school-email") }}
     {% if not google_configured %}
     <p class="admin-hint">Needs Google set up first (see README, "School email import").</p>
+    {% elif not school.account %}
+    <p class="admin-hint">Tick School email on a parent's or the Family Google account (<a class="inline-link" href="/admin?tab=google#google">Google &amp; Sync → Google accounts</a>) to read the school's emails.</p>
     {% elif not school.connected %}
-    <p class="admin-hint">Connect a Google account (<a class="inline-link" href="/admin?tab=google#google">Google &amp; Sync</a>) to read the school's emails.</p>
+    <p class="admin-error" role="note">{{ school.account.email or "The School email account" }} needs reconnecting (<a class="inline-link" href="/admin?tab=google#google">Google &amp; Sync → Google accounts</a>) before its email can be read.</p>
     {% elif not school.gmail_scope %}
-    <p class="admin-error" role="note">Reconnect Google to enable school email import: Disconnect, then Connect Google Account (<a class="inline-link" href="/admin?tab=google#google">Google &amp; Sync</a>). Calendar and Tasks keep working meanwhile.</p>
+    <p class="admin-error" role="note">Google hasn't allowed reading email for {{ school.account.email or "the School email account" }}: Reconnect it (<a class="inline-link" href="/admin?tab=google#google">Google &amp; Sync → Google accounts</a>) and allow it. Everything else keeps working meanwhile.</p>
     {% elif not inbox_configured %}
     <p class="admin-error" role="note">School emails are read by Claude: add an Anthropic API key first (see Add from Classroom above).</p>
+    {% endif %}
+    {% if school.account %}
+    <p class="admin-meta">Reads the inbox of {{ school.account.email or "the account doing School email" }} (one account at a time for now).</p>
     {% endif %}
     {% include "admin/_school_email_status.html" %}
     {% if school_result == "started" %}
@@ -93,14 +98,19 @@
 
     <div class="admin-subsection">
       <h3>School events go to calendar</h3>
-      {% if school.connected and not school.events_scope %}
-      <p class="admin-hint">Reconnect to allow adding to your calendar.</p>
+      {% if not writer_account %}
+      <p class="admin-hint">Tick Writing events on a Google account (<a class="inline-link" href="/admin?tab=google#google">Google &amp; Sync</a>) to add school events to a calendar.</p>
+      {% elif not school.events_scope %}
+      <p class="admin-hint">Reconnect {{ writer_account.email or "the Writing events account" }} and allow adding events.</p>
+      {% endif %}
+      {% if removed_notice_school %}
+      <p class="admin-error" role="note">The calendar for school events ({{ removed_notice_school }}) was in a removed Google account: pick another.</p>
       {% endif %}
       {% if writable_calendars %}
       <form class="admin-form" method="post" action="/admin/school-email/calendar">
         <select name="calendar_id" aria-label="Calendar for school events">
           <option value="">Don't add events (discard only)</option>
-          {% for cal in writable_calendars %}<option value="{{ cal.id }}" {{ 'selected' if event_setup.calendar and event_setup.calendar.id == cal.id else '' }}>{{ cal.summary }}{% if cal.primary %} (primary){% endif %}</option>{% endfor %}
+          {% for cal in writable_calendars %}<option value="{{ cal.key }}" {{ 'selected' if event_setup.calendar and event_setup.calendar.account == cal.account and event_setup.calendar.id == cal.id else '' }}>{{ cal.summary }}{% if cal.primary %} (primary){% endif %}</option>{% endfor %}
         </select>
         <button type="submit" class="btn btn-small">Save</button>
       </form>

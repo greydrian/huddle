@@ -1,43 +1,159 @@
 {#- Admin → Google tab: included by admin/settings.html for admin_tab == "google".
-    Context: app/routers/admin/google.py (google_context) plus what page.py gives every tab. -#}
-{% from "_icons.html" import person_avatar %}
+    Context: app/routers/admin/google.py (google_context) plus what page.py gives every tab.
+    ?unticked=<jobs> and ?removed=1 come from Edit and Remove (fixed messages only). -#}
+{% from "_icons.html" import person_avatar, person_pill %}
 {% from "admin/_macros.html" import section_error with context %}
-  <!-- Google account -->
+{% set unticked = (request.query_params.get("unticked") or "").split() %}
+
+{#- One account's job checkboxes, for Add account (acct none) and Edit. An
+    exclusive job another account does can't be ticked here (stage 1). -#}
+{% macro job_checks(acct=none) %}
+  <div class="account-jobs" role="group" aria-label="Jobs">
+    {% for job, label in jobs.items() %}
+    {% set holder = job_holders.get(job) %}
+    {% set taken = holder and (acct is none or holder.id != acct.id) %}
+    <label class="admin-check account-job-check">
+      <input type="checkbox" name="job" value="{{ job }}" {{ 'checked' if acct and job in acct.jobs else '' }}{{ ' disabled' if taken else '' }}>
+      <span><strong>{{ label }}</strong> <span class="admin-meta">· {{ job_hints[job] }}
+        {%- if job == "write_events" %} (ticks Calendars too){% endif %}
+        {%- if job in parent_jobs %} (a parent's or Family account only){% endif %}
+        {%- if taken %}. Done by {{ holder.email or "another account" }} for now: one account at a time until doing it in several is added{% endif %}</span></span>
+    </label>
+    {% endfor %}
+  </div>
+{% endmacro %}
+
+{% macro owner_select(selected=none) %}
+  <label class="admin-check">Whose account
+    <select name="owner" aria-label="Whose account">
+      <option value="family">Family (shared)</option>
+      {% for p in profiles %}<option value="{{ p.id }}" {{ 'selected' if selected == p.id else '' }}>{{ p.name }}{% if p.is_parent %} (parent){% endif %}</option>{% endfor %}
+    </select>
+  </label>
+{% endmacro %}
+
+  <!-- Google accounts (spec 12.2, app/google_accounts.py) -->
   <div class="admin-panel" id="google">
-    <h2>Google Account</h2>
-    {% if google_account %}
-    <div class="admin-row">
-      <span>Connected as <strong>{{ google_account }}</strong> — Calendar (read-only) + Tasks</span>
-      <form method="post" action="/admin/google/disconnect">
-        <button type="submit" class="btn btn-danger btn-small">Disconnect</button>
-      </form>
+    <h2>Google accounts</h2>
+    {{ section_error("google") }}
+    {% for job in unticked %}{% if job in job_unticked %}
+    <p class="admin-meta" role="status">{{ job_unticked[job] }} Remove the account to withdraw the permission.</p>
+    {% endif %}{% endfor %}
+    {% if request.query_params.get("removed") %}
+    <p class="admin-meta" role="status">The account was removed, and its permission withdrawn with Google.</p>
+    {% endif %}
+    {% if removed_notice.family %}
+    <p class="admin-error" role="note">The Family calendar ({{ removed_notice.family }}) was in a removed account, so the wall has no "+" until another is picked under <a class="inline-link" href="#calendar-options">Calendar on the wall</a>.</p>
+    {% endif %}
+    {% if removed_notice.school_events %}
+    <p class="admin-error" role="note">The calendar for school events ({{ removed_notice.school_events }}) was in a removed account: pick another in the School tab's School email panel.</p>
+    {% endif %}
+    {% if not google_configured %}
+    <p class="admin-hint">
+      Not configured yet — set <code>GOOGLE_CLIENT_ID</code> and <code>GOOGLE_CLIENT_SECRET</code>
+      (see README, "Connecting Google (Calendar + Tasks)") before an account can be connected.
+    </p>
+    {% elif not google_accounts %}
+    <p class="admin-hint">Add a Google account to bring the family's calendars, task lists and school email onto the display. Each account does only the jobs ticked for it.</p>
+    {% endif %}
+
+    {% if removal %}
+    {#- Remove's confirm step (/admin?tab=google&remove=<id>): exactly what changes. -#}
+    {% set r = removal.preview %}
+    <div class="admin-note google-account-remove" role="alert">
+      <p><strong>Remove {{ removal.account.email or "this account" }}?</strong></p>
+      <ul>
+        {% if r.calendars %}<li>Its calendars leave the wall: {{ r.calendars | join(", ") }}.</li>{% endif %}
+        {% if r.people %}<li>{{ r.people | join(", ") }}'s task list{{ 's' if r.people | length > 1 else '' }} become{{ '' if r.people | length > 1 else 's' }} "on this display only" (nothing is deleted).</li>{% endif %}
+        {% if r.shopping %}<li>The shopping list becomes "on this display only" (nothing is deleted).</li>{% endif %}
+        {% if r.family_calendar %}<li>The Family calendar ({{ r.family_calendar }}) is cleared: the wall has no "+" until another is picked.</li>{% endif %}
+        {% if r.school_calendar %}<li>The calendar for school events ({{ r.school_calendar }}) is cleared.</li>{% endif %}
+        {% if r.school_email %}<li>Its school email stops being read. The School inbox keeps what's already in it.</li>{% endif %}
+        <li>Its permission is withdrawn with Google.</li>
+      </ul>
+      <div class="admin-form">
+        <form method="post" action="/admin/google/accounts/{{ removal.account.id }}/remove">
+          <button type="submit" class="btn btn-danger">Remove account</button>
+        </form>
+        <a class="btn btn-ghost" href="/admin?tab=google#google">Cancel</a>
+      </div>
     </div>
-    {% if available_calendars %}
+    {% endif %}
+
+    {% for acct in google_accounts %}
+    {% set owner = profiles | selectattr("id", "equalto", acct.owner_id) | first %}
+    <div class="admin-row google-account" data-account="{{ acct.id }}">
+      <div class="google-account-main">
+        <strong class="google-account-email">{{ acct.email or "Address not known yet" }}</strong>
+        <div class="google-account-meta">
+          {% if owner %}{{ person_pill(owner.name, owner.colour_hex, owner.avatar) }}{% else %}<span class="admin-badge">Family</span>{% endif %}
+          {% for job in acct.jobs %}<span class="account-chip{{ ' is-missing' if job in acct.missing_jobs else '' }}">{{ jobs[job] }}</span>{% endfor %}
+          <span class="account-state account-state-{{ acct.state }}" data-state="{{ acct.state }}">{{ acct.state_label }}</span>
+        </div>
+        {% if acct.state == "reconnect" %}
+        <p class="admin-hint">Its sign-in was revoked or expired. Reconnect restores it, with every calendar and list linked to it.</p>
+        {% elif acct.missing_jobs %}
+        <p class="admin-hint">Google hasn't allowed {% for job in acct.missing_jobs %}{{ jobs[job] }}{{ ', ' if not loop.last else '' }}{% endfor %} for this account: Reconnect and allow it.</p>
+        {% elif acct.state == "offline" %}
+        <p class="admin-hint">Couldn't reach Google for this account just now; its calendars show their last saved copy.</p>
+        {% endif %}
+      </div>
+      <div class="google-account-actions">
+        {% if google_configured %}<a class="btn btn-small" href="/admin/google/accounts/{{ acct.id }}/reconnect">Reconnect</a>{% endif %}
+        <a class="btn btn-small btn-danger" href="/admin?tab=google&amp;remove={{ acct.id }}#google">Remove</a>
+      </div>
+      <details class="task-edit google-account-edit">
+        <summary class="btn btn-small"><span class="task-edit-open">Edit</span><span class="task-edit-close">Cancel</span></summary>
+        <form class="google-account-form" method="post" action="/admin/google/accounts/{{ acct.id }}/edit">
+          {{ owner_select(acct.owner_id) }}
+          {{ job_checks(acct) }}
+          <p class="admin-meta">Unticking a job stops it at once; Google keeps the permission until the account is removed. A newly ticked job goes to Google to be allowed.</p>
+          <button type="submit" class="btn">Save</button>
+        </form>
+      </details>
+    </div>
+    {% endfor %}
+
+    {% if google_configured %}
+    <details class="task-edit google-account-add"{{ ' open' if not google_accounts else '' }}>
+      <summary class="btn"><span class="task-edit-open">Add account</span><span class="task-edit-close">Cancel</span></summary>
+      <form class="google-account-form" method="post" action="/admin/google/accounts">
+        {{ owner_select() }}
+        {{ job_checks() }}
+        <p class="admin-meta">Google is asked only for what the ticked jobs need. Its account chooser picks the account; one that's already here gets these jobs added.</p>
+        <button type="submit" class="btn">Continue to Google</button>
+      </form>
+    </details>
+    {% endif %}
+
+    {% if calendar_groups %}
+    {#- The calendar picker (spec 12.3): grouped by account; a calendar is its account + id. -#}
     <form class="calendar-picker" id="calendars" method="post" action="/admin/google/calendars">
       <p class="admin-hint">Calendars shown on the dashboard:</p>
-      {% for cal in available_calendars %}
-      <label class="admin-check">
-        <input type="checkbox" name="calendar_id" value="{{ cal.id }}"
-               {{ 'checked' if cal.id in selected_calendar_ids else '' }}>
-        <span class="calendar-swatch" style="--cal: {{ cal.color }};"></span>
-        {{ cal.summary }}{% if cal.primary %} (primary){% endif %}
-      </label>
+      {% for group in calendar_groups %}
+      <fieldset class="calendar-group">
+        <legend>{{ group.account.email or "Account " ~ group.account.id }}</legend>
+        {% if group.error == "reconnect" %}
+        <p class="admin-hint">This account needs reconnecting, so its calendars can't be listed; the ones shown stay as they are.</p>
+        {% elif group.error == "offline" %}
+        <p class="admin-error">Couldn't reach Google for this account just now; the calendars it shows stay as they are.</p>
+        {% endif %}
+        {% for cal in group.calendars %}
+        <label class="admin-check">
+          <input type="checkbox" name="calendar_id" value="{{ cal.key }}"{{ ' checked' if cal.selected else '' }}{{ ' disabled' if cal.shown_through else '' }}>
+          <span class="calendar-swatch" style="--cal: {{ cal.color }};"></span>
+          <span>{{ cal.summary }}{% if cal.primary %} (primary){% endif %}
+            {%- if cal.shown_through %} <span class="admin-meta">· Shown through {{ cal.shown_through }}</span>{% endif %}
+            {%- if cal.was_removed %} <span class="admin-meta">· Was shown through a removed account: tick it to show it through this one</span>{% endif %}</span>
+        </label>
+        {% endfor %}
+      </fieldset>
       {% endfor %}
       <button type="submit" class="btn">Save calendars</button>
     </form>
     {% endif %}
-    {% elif google_configured %}
-    <p class="admin-hint">
-      Connect a Google account to bring your family calendar onto the dashboard.
-    </p>
-    <a href="/admin/google/connect" class="btn">Connect Google Account</a>
-    {% else %}
-    <p class="admin-hint">
-      Not configured yet — set <code>GOOGLE_CLIENT_ID</code> and <code>GOOGLE_CLIENT_SECRET</code>
-      (see README, "Connecting Google (Calendar + Tasks)") before this can be connected.
-    </p>
-    {% endif %}
-    {% if google_account %}
+
+    {% if google_accounts %}
     {#- Calendar options (spec 10.5, services/calendar_prefs.py). -#}
     <div class="admin-subsection" id="calendar-options">
       <h3>Calendar on the wall</h3>
@@ -50,35 +166,37 @@
         <button type="submit" class="btn btn-small">Save</button>
       </form>
 
-      <p class="admin-hint admin-label">Adding events from the wall (the calendar's "+") always goes into one shared Family calendar:</p>
-      {% if not calendar_events_scope %}
-      <p class="admin-hint">Reconnect to allow adding events: Disconnect, then Connect Google Account.</p>
+      <p class="admin-hint admin-label">Adding events from the wall (the calendar's "+") always goes into one shared Family calendar{% if writer_account %}, in {{ writer_account.email or "the account doing Writing events" }}{% endif %}:</p>
+      {% if not writer_account %}
+      <p class="admin-hint">Tick Writing events on an account above to add events from the wall.</p>
+      {% elif not calendar_events_scope %}
+      <p class="admin-hint">Reconnect {{ writer_account.email or "that account" }} above and allow adding events.</p>
       {% endif %}
       {% if family_choices %}
       <form class="admin-form" method="post" action="/admin/google/family-calendar">
         <select name="calendar_id" aria-label="Family calendar">
           <option value="">Don't add events from the wall</option>
-          {% for cal in family_choices %}<option value="{{ cal.id }}" {{ 'selected' if family_calendar and family_calendar.id == cal.id else '' }}>{{ cal.summary }}{% if cal.primary %} (primary){% endif %}</option>{% endfor %}
+          {% for cal in family_choices %}<option value="{{ cal.key }}" {{ 'selected' if family_calendar and family_calendar.account == cal.account and family_calendar.id == cal.id else '' }}>{{ cal.summary }}{% if cal.primary %} (primary){% endif %}</option>{% endfor %}
         </select>
         <button type="submit" class="btn btn-small">Save</button>
       </form>
       {% elif family_calendar %}
       <p>Using <strong>{{ family_calendar.summary }}</strong> <span class="admin-meta">(couldn't load the calendar list just now)</span></p>
-      {% else %}
+      {% elif writer_account %}
       <p class="admin-meta">No calendar to pick: tick a calendar this account can edit under "Calendars shown on the dashboard" first.</p>
       {% endif %}
       {% if not family_calendar_active %}
-      <p class="admin-hint">{% if family_calendar %}{{ family_calendar.summary }} isn't shown on the wall any more, so{% else %}No Family calendar is chosen, so{% endif %} the wall has no "+" for adding events.</p>
+      <p class="admin-hint">{% if family_calendar %}{{ family_calendar.summary }} isn't shown on the wall any more, or its account no longer does Writing events, so{% else %}No Family calendar is chosen, so{% endif %} the wall has no "+" for adding events.</p>
       {% endif %}
 
       {% if selected_calendars %}
       <form method="post" action="/admin/google/calendar-people">
-        <p class="admin-hint admin-label">Whose events each calendar holds (the person filter). On an Everyone calendar, an event counts for whoever its title names, like "Riley: Swimming".</p>
+        <p class="admin-hint admin-label">Whose events each calendar holds (the person filter). It starts as its account's owner. On an Everyone calendar, an event counts for whoever its title names, like "Riley: Swimming".</p>
         {% for cal in selected_calendars %}
         <div class="tasklist-row">
-          <input type="hidden" name="calendar_{{ loop.index }}" value="{{ cal.id }}">
-          <span class="tasklist-person"><span class="calendar-swatch" style="--cal: {{ cal.color }};"></span>{{ cal.summary }}</span>
-          {% set owner = calendar_people.get(cal.id, 'everyone') %}
+          <input type="hidden" name="calendar_{{ loop.index }}" value="{{ cal.key }}">
+          <span class="tasklist-person"><span class="calendar-swatch" style="--cal: {{ cal.color }};"></span>{{ cal.summary }}{% if google_accounts | length > 1 %} <span class="admin-meta">· {{ account_emails.get(cal.account) }}</span>{% endif %}</span>
+          {% set owner = calendar_people.get(cal.key, 'everyone') %}
           <select name="owner_{{ loop.index }}" aria-label="Whose events are in {{ cal.summary }}">
             <option value="everyone">Everyone</option>
             {% for p in profiles %}<option value="{{ p.id }}" {{ 'selected' if owner == p.id else '' }}>{{ p.name }}</option>{% endfor %}
@@ -92,15 +210,18 @@
 
     <div class="admin-subsection" id="task-lists">
       <h3>Task Sync</h3>
-      {% if google_offline %}
+      {% if not tasks_account %}
+      <p class="admin-hint">Tick Tasks &amp; shopping on an account above to sync the shopping list and each person's tasks with Google Tasks.</p>
+      {% else %}
+      <p class="admin-meta">Lists from {{ tasks_account.email or "the account doing Tasks & shopping" }}. One account does Tasks &amp; shopping for now.</p>
+      {% if tasklists_offline %}
       <p class="admin-error">
         Couldn't reach Google just now — lists below may be incomplete. Try again in a minute.
       </p>
       {% endif %}
       {% if tasklists_error %}
       <p class="admin-error">
-        Couldn't load your Google Task lists — this account was likely connected before Task
-        sync was added. Disconnect and reconnect above to grant access.
+        Couldn't load the Google Task lists: this account hasn't allowed Google Tasks. Reconnect it above and allow it.
       </p>
       {% elif available_tasklists %}
       <form class="shopping-list-picker" method="post" action="/admin/google/shopping-list">
@@ -138,10 +259,11 @@
         No Google Tasks lists found on this account. Create one in the Google Tasks app first.
       </p>
       {% endif %}
+      {% endif %}
     </div>
     {% endif %}
     <p class="admin-hint admin-footnote">
-      Google Photos and Classroom access aren't wired up yet — see the project README for the plan.
+      Google Photos has its own sign-in (Display → Photos), and Classroom access isn't wired up yet.
     </p>
   </div>
 

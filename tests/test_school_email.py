@@ -17,7 +17,7 @@ import httpx
 import pytest
 from PIL import Image
 
-from app import calendar_cache, google_gmail, google_oauth, school_email
+from app import calendar_cache, google_accounts, google_gmail, google_oauth, school_email
 from app.routers import admin
 from app.security import create_session_token
 from app.services import extraction, imports, school_events, schools
@@ -576,13 +576,16 @@ async def test_a_transient_claude_failure_is_retried_next_time(db, gmail, claude
 
 async def test_no_gmail_scope_means_reconnect_without_calling_google(db, claude, google, admin_client):
     await _store(db, scope=LEGACY)
+    assert (await school_email.check_now(db, NOW)).result == "not_connected"  # no account does School email
+    # School email ticked, but Google never allowed gmail.readonly: "Needs a permission".
+    await google_accounts.update(db, 1, None, ["calendars", "tasks", "school_email"])
     result = await school_email.check_now(db, NOW)
     assert result.result == "reconnect"
     assert not google.calls
     google.get(google_oauth.CALENDAR_LIST_ENDPOINT).respond(200, json={"items": []})
     google.get("https://tasks.googleapis.com/tasks/v1/users/@me/lists").respond(200, json={"items": []})
     page = (await admin_client.get("/admin?tab=school")).text
-    assert "Reconnect Google to enable school email import" in page
+    assert "Google hasn't allowed reading email for family@example.com" in page
 
 
 async def test_a_scope_403_from_gmail_is_reconnect(db, gmail, claude, mailbox):
@@ -617,7 +620,7 @@ async def test_token_refresh_offline_is_offline(db, claude, google):
     await _store(db, expires_in=-10)
     google.post(google_oauth.TOKEN_ENDPOINT).mock(side_effect=httpx.ConnectError("down"))
     assert (await school_email.check_now(db, NOW)).result == "offline"
-    assert await google_oauth.get_connected_account(db) == "family@example.com"  # tokens kept
+    assert (await google_accounts.get(db, 1))["connected"]  # tokens kept
 
 
 async def test_nothing_sensitive_is_logged_even_at_debug(db, claude, mailbox, caplog, google):
@@ -664,9 +667,9 @@ async def test_nothing_sensitive_is_logged_even_at_debug(db, claude, mailbox, ca
 
 
 async def test_granted_scopes_come_from_the_token_response(db):
-    assert await google_oauth.granted_scopes(db) == frozenset()
+    assert await google_oauth.granted_scopes(db, 1) == frozenset()
     await _store(db, scope=None)  # stored before scopes were kept: the old two
-    assert await google_oauth.granted_scopes(db) == google_oauth.LEGACY_SCOPES
+    assert await google_oauth.granted_scopes(db, 1) == google_oauth.LEGACY_SCOPES
     assert not await google_oauth.has_scope(db, google_oauth.GMAIL_READ_SCOPE)
     await _store(db, scope=ALL_SCOPES)
     assert await google_oauth.has_scope(db, google_oauth.GMAIL_READ_SCOPE)
@@ -678,15 +681,13 @@ async def test_refresh_keeps_working_and_learns_the_granted_scopes(db, google):
     route = google.post(google_oauth.TOKEN_ENDPOINT).respond(
         200, json={"access_token": "new-access", "expires_in": 3599, "scope": LEGACY}
     )
-    assert await google_oauth.get_valid_access_token(db) == "new-access"
+    assert await google_oauth.get_valid_access_token(db, 1) == "new-access"
     assert b"scope" not in route.calls[0].request.content  # a refresh never asks for new scopes
-    tokens = await google_oauth._load_stored_tokens(db)
+    tokens = await google_accounts.load_tokens(db, 1)
     assert tokens["refresh_token"] == REFRESH and tokens["scope"] == LEGACY
 
 
 async def test_callback_stores_the_granted_scopes(db, client, google):
-    from app.routers import calendar
-
     google.post(google_oauth.TOKEN_ENDPOINT).respond(
         200,
         json={
@@ -698,14 +699,19 @@ async def test_callback_stores_the_granted_scopes(db, client, google):
     )
     google.get(google_oauth.USERINFO_ENDPOINT).respond(200, json={"email": "family@example.com"})
     client.cookies.set(admin.SESSION_COOKIE, create_session_token())
-    client.cookies.set(calendar.STATE_COOKIE, "s")
-    await client.get("/admin/google/callback", params={"code": "c", "state": "s"})
+    jobs = ["calendars", "tasks", "school_email", "write_events"]
+    started = await client.post("/admin/google/accounts", data={"owner": "family", "job": jobs})
+    state = started.cookies["google_oauth_state"]
+    await client.get("/admin/google/callback", params={"code": "c", "state": state})
     assert await google_oauth.has_scope(db, google_oauth.GMAIL_READ_SCOPE)
+    # Unticked on Google's consent screen: ticked here, but "Needs a permission".
     assert not await google_oauth.has_scope(db, google_oauth.CALENDAR_EVENTS_SCOPE)
+    account = await google_accounts.get(db, 1)
+    assert account["missing_jobs"] == ["write_events"] and account["state"] == google_accounts.PERMISSION
 
 
 def test_the_auth_url_asks_for_every_scope():
-    url = google_oauth.build_auth_url("s", "http://localhost:8000/admin/google/callback")
+    url = google_oauth.build_auth_url("s", "http://localhost:8000/admin/google/callback", google_accounts.JOBS)
     params = httpx.URL(url).params
     assert set(params["scope"].split()) == {
         google_oauth.CALENDAR_READ_SCOPE,
@@ -921,7 +927,9 @@ def _form(**overrides):
 
 @pytest.fixture
 async def school_calendar(db, gmail, google):
-    await school_events.set_target_calendar(db, {"id": "family@group.calendar.google.com", "summary": "Family"})
+    await school_events.set_target_calendar(
+        db, {"account": 1, "id": "family@group.calendar.google.com", "summary": "Family"}
+    )
     # The calendar refresh after an insert.
     google.get(url__regex=EVENTS_URL.pattern).respond(200, json={"items": []})
 
@@ -1041,7 +1049,7 @@ async def test_event_approval_is_gated_on_scope_and_calendar(db, google):
     with pytest.raises(imports.CandidateError) as raised:
         await school_events.approve_event(db, candidate_id, _form())
     assert raised.value.code == "import-event"  # no calendar picked yet
-    await school_events.set_target_calendar(db, {"id": "primary", "summary": "Family"})
+    await school_events.set_target_calendar(db, {"account": 1, "id": "primary", "summary": "Family"})
     with pytest.raises(imports.CandidateError) as raised:
         await school_events.approve_event(db, candidate_id, _form())
     assert raised.value.code == "import-calendar-scope"
@@ -1102,12 +1110,13 @@ async def test_calendar_picker_only_takes_writable_calendars(db, gmail, google, 
     picker = page.split('name="calendar_id" aria-label="Calendar for school events"')[1].split("</select>")[0]
     assert "Family (primary)" in picker and "Shared &lt;b&gt;" in picker and "UK holidays" not in picker
 
-    r = await admin_client.post("/admin/school-email/calendar", data={"calendar_id": "holidays"})
-    assert r.headers["location"] == "/admin?tab=school&error=school-calendar#school-email"
+    for refused in ("1:holidays", "2:shared", "shared"):  # read-only / another account / no account
+        r = await admin_client.post("/admin/school-email/calendar", data={"calendar_id": refused})
+        assert r.headers["location"] == "/admin?tab=school&error=school-calendar#school-email"
     assert await school_events.get_target_calendar(db) is None
-    r = await admin_client.post("/admin/school-email/calendar", data={"calendar_id": "shared"})
+    r = await admin_client.post("/admin/school-email/calendar", data={"calendar_id": "1:shared"})
     assert r.headers["location"] == "/admin?tab=school#school-email"
-    assert await school_events.get_target_calendar(db) == {"id": "shared", "summary": "Shared <b>"}
+    assert await school_events.get_target_calendar(db) == {"account": 1, "id": "shared", "summary": "Shared <b>"}
     await admin_client.post("/admin/school-email/calendar", data={"calendar_id": ""})
     assert await school_events.get_target_calendar(db) is None
 
@@ -1459,7 +1468,7 @@ async def test_a_retry_after_a_crash_uses_the_first_calendar(db, school_calendar
     await db.commit()
     await imports.fail_interrupted(db)
     # ...then the School events calendar was changed before approving again.
-    await school_events.set_target_calendar(db, {"id": "other-calendar", "summary": "Other"})
+    await school_events.set_target_calendar(db, {"account": 1, "id": "other-calendar", "summary": "Other"})
     insert = google.post(url__regex=EVENTS_URL.pattern).respond(409, json={"error": {"code": 409}})
     await school_events.approve_event(db, candidate_id, _form())
     assert insert.call_count == 1
@@ -1472,7 +1481,7 @@ async def test_a_definite_refusal_frees_the_calendar_choice(db, school_calendar,
     with pytest.raises(imports.CandidateError):
         await school_events.approve_event(db, candidate_id, _form())
     assert (await _candidate(db, candidate_id))["claim_calendar_id"] is None
-    await school_events.set_target_calendar(db, {"id": "other-calendar", "summary": "Other"})
+    await school_events.set_target_calendar(db, {"account": 1, "id": "other-calendar", "summary": "Other"})
     route.respond(200, json={"id": "e2"})
     await school_events.approve_event(db, candidate_id, _form())
     assert "other-calendar" in str(route.calls[-1].request.url)
@@ -1484,7 +1493,7 @@ async def test_an_uncertain_failure_keeps_the_calendar_choice(db, school_calenda
     with pytest.raises(imports.CandidateError):
         await school_events.approve_event(db, candidate_id, _form())
     assert (await _candidate(db, candidate_id))["claim_calendar_id"] == "family@group.calendar.google.com"
-    await school_events.set_target_calendar(db, {"id": "other-calendar", "summary": "Other"})
+    await school_events.set_target_calendar(db, {"account": 1, "id": "other-calendar", "summary": "Other"})
     route.mock(side_effect=None, return_value=httpx.Response(200, json={"id": "e3"}))
     await school_events.approve_event(db, candidate_id, _form())
     assert "family%40group.calendar.google.com" in str(route.calls[-1].request.url)

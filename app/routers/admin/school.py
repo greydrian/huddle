@@ -10,7 +10,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from starlette.datastructures import UploadFile as StarletteUploadFile
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app import bank_holidays, google_oauth, school_email
+from app import bank_holidays, google_accounts, google_oauth, school_email
 from app.admin_tabs import admin_url
 from app.auth import require_admin
 from app.database import get_db
@@ -25,8 +25,12 @@ router = APIRouter(prefix="/admin")
 
 @tab_context("school")
 async def school_context(db, base: dict, extra: dict) -> dict:
-    lists = await common.google_lists(db, base["google_account"], tasklists=False)  # calendars only
+    # School events go to a calendar in the account doing Writing events (stage 1: one).
+    writer = await google_accounts.job_account(db, "write_events")
+    lists = await common.google_lists(db, [writer] if writer else [], tasklists=False)
     return {
+        "writer_account": writer,
+        "removed_notice_school": (await google_accounts.removed_notice(db)).get("school_events"),
         "inbox": await imports.get_inbox(db),
         "inbox_form": extra.get("inbox_form"),
         "inbox_error": extra.get("inbox_error"),
@@ -103,10 +107,11 @@ async def _event_setup(db) -> dict:
     """Whether event candidates can be approved (a calendar picked, the
     calendar.events scope granted); _inbox_source.html needs it both from
     the Admin page and from its own fragment route."""
+    writer = await google_accounts.job_account(db, "write_events")
     return {
         "calendar": await school_events.get_target_calendar(db),
         "scope": await google_oauth.has_scope(db, google_oauth.CALENDAR_EVENTS_SCOPE),
-        "connected": await google_oauth.get_connected_account(db) is not None,
+        "connected": bool(writer and writer["connected"]),
     }
 
 
@@ -475,16 +480,22 @@ async def save_school_events_calendar(calendar_id: str = Form("")):
         if not calendar_id:
             await school_events.set_target_calendar(db, None)
             return RedirectResponse(url=admin_url("school-email"), status_code=303)
-        try:
-            access_token = await google_oauth.get_valid_access_token(db)
-            # Re-derive the name and access from Google rather than trusting the form.
-            available = await google_oauth.fetch_calendar_list(access_token) if access_token else []
-        except httpx.HTTPError:
-            available = []
-        match = next((c for c in available if c["id"] == calendar_id and c["writable"]), None)
-        if match is None:
+        # A calendar key ("<account>:<calendar id>") in the account doing Writing events.
+        split = google_oauth.split_calendar_key(calendar_id)
+        writer = await google_accounts.job_account(db, "write_events")
+        available = []
+        if split and writer and split[0] == writer["id"]:
+            try:
+                access_token = await google_oauth.get_valid_access_token(db, writer["id"])
+                # Re-derive the name and access from Google rather than trusting the form.
+                available = await google_oauth.fetch_calendar_list(access_token) if access_token else []
+            except httpx.HTTPError:
+                available = []
+        match = next((c for c in available if split and c["id"] == split[1] and c["writable"]), None)
+        if match is None or writer is None:
             return admin_error("school-calendar")
-        await school_events.set_target_calendar(db, match)
+        await school_events.set_target_calendar(db, {**match, "account": writer["id"]})
+        await google_accounts.clear_removed_notice(db, "school_events")
     return RedirectResponse(url=admin_url("school-email"), status_code=303)
 
 

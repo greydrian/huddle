@@ -25,13 +25,14 @@ in `startup_checks`, which runs after the migrations.
 """
 
 import asyncio
+import json
 import logging
 import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from app import database
+from app import database, security
 
 logger = logging.getLogger(__name__)
 
@@ -782,6 +783,99 @@ async def m0012_meal_favourites(db):
     )
 
 
+# Frozen for migration 13: each job and the Google scope it needs, in the order
+# the jobs are listed (google_accounts.JOBS at the time), and what a grant stored
+# before the `scope` field was kept is assumed to cover.
+M0013_JOB_SCOPES = (
+    ("calendars", "https://www.googleapis.com/auth/calendar.readonly"),
+    ("tasks", "https://www.googleapis.com/auth/tasks"),
+    ("school_email", "https://www.googleapis.com/auth/gmail.readonly"),
+    ("write_events", "https://www.googleapis.com/auth/calendar.events"),
+)
+M0013_LEGACY_SCOPES = frozenset(
+    ("https://www.googleapis.com/auth/calendar.readonly", "https://www.googleapis.com/auth/tasks")
+)
+# Settings that name one calendar or list ({"id", ...}): each gains "account".
+M0013_ONE_CALENDAR_SETTINGS = ("calendar_family", "school_events_calendar", "google_shopping_tasklist")
+
+
+def _m13_json(raw):
+    try:
+        return json.loads(raw) if raw else None
+    except ValueError:
+        return None
+
+
+async def _m13_set(db, key: str, value) -> None:
+    await db.execute(
+        "INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        (key, json.dumps(value)),
+    )
+
+
+async def m0013_google_accounts(db):
+    """Spec 12: any number of Google accounts, each with an owner and its own
+    jobs. The one existing connection becomes account 1: owner Family, every
+    job whose scope it granted, the same token. Every setting that names a
+    calendar or list gains account 1, so the wall looks the same. The old
+    auth_tokens 'google' row is copied, not moved, so the previous release
+    still finds a working connection after a rollback (a later migration
+    deletes it); for the same reason calendar_people keeps its old keys next
+    to the new "1:<calendar id>" ones. The google_photos row is untouched."""
+    await db.execute(
+        """CREATE TABLE IF NOT EXISTS google_accounts (
+               id INTEGER PRIMARY KEY AUTOINCREMENT,   -- never reused: settings and cache rows name it
+               email TEXT UNIQUE COLLATE NOCASE,
+               owner_profile_id INTEGER REFERENCES profiles(id) ON DELETE SET NULL,  -- NULL = Family
+               jobs TEXT NOT NULL DEFAULT '',          -- space-separated google_accounts.JOBS keys
+               encrypted_token_json TEXT,              -- NULL: sign-in revoked or expired, Reconnect needed
+               check_state TEXT,                       -- 'ok' / 'offline' / NULL (not checked yet)
+               offline_since TEXT,                     -- ISO, UTC: when this outage's first check failed
+               created_at TEXT NOT NULL DEFAULT (datetime('now'))
+           )"""
+    )
+    await database._add_column_if_missing(
+        db, "profiles", "google_account_id", "INTEGER REFERENCES google_accounts(id) ON DELETE SET NULL"
+    )
+    if await (await db.execute("SELECT 1 FROM google_accounts LIMIT 1")).fetchone():
+        return
+    row = await (
+        await db.execute("SELECT account_email, encrypted_token_json FROM auth_tokens WHERE service_name = 'google'")
+    ).fetchone()
+    if row is None or not row["encrypted_token_json"]:
+        return
+
+    tokens = security.decrypt_token_json(row["encrypted_token_json"])
+    scope = tokens.get("scope") if isinstance(tokens, dict) else None
+    granted = frozenset(scope.split()) if isinstance(scope, str) and scope.strip() else M0013_LEGACY_SCOPES
+    jobs = [job for job, job_scope in M0013_JOB_SCOPES if job_scope in granted]
+    if "write_events" in jobs and "calendars" not in jobs:
+        jobs.insert(0, "calendars")  # Huddle only writes to a calendar it shows
+    await db.execute(
+        "INSERT INTO google_accounts (id, email, jobs, encrypted_token_json) VALUES (1, ?, ?, ?)",
+        (row["account_email"], " ".join(jobs), row["encrypted_token_json"]),
+    )
+    await db.execute("UPDATE profiles SET google_account_id = 1 WHERE google_tasklist_id IS NOT NULL")
+
+    settings = {
+        r["key"]: r["value"] for r in await (await db.execute("SELECT key, value FROM app_settings")).fetchall()
+    }
+    selected = _m13_json(settings.get("google_selected_calendars"))
+    if isinstance(selected, list):
+        await _m13_set(
+            db,
+            "google_selected_calendars",
+            [{**cal, "account": 1} if isinstance(cal, dict) else cal for cal in selected],
+        )
+    people = _m13_json(settings.get("calendar_people"))
+    if isinstance(people, dict):
+        await _m13_set(db, "calendar_people", {**people, **{f"1:{cal}": owner for cal, owner in people.items()}})
+    for key in M0013_ONE_CALENDAR_SETTINGS:
+        value = _m13_json(settings.get(key))
+        if isinstance(value, dict) and value.get("id"):
+            await _m13_set(db, key, {**value, "account": 1})
+
+
 # Append only: see the module docstring.
 MIGRATIONS: list[Migration] = [
     Migration(1, "baseline", m0001_baseline),
@@ -796,6 +890,7 @@ MIGRATIONS: list[Migration] = [
     Migration(10, "schools", m0010_schools),
     Migration(11, "shopping_categories", m0011_shopping_categories),
     Migration(12, "meal_favourites", m0012_meal_favourites),
+    Migration(13, "google_accounts", m0013_google_accounts),
 ]
 
 

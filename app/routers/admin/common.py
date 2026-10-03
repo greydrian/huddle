@@ -12,7 +12,7 @@ from typing import Any
 import httpx
 from fastapi.responses import RedirectResponse
 
-from app import google_oauth, google_tasks, school_email
+from app import google_accounts, google_oauth, google_tasks, school_email
 from app.admin_tabs import admin_url
 from app.database import family_timezone, family_today
 from app.services import banners, countdowns, extraction, schools, term_dates
@@ -123,8 +123,8 @@ ADMIN_ERRORS = {
     "import-event": ("inbox", "Pick the calendar school events go to (School email panel), then approve it."),
     "import-calendar-scope": (
         "inbox",
-        "Reconnect to allow adding to your calendar: Disconnect, then Connect "
-        "Google Account. The event is still waiting here.",
+        "To add it to the calendar, the calendar's Google account needs Writing events: tick it, or "
+        "Reconnect the account, under Google & Sync → Google accounts. The event is still waiting here.",
     ),
     "import-calendar-offline": (
         "inbox",
@@ -151,6 +151,22 @@ ADMIN_ERRORS = {
         "Pick a calendar that's shown on the wall and that this Google account can add events to. Nothing was changed.",
     ),
     "calendar-view": ("calendar-options", "Pick Month, Week or Agenda."),
+    "google-owner": ("google", "That family member no longer exists. Pick the account's owner again."),
+    "google-jobs": ("google", "Tick at least one job for the account."),
+    "google-job-taken": (
+        "google",
+        "Tasks & shopping, School email and Writing events can each be done by one account for now "
+        "(doing them in several accounts is coming). Untick it on the other account first.",
+    ),
+    "google-job-parent": ("google", "School email is only for a parent's account or a Family account."),
+    "google-missing": ("google", "That Google account is no longer connected. It may have just been removed."),
+    "google-denied": (
+        "google",
+        "Google didn't connect the account: it was cancelled, or refused (a school or work account's "
+        "administrator can block unverified apps; sharing its calendars into a connected account works instead).",
+    ),
+    "google-signin": ("google", "Signing in to Google didn't finish. Try again."),
+    "google-wrong-account": ("google", "That's a different account. Use Add account for it."),
     "import-busy": ("inbox", "That's still being read. Try again in a moment."),
     "import-pdf-pages": (
         "classroom",
@@ -222,7 +238,7 @@ def form_error(code: str | None) -> dict | None:
 
 # Each tab module registers the loader for its tab's template context:
 # async (db, base, extra) -> dict, where `base` is what every tab gets
-# (profiles, google_account, ...) and `extra` the *_form / *_error kwargs of
+# (profiles, google_accounts, ...) and `extra` the *_form / *_error kwargs of
 # render_admin after a failed save. Only the requested tab's loader runs.
 TabContext = Callable[[Any, dict, dict], Awaitable[dict]]
 TAB_CONTEXT: dict[str, TabContext] = {}
@@ -236,39 +252,68 @@ def tab_context(tab: str) -> Callable[[TabContext], TabContext]:
     return register
 
 
-async def google_lists(db, google_account: str | None, tasklists: bool = True) -> dict:
-    """The Google account's calendars and task lists, for the Google & Sync
-    tab (the School tab's calendar picker skips the task lists). Never raises on a Google
-    error: google_offline / tasklists_error say what went wrong."""
+async def google_lists(db, accounts: list[dict], tasklists: bool = True) -> dict:
+    """Every Calendars account's calendars (calendar_groups: one per account,
+    with "error" "reconnect"/"offline" when its list couldn't be read;
+    available_calendars: all of them, each with its "account" and "key") and
+    the task lists of the account doing Tasks & shopping, for the Google &
+    Sync tab (the School tab's calendar picker skips the task lists). Never
+    raises on a Google error: google_offline (tasklists_offline) / tasklists_error say what went
+    wrong."""
     found: dict = {
+        "calendar_groups": [],
         "available_calendars": [],
         "available_tasklists": [],
+        "tasks_account": next((a for a in accounts if "tasks" in a["jobs"]), None),
         "tasklists_error": False,
         "google_offline": False,
+        "tasklists_offline": False,
     }
-    if not google_account:
+    tokens: dict[int, str | None] = {}
+
+    async def token(account: dict) -> str | None:
+        """None: not connected; raises httpx.HTTPError when offline."""
+        if account["id"] not in tokens:
+            tokens[account["id"]] = (
+                await google_oauth.get_valid_access_token(db, account["id"]) if account["connected"] else None
+            )
+        return tokens[account["id"]]
+
+    for account in accounts:
+        if "calendars" not in account["jobs"]:
+            continue
+        group: dict = {"account": account, "calendars": [], "error": None}
+        found["calendar_groups"].append(group)
+        try:
+            access_token = await token(account)
+            if not access_token:
+                group["error"] = "reconnect"
+                continue
+            calendars = await google_oauth.fetch_calendar_list(access_token)
+        except httpx.HTTPError as exc:
+            group["error"], found["google_offline"] = "offline", True
+            if isinstance(exc, httpx.TransportError):
+                await google_accounts.note_check(db, account["id"], ok=False)
+                if account["state"] == google_accounts.CONNECTED:  # shown on this very page
+                    account.update(state=google_accounts.OFFLINE, state_label=google_accounts.STATE_LABELS["offline"])
+            continue
+        for cal in calendars:
+            cal.update(account=account["id"], key=google_oauth.calendar_key(account["id"], cal["id"]))
+        group["calendars"] = calendars
+        found["available_calendars"].extend(calendars)
+
+    account = found["tasks_account"]
+    if not tasklists or account is None:
         return found
     try:
-        access_token = await google_oauth.get_valid_access_token(db)
-    except httpx.HTTPError:
-        access_token, found["google_offline"] = None, True
-    if not access_token:
-        return found
-    try:
-        found["available_calendars"] = await google_oauth.fetch_calendar_list(access_token)
-    except httpx.HTTPError:
-        found["google_offline"] = True
-    if not tasklists:
-        return found
-    try:
-        found["available_tasklists"] = await google_tasks.fetch_tasklists(access_token)
+        access_token = await token(account)
+        found["available_tasklists"] = await google_tasks.fetch_tasklists(access_token) if access_token else []
     except httpx.HTTPStatusError as exc:
-        # 403 = this account connected before the `tasks` scope
-        # existed — settings.html shows a reconnect prompt.
+        # 403 = the account hasn't allowed Google Tasks: the tab shows a reconnect prompt.
         if exc.response.status_code == 403:
             found["tasklists_error"] = True
         else:
-            found["google_offline"] = True
+            found["google_offline"] = found["tasklists_offline"] = True
     except httpx.HTTPError:
-        found["google_offline"] = True
+        found["google_offline"] = found["tasklists_offline"] = True
     return found

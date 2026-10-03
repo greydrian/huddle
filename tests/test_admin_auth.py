@@ -250,7 +250,7 @@ async def test_migration_flags_an_existing_db_by_its_stored_hash(db, stored_pin,
     assert await _pin_is_default(db) != expected
 
 
-@pytest.mark.parametrize("path", ["/admin", "/admin/google/connect"])
+@pytest.mark.parametrize("path", ["/admin", "/admin/google/accounts/1/reconnect"])
 async def test_default_pin_login_is_sent_to_choose_a_new_pin(client, db, path):
     await _set_default_flag(db, "1")
     assert (await _login(client, DEFAULT_PIN)).status_code == 303

@@ -26,7 +26,7 @@ from datetime import datetime, timedelta, timezone
 
 import httpx
 
-from app import google_oauth
+from app import google_accounts, google_oauth
 from app.database import family_timezone
 
 # Consecutive cycles (one a minute) of the same 401/403 before it stops being
@@ -234,15 +234,18 @@ def _describe(state: str, row, failing_for: str | None, stalled_for: str | None)
     if state == "disconnected":
         return (
             "Google disconnected",
-            "Google ended the connection (access was revoked or expired). Reconnect under Google Account; "
-            "changes made here are kept and will sync once it's reconnected.",
+            "Google ended the connection (access was revoked or expired). Reconnect the account under "
+            "Google accounts; changes made here are kept and will sync once it's reconnected.",
         )
     if state == "unlinked":
-        return "Google not connected", "Connect a Google account under Google Account to sync tasks and shopping."
+        return (
+            "Google not connected",
+            "Tick Tasks & shopping on an account under Google accounts to sync tasks and shopping.",
+        )
     if state == "attention":
         return (
             "Needs attention",
-            "Google refused access — reconnect in Admin (Disconnect, then Connect Google Account). "
+            "Google refused access — Reconnect the account doing Tasks & shopping under Google accounts. "
             "Changes made here are kept and will sync once it's reconnected.",
         )
     if state == "failing":
@@ -271,11 +274,13 @@ async def summary(db, now: datetime | None = None) -> dict:
     tick on the dashboard, not up to a minute later."""
     now = now or _now()
     row = await _row(db)
-    connected = await google_oauth.get_connected_account(db) is not None
+    accounts = await google_accounts.list_accounts(db)
+    tasks_account = next((a for a in accounts if "tasks" in a["jobs"]), None)
+    connected = bool(tasks_account and tasks_account["connected"])
     last_cycle = _parse(row["last_cycle_at"])
     failing_since = _parse(row["failing_since"])
 
-    if not google_oauth.is_configured() and not connected:
+    if not google_oauth.is_configured() and not accounts:
         state = "off"
     elif not connected:
         # A cycle recorded since the last reset() means an account was
@@ -304,11 +309,18 @@ async def summary(db, now: datetime | None = None) -> dict:
     tz = await family_timezone(db)
     last_success = _parse(row["last_success_at"])
     last_failure = _parse(row["last_failure_at"])
+    dot = {"state": state, "level": LEVELS[state], "headline": headline, "detail": detail}
+    account_dot = _account_dot(accounts, now)
+    if account_dot and _LEVEL_ORDER[account_dot["level"]] > _LEVEL_ORDER[dot["level"]]:
+        dot = account_dot
     return {
         "state": state,
         "level": LEVELS[state],
         "headline": headline,
         "detail": detail,
+        # The top-bar dot: this, or the worst Google account's state when that's worse (spec 12.4).
+        "dot": dot,
+        "accounts": [{"id": a["id"], "state": a["state"]} for a in accounts],
         "connected": connected,
         "queue_depth": await _queue_depth(db),
         "consecutive_failures": row["consecutive_failures"],
@@ -337,4 +349,46 @@ def health_summary(s: dict) -> dict:
         "last_error": s["last_error"],
         "last_success_at": iso(s["last_success_at"]),
         "last_failure_at": iso(s["last_failure_at"]),
+        # Each Google account by its row number, never its address.
+        "accounts": s["accounts"],
     }
+
+
+_LEVEL_ORDER = {None: 0, "amber": 1, "red": 2}
+
+
+def _account_dot(accounts: list[dict], now: datetime) -> dict | None:
+    """The dot for the worst Google account, or None while they're all fine.
+    Offline only counts once it has lasted FAILING_AFTER, like sync: a blip
+    shouldn't light the wall up."""
+    states = {a["state"] for a in accounts}
+    if google_accounts.RECONNECT in states:
+        return {
+            "state": "account-reconnect",
+            "level": "red",
+            "headline": "Reconnect Google",
+            "detail": "A Google account's sign-in was revoked or expired. Reconnect it under Google & Sync → "
+            "Google accounts; everything linked to it is kept.",
+        }
+    if google_accounts.PERMISSION in states:
+        return {
+            "state": "account-permission",
+            "level": "red",
+            "headline": "Google needs a permission",
+            "detail": "A Google account does a job it hasn't allowed. Reconnect it under Google & Sync → "
+            "Google accounts and allow every permission.",
+        }
+    offline_since = [
+        since
+        for a in accounts
+        if a["state"] == google_accounts.OFFLINE and (since := _parse(a["offline_since"])) is not None
+    ]
+    if offline_since and now - min(offline_since) >= FAILING_AFTER:
+        return {
+            "state": "account-offline",
+            "level": "amber",
+            "headline": "Google offline",
+            "detail": f"Can't reach Google for a connected account for {_duration(min(offline_since), now)}; "
+            "its calendars show their last saved copy.",
+        }
+    return None

@@ -56,7 +56,7 @@ from datetime import time as dtime
 
 import httpx
 
-from app import google_gmail, google_oauth, http_client, sync_status
+from app import google_accounts, google_gmail, google_oauth, http_client, sync_status
 from app.database import family_timezone, get_db, get_setting, set_setting
 from app.services import extraction, imports
 
@@ -678,7 +678,8 @@ async def _check(db, now: datetime) -> CheckResult:
     if not senders:
         return CheckResult("no_senders")
     exclusions = await get_exclusions(db)
-    access_token, offline = await google_oauth.connect(db)
+    # The account doing School email (stage 1 of spec 12: one at a time).
+    access_token, offline = await google_oauth.connect_job(db, "school_email")
     if offline:
         return CheckResult("offline")
     if not access_token:
@@ -852,13 +853,15 @@ async def summary(db, now: datetime | None = None) -> dict:
     text = RESULT_TEXT.get(result or "", result)
     if result == CAPPED:
         text = f"Capped at {MAX_MESSAGES_PER_RUN} emails: {remaining} remaining, continuing next check"
+    account = await google_accounts.job_account(db, "school_email")
     return {
         "schedule": schedule,
         "schedules": SCHEDULES,
         "senders": await get_senders(db),
         "exclusions": await get_exclusions(db),
         "always_excluded": ALWAYS_EXCLUDED,
-        "connected": await google_oauth.get_connected_account(db) is not None,
+        "connected": bool(account and account["connected"]),
+        "account": account,
         "gmail_scope": await google_oauth.has_scope(db, google_oauth.GMAIL_READ_SCOPE),
         "events_scope": await google_oauth.has_scope(db, google_oauth.CALENDAR_EVENTS_SCOPE),
         "last_check_at": last.astimezone(tz) if last else None,

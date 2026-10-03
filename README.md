@@ -424,13 +424,19 @@ sync), and for the school email import `gmail.readonly` and
 `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`. `.env` is gitignored, so never
 commit real credentials. Then restart the app.
 
-**3. Connect the account:** go to Admin → Google Account → **Connect Google
-Account**, sign in and approve. Then pick which calendars to show, the
-shopping list's Google Tasks list, and each family member's Tasks list.
-Tokens are encrypted at rest in the `auth_tokens` table, keyed off the local
-secret file in `DATA_DIR` that also signs admin sessions. **Disconnect** in
-the same panel revokes and clears them. If the scopes ever change,
-disconnect and reconnect.
+**3. Connect the accounts:** go to Admin → Google & Sync → **Google accounts**
+→ **Add account**, pick whose account it is (a family member, or Family for a
+shared one) and tick its jobs (Calendars, Tasks & shopping, School email,
+Writing events), then **Continue to Google**, sign in and approve. Google is
+asked only for what those jobs need. Add as many accounts as the family's
+calendars live in (spec 12); for now Tasks & shopping, School email and
+Writing events are each done by one account. Then pick which calendars to
+show (grouped by account), the shopping list's Google Tasks list, and each
+family member's Tasks list. Each account's tokens are encrypted at rest in the
+`google_accounts` table, keyed off the local secret file in `DATA_DIR` that
+also signs admin sessions. **Reconnect** renews an account's sign-in (or asks
+for a newly ticked job's permission) and keeps everything linked to it;
+**Remove** shows what will change, then revokes and deletes it.
 
 ## Photos for the idle screen
 
@@ -505,11 +511,11 @@ Setup, once:
    isn't enabled".
 3. **Add `ANTHROPIC_API_KEY`** to `.env` (a key from console.anthropic.com),
    then `docker compose -f docker-compose.yml up -d`. Optional: `ANTHROPIC_MODEL`.
-4. **Reconnect Google in Admin**: Google Account → **Disconnect**, then
-   **Connect Google Account**, and approve the new Gmail and calendar
-   permissions. Until then Calendar and Tasks keep working as before, and
-   the School email panel says "Reconnect Google to enable school email
-   import".
+4. **Tick School email (and Writing events) in Admin**: Google & Sync →
+   Google accounts → **Edit** on the account the school writes to, tick the
+   jobs and approve the new permissions on Google's screen. Until then
+   Calendar and Tasks keep working as before, and the School email panel says
+   what's missing.
 5. In Admin → School → **Schools**, check each school's senders (Gresham's
    defaults: `office@greshamprimary.school` and `*@gresham.croydon.sch.uk`).
    Then in **School email** pick **School events go to calendar**, and press

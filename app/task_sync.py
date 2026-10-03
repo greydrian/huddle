@@ -23,7 +23,7 @@ from datetime import date, datetime, timezone
 
 import httpx
 
-from app import google_oauth, google_tasks, http_client, sync_status
+from app import google_accounts, google_oauth, google_tasks, http_client, sync_status
 from app.database import family_today, get_setting, set_setting
 
 SHOPPING_TASKLIST_SETTING = "google_shopping_tasklist"
@@ -81,7 +81,14 @@ async def get_shopping_tasklist(db) -> dict | None:
 
 
 async def set_shopping_tasklist(db, tasklist: dict):
+    """{"account", "id", "title"}: the list and the Google account it's in."""
     await set_setting(db, SHOPPING_TASKLIST_SETTING, json.dumps(tasklist))
+    await db.commit()
+
+
+async def clear_shopping_tasklist(db):
+    """Unlinks the shopping list (its items stay, on this display only)."""
+    await db.execute("DELETE FROM app_settings WHERE key = ?", (SHOPPING_TASKLIST_SETTING,))
     await db.commit()
 
 
@@ -420,8 +427,12 @@ async def _rollback(db):
 async def _run_cycle(db):
     """Never raises (short of cancellation): the scheduler job and Admin's
     "Sync now" both just want the cycle done and its outcome recorded."""
+    account = None
     try:
-        access_token = await google_oauth.get_valid_access_token(db)
+        # Stage 1 of spec 12: one account does Tasks & shopping, and every
+        # linked list is in it (moving the job away unlinks them: services/accounts).
+        account = await google_accounts.job_account(db, "tasks")
+        access_token = await google_oauth.get_valid_access_token(db, account["id"]) if account else None
         if access_token:
             await push_pending_changes(db, access_token)
 
@@ -443,6 +454,8 @@ async def _run_cycle(db):
             http_client.describe(cause),
         )
         await _rollback(db)
+        if account and sync_status.error_code(cause) == "offline":
+            await _record_status(google_accounts.note_check, db, account["id"], False)
         if await _record_status(sync_status.record_failure, db, cause):
             # The same 401/403 for ATTENTION_AFTER cycles: not a blip any
             # more. Still never drops queue rows — they push once reconnected.
@@ -477,4 +490,6 @@ async def _run_cycle(db):
         http_client.report_success(logger, SYNC_OUTAGE_KEY)
         http_client.report_success(logger, SYNC_ATTENTION_KEY)
         http_client.report_success(logger, SYNC_ERROR_KEY)
+        if account:
+            await _record_status(google_accounts.note_check, db, account["id"], True)
         await _record_status(sync_status.record_success, db)

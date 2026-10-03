@@ -78,7 +78,7 @@
     {% elif c.kind == 'event' %}
     <p class="inbox-event"><strong>{{ p.title }}</strong> · {{ p.date }}{% if p.start_time %} · {{ p.start_time }}{% if p.end_time %}–{{ p.end_time }}{% endif %}{% endif %}</p>
     {% if p.notes %}<p class="admin-meta">{{ p.notes }}</p>{% endif %}
-    <p class="admin-hint">{% if not event_setup.connected %}Connect a Google account to add school events to your calendar.{% elif not event_setup.scope %}Reconnect to allow adding to your calendar (Google Account: Disconnect, then Connect).{% else %}Pick the calendar school events go to in the School email panel to add this to it.{% endif %}</p>
+    <p class="admin-hint">{% if not event_setup.connected %}Connect a Google account with Writing events to add school events to your calendar.{% elif not event_setup.scope %}Tick Writing events on the calendar's Google account, or Reconnect it (Google &amp; Sync → Google accounts), to add this to your calendar.{% else %}Pick the calendar school events go to in the School email panel to add this to it.{% endif %}</p>
     <form method="post" action="/admin/inbox/candidates/{{ c.id }}/discard" hx-post="/admin/inbox/candidates/{{ c.id }}/discard">
       <button type="submit" class="btn btn-quiet btn-small">Discard</button>
     </form>

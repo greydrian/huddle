@@ -1,28 +1,22 @@
 """
-Google OAuth (Section 4.2, 9.5 of the spec): single account, standard
-in-browser consent flow, tokens stored locally and encrypted, gated behind
-the admin PIN. Also the generic list-endpoint pager and the Admin calendar
-picker's settings.
+Google OAuth (spec 9.5, 12): one OAuth client for any number of Google
+accounts (app/google_accounts.py), the standard in-browser consent flow,
+each account's tokens stored locally and encrypted, gated behind the admin
+PIN. Also the generic list-endpoint pager and the Admin calendar picker's
+settings.
 
 Talks to Google's REST endpoints directly via httpx rather than pulling in
 google-api-python-client — the APIs are plain JSON over HTTPS and this
 matches the project's minimal-dependency approach. The Calendar reads
 (app/google_calendar.py) and Tasks client (app/google_tasks.py) share this
-module's OAuth plumbing — get_valid_access_token() is generic across
-whatever's in SCOPES.
+module's OAuth plumbing.
 
-Scopes: calendar.readonly (the month grid and the calendar picker), the
-full `tasks` scope (read/write — shopping list and per-person task list sync
-push local changes), openid/email for the account label in Admin, and for
-the school email import (app/school_email.py) gmail.readonly plus
-calendar.events (approved school events are added to a calendar; it can't
-read the calendar list, so calendar.readonly stays).
-
-Which scopes the account actually granted is kept with the tokens (the
-token response's `scope` field) and each feature checks its own scope
-(has_scope): an account connected before a scope was added keeps working
-for everything else and Admin asks for a reconnect. A refresh never asks
-for new scopes, it returns the ones originally granted.
+Each account asks only for the scopes of its ticked jobs (plus openid
+email, for its address); include_granted_scopes keeps what it granted
+before, so ticking a job later only asks for the new one. Which scopes an
+account actually granted is kept with its tokens (the token response's
+`scope` field), and each feature checks the scope of the account doing its
+job (has_scope). A refresh never asks for new scopes.
 """
 
 import json
@@ -32,9 +26,16 @@ import time
 
 import httpx
 
-from app import calendar_cache, http_client
+from app import calendar_cache, google_accounts, http_client
 from app.database import get_setting, set_setting
-from app.security import decrypt_token_json, encrypt_token_json
+from app.google_accounts import (  # noqa: F401 - re-exported: features and tests name them from here
+    CALENDAR_EVENTS_SCOPE,
+    CALENDAR_READ_SCOPE,
+    GMAIL_READ_SCOPE,
+    LEGACY_SCOPES,
+    TASKS_SCOPE,
+    scopes_of,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -51,17 +52,15 @@ CALENDAR_LIST_ENDPOINT = "https://www.googleapis.com/calendar/v3/users/me/calend
 # it's stored per-calendar in the selection setting and inlined on each bar.
 DEFAULT_EVENT_COLOR = "#D6A02C"
 
+# [{"account": account id, "id", "summary", "color", "primary"}]: a calendar
+# is its account and its id together ("primary" is a different calendar in
+# each account). Unset = the oldest calendar account's primary calendar.
 SELECTED_CALENDARS_SETTING = "google_selected_calendars"
-DEFAULT_SELECTED_CALENDARS = [{"id": "primary", "summary": "Calendar", "color": DEFAULT_EVENT_COLOR}]
+DEFAULT_CALENDAR = {"id": "primary", "summary": "Calendar", "color": DEFAULT_EVENT_COLOR}
 
-CALENDAR_READ_SCOPE = "https://www.googleapis.com/auth/calendar.readonly"
-TASKS_SCOPE = "https://www.googleapis.com/auth/tasks"
-GMAIL_READ_SCOPE = "https://www.googleapis.com/auth/gmail.readonly"
-CALENDAR_EVENTS_SCOPE = "https://www.googleapis.com/auth/calendar.events"
-SCOPES = " ".join((CALENDAR_READ_SCOPE, TASKS_SCOPE, GMAIL_READ_SCOPE, CALENDAR_EVENTS_SCOPE, "openid", "email"))
-# What an account connected before the `scope` field was kept is assumed to
-# have: the scopes this app asked for back then.
-LEGACY_SCOPES = frozenset((CALENDAR_READ_SCOPE, TASKS_SCOPE))
+# Every scope Huddle can ask for (an account with all four jobs). Each
+# account is asked only for its own jobs' (build_auth_url).
+SCOPES = google_accounts.scope_request(google_accounts.JOBS)
 TOKEN_REFRESH_BUFFER_SECONDS = 60
 DEFAULT_TOKEN_LIFETIME_SECONDS = 3600  # when a token response omits expires_in
 
@@ -70,16 +69,21 @@ def is_configured() -> bool:
     return bool(GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET)
 
 
-def build_auth_url(state: str, redirect_uri: str) -> str:
+def build_auth_url(state: str, redirect_uri: str, jobs, login_hint: str | None = None) -> str:
+    """Google's consent screen for `jobs`' scopes only. login_hint (an
+    account's address) is for Reconnect."""
     params = {
         "client_id": GOOGLE_CLIENT_ID,
         "redirect_uri": redirect_uri,
         "response_type": "code",
-        "scope": SCOPES,
+        "scope": google_accounts.scope_request(jobs),
         "access_type": "offline",
         "prompt": "consent",  # always return a refresh_token, even on re-auth
+        "include_granted_scopes": "true",
         "state": state,
     }
+    if login_hint:
+        params["login_hint"] = login_hint
     return f"{AUTH_ENDPOINT}?{httpx.QueryParams(params)}"
 
 
@@ -158,7 +162,7 @@ async def get_all_pages(
 
 
 async def fetch_calendar_list(access_token: str) -> list[dict]:
-    """Every calendar the connected account can see, for the Admin picker."""
+    """Every calendar one account can see, for the Admin picker."""
     items = await get_all_pages(CALENDAR_LIST_ENDPOINT, access_token)
     return [
         {
@@ -173,54 +177,77 @@ async def fetch_calendar_list(access_token: str) -> list[dict]:
     ]
 
 
-async def get_selected_calendars(db) -> list[dict]:
+# --- The calendar selection (spec 12.3) ---------------------------------------------------
+
+
+def calendar_key(account_id: int, calendar_id: str) -> str:
+    """One calendar across accounts: "<account id>:<calendar id>"."""
+    return f"{account_id}:{calendar_id}"
+
+
+def split_calendar_key(key: str) -> tuple[int, str] | None:
+    """(account id, calendar id), or None for anything else (e.g. a link
+    saved before accounts existed). Calendar ids may contain colons."""
+    account, sep, calendar_id = key.partition(":")
+    if not sep or not account.isdigit() or not calendar_id:
+        return None
+    return int(account), calendar_id
+
+
+async def get_saved_calendars(db) -> list[dict] | None:
+    """The saved selection as stored (entries with an account), or None if
+    nothing was ever saved."""
     raw = await get_setting(db, SELECTED_CALENDARS_SETTING)
     if not raw:
-        return DEFAULT_SELECTED_CALENDARS
+        return None
     try:
         parsed = json.loads(raw)
-        return parsed or DEFAULT_SELECTED_CALENDARS
     except ValueError, TypeError:
-        return DEFAULT_SELECTED_CALENDARS
+        return None
+    if not isinstance(parsed, list):
+        return None
+    valid = [
+        cal
+        for cal in parsed
+        if isinstance(cal, dict)
+        and isinstance(cal.get("account"), int)
+        and isinstance(cal.get("id"), str)
+        and cal["id"]
+    ]
+    return valid or None
+
+
+async def get_selected_calendars(db) -> list[dict]:
+    """The calendars shown on the wall: the saved ones whose account still
+    does Calendars, each with its "key" (calendar_key). Nothing saved: the
+    oldest calendar account's primary calendar. A calendar shared into two
+    accounts is shown once, through the first."""
+    calendar_accounts = [a["id"] for a in await google_accounts.list_accounts(db) if "calendars" in a["jobs"]]
+    saved = await get_saved_calendars(db)
+    if saved is None:
+        saved = [{**DEFAULT_CALENDAR, "account": calendar_accounts[0]}] if calendar_accounts else []
+    shown: list[dict] = []
+    seen: set[str] = set()
+    for cal in saved:
+        if cal["account"] not in calendar_accounts:
+            continue
+        if cal["id"] != "primary":
+            if cal["id"] in seen:
+                continue
+            seen.add(cal["id"])
+        shown.append({**cal, "key": calendar_key(cal["account"], cal["id"])})
+    return shown
 
 
 async def set_selected_calendars(db, calendars: list[dict]):
-    await set_setting(db, SELECTED_CALENDARS_SETTING, json.dumps(calendars))
+    stored = [{k: v for k, v in cal.items() if k not in ("key", "writable")} for cal in calendars]
+    await set_setting(db, SELECTED_CALENDARS_SETTING, json.dumps(stored))
     # Cached events carry the old selection's calendars and colours.
     await calendar_cache.clear(db)
     await db.commit()
 
 
-async def _load_stored_tokens(db) -> dict | None:
-    cursor = await db.execute("SELECT encrypted_token_json FROM auth_tokens WHERE service_name = 'google'")
-    row = await cursor.fetchone()
-    if row is None or not row["encrypted_token_json"]:
-        return None
-    return decrypt_token_json(row["encrypted_token_json"])
-
-
-async def store_tokens(db, tokens: dict, account_email: str | None = None):
-    encrypted = encrypt_token_json(tokens)
-    if account_email is not None:
-        # A (re)connect — maybe a different account: drop the old one's
-        # cached events. Token refreshes pass no email and keep the cache.
-        await calendar_cache.clear(db)
-    await db.execute(
-        """INSERT INTO auth_tokens (service_name, account_email, encrypted_token_json)
-           VALUES ('google', ?, ?)
-           ON CONFLICT(service_name) DO UPDATE SET
-             account_email = COALESCE(excluded.account_email, auth_tokens.account_email),
-             encrypted_token_json = excluded.encrypted_token_json""",
-        (account_email, encrypted),
-    )
-    await db.commit()
-
-
-async def get_connected_account(db) -> str | None:
-    """Email of the connected Google account, or None if not connected."""
-    cursor = await db.execute("SELECT account_email FROM auth_tokens WHERE service_name = 'google'")
-    row = await cursor.fetchone()
-    return row["account_email"] if row else None
+# --- Tokens, per account ------------------------------------------------------------------
 
 
 def _is_revoked_grant(exc: httpx.HTTPStatusError) -> bool:
@@ -232,14 +259,14 @@ def _is_revoked_grant(exc: httpx.HTTPStatusError) -> bool:
         return False
 
 
-async def get_valid_access_token(db) -> str | None:
-    """A usable access token, refreshing if needed. None means 'not
-    connected' — callers should render the disconnected/stub state.
+async def get_valid_access_token(db, account_id: int) -> str | None:
+    """A usable access token for one account, refreshing if needed. None
+    means that account isn't connected (no token: Reconnect needed).
 
     Raises httpx.HTTPError when Google is temporarily unreachable or
     erroring: that's "offline", not "disconnected", so callers must not
     treat it as a reason to throw away the stored tokens."""
-    tokens = await _load_stored_tokens(db)
+    tokens = await google_accounts.load_tokens(db, account_id)
     if tokens is None:
         return None
 
@@ -256,11 +283,10 @@ async def get_valid_access_token(db) -> str | None:
         if not _is_revoked_grant(exc):
             raise
         # Genuinely revoked/expired (e.g. the 7-day "Testing" consent-screen
-        # expiry) — treat as disconnected; Admin shows "Connect" again.
-        logger.warning("Google refresh token was revoked or expired (invalid_grant); disconnecting")
-        await db.execute("DELETE FROM auth_tokens WHERE service_name = 'google'")
-        await calendar_cache.clear(db)
-        await db.commit()
+        # expiry). Only this account's token goes: its row, links and cached
+        # events stay, and Admin shows Reconnect needed (spec 12.6).
+        logger.warning("Google account %d: sign-in revoked or expired (invalid_grant); reconnect needed", account_id)
+        await google_accounts.drop_token(db, account_id)
         return None
 
     tokens["access_token"] = refreshed["access_token"]
@@ -269,60 +295,72 @@ async def get_valid_access_token(db) -> str | None:
         # Tokens stored before the granted scopes were kept learn them here.
         tokens["scope"] = refreshed["scope"]
     # Google doesn't re-send refresh_token on a refresh call — keep the one we have.
-    await store_tokens(db, tokens)
+    await google_accounts.save_tokens(db, account_id, tokens)
     return tokens["access_token"]
 
 
-def scopes_of(tokens: dict | None) -> frozenset[str]:
-    """The scopes a stored grant covers: the token response's own `scope`
-    (space-separated), else LEGACY_SCOPES for a grant stored before it was
-    kept. Empty when not connected."""
-    if not tokens:
-        return frozenset()
-    scope = tokens.get("scope")
-    if isinstance(scope, str) and scope.strip():
-        return frozenset(scope.split())
-    return LEGACY_SCOPES
-
-
-async def granted_scopes(db) -> frozenset[str]:
-    return scopes_of(await _load_stored_tokens(db))
+async def granted_scopes(db, account_id: int) -> frozenset[str]:
+    return scopes_of(await google_accounts.load_tokens(db, account_id))
 
 
 async def has_scope(db, scope: str) -> bool:
-    """Whether the connected account granted `scope` (False if not connected)."""
-    return scope in await granted_scopes(db)
+    """Whether the account doing `scope`'s job (Writing events for
+    calendar.events, School email for gmail.readonly, ...) granted it.
+    False with no such account."""
+    account = await google_accounts.job_account(db, google_accounts.SCOPE_JOBS[scope])
+    return account is not None and scope in account["scopes"]
 
 
-async def connect(db) -> tuple[str | None, bool]:
-    """(access_token, offline) for widgets that render an offline state.
-    (None, False) = never connected; (None, True) = connected but Google
-    is unreachable right now."""
-    if await _load_stored_tokens(db) is None:
+async def connect(db, account_id: int) -> tuple[str | None, bool]:
+    """(access_token, offline) for one account. (None, False) = not
+    connected (no token); (None, True) = connected but Google is unreachable
+    right now. Records the account's Offline state either way."""
+    if await google_accounts.load_tokens(db, account_id) is None:
         return None, False
+    key = f"Google token refresh (account {account_id})"
     try:
-        token = await get_valid_access_token(db)
+        token = await get_valid_access_token(db, account_id)
     except httpx.HTTPError as exc:
         http_client.report_failure(
             logger,
-            "Google token refresh",
-            "Google token refresh failed; showing offline: %s",
+            key,
+            "Google account %d: token refresh failed; showing offline: %s",
+            account_id,
             http_client.describe(exc),
         )
+        await google_accounts.note_check(db, account_id, ok=False)
         return None, True
-    http_client.report_success(logger, "Google token refresh")
+    http_client.report_success(logger, key)
+    if token:
+        await google_accounts.note_check(db, account_id, ok=True)
     return token, False
 
 
-async def revoke_and_clear(db):
-    tokens = await _load_stored_tokens(db)
-    if tokens and tokens.get("refresh_token"):
-        try:
-            async with http_client.client() as client:
-                await client.post(REVOKE_ENDPOINT, params={"token": tokens["refresh_token"]})
-        except httpx.HTTPError as exc:
-            # Best-effort — still clear the local row either way.
-            logger.warning("Couldn't revoke the Google token: %s", http_client.describe(exc))
-    await db.execute("DELETE FROM auth_tokens WHERE service_name = 'google'")
-    await calendar_cache.clear(db)
-    await db.commit()
+async def connect_job(db, job: str) -> tuple[str | None, bool]:
+    """connect() for the account doing `job`; (None, False) if none does."""
+    account = await google_accounts.job_account(db, job)
+    if account is None:
+        return None, False
+    return await connect(db, account["id"])
+
+
+async def revoke(tokens: dict | None) -> None:
+    """Withdraws a grant with Google. Best-effort: a failure is logged and
+    the caller deletes its copy either way."""
+    token = (tokens or {}).get("refresh_token") or (tokens or {}).get("access_token")
+    if not token:
+        return
+    try:
+        async with http_client.client() as client:
+            await client.post(REVOKE_ENDPOINT, params={"token": token})
+    except httpx.HTTPError as exc:
+        logger.warning("Couldn't revoke the Google token: %s", http_client.describe(exc))
+
+
+async def store_tokens(db, tokens: dict, account_email: str, owner_id: int | None = None) -> int:
+    """Connects an account straight from a token response, with every job
+    its granted scopes allow (exclusive ones only if no other account has
+    them): tests and seed scripts. The OAuth callback goes through Add
+    account / Reconnect (routers/calendar.py)."""
+    jobs = google_accounts.jobs_from_scopes(scopes_of(tokens))
+    return await google_accounts.add_or_merge(db, account_email, tokens, owner_id, jobs)

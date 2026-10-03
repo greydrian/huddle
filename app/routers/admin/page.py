@@ -5,7 +5,7 @@ Route modules call render_admin() to re-show a form with a validation error."""
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse
 
-from app import admin_tabs, appearance, avatars, google_oauth
+from app import admin_tabs, appearance, avatars, google_accounts, google_oauth
 from app.auth import require_admin
 from app.database import get_db
 from app.routers.admin import common
@@ -17,9 +17,15 @@ router = APIRouter(prefix="/admin")
 
 @router.get("", response_class=HTMLResponse, dependencies=[Depends(require_admin)])
 async def admin_home(
-    request: Request, tab: str | None = None, weather_error: str | None = None, error: str | None = None
+    request: Request,
+    tab: str | None = None,
+    weather_error: str | None = None,
+    error: str | None = None,
+    remove: str | None = None,
 ):
-    return await render_admin(request, tab=tab, weather_error=weather_error, error=error)
+    """`remove` (an account id) shows that Google account's Remove confirm step."""
+    google_remove = int(remove) if remove and remove.isdigit() else None
+    return await render_admin(request, tab=tab, weather_error=weather_error, error=error, google_remove=google_remove)
 
 
 def _tab_from_query(request: Request, form_error: dict | None, weather_error: str | None) -> str:
@@ -46,6 +52,7 @@ async def render_admin(
     inbox_error: str | None = None,
     term_form: dict | None = None,
     error_message: str | None = None,
+    google_remove: int | None = None,
     status_code: int = 200,
 ):
     """Renders one Admin tab (app/admin_tabs.py), loading only what that
@@ -70,6 +77,7 @@ async def render_admin(
         "inbox_form": inbox_form,
         "inbox_error": inbox_error,
         "term_form": term_form,
+        "google_remove": google_remove,
     }
     context: dict = {
         "admin_tab": tab,
@@ -87,7 +95,7 @@ async def render_admin(
         ]
         context["curated_emoji"] = avatars.CURATED_EMOJI
         context["avatar_kinds"] = avatars.KIND_LABELS
-        context["google_account"] = await google_oauth.get_connected_account(db)
+        context["google_accounts"] = await google_accounts.list_accounts(db)
         context["google_configured"] = google_oauth.is_configured()
         context["inbox_configured"] = extraction.is_configured()
         context.update(await common.TAB_CONTEXT[tab](db, context, extra))

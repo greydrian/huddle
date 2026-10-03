@@ -1183,7 +1183,7 @@ html:has(.admin-shell), html:has(.admin-shell) body { height: auto; overflow-y: 
 .admin-submit { margin-top: 4px; }
 .admin-footnote { margin-top: 14px; }
 
-/* Google Account panel: calendar picker and Task Sync list pickers. */
+/* Google & Sync tab: calendar picker and Task Sync list pickers. */
 .calendar-picker { margin-top: 12px; }
 .calendar-picker .btn { margin-top: 8px; }
 .calendar-swatch {
@@ -1193,6 +1193,29 @@ html:has(.admin-shell), html:has(.admin-shell) body { height: auto; overflow-y: 
 .shopping-list-picker { margin-bottom: 16px; }
 .tasklist-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
 .tasklist-person { min-width: 130px; }
+
+/* Google accounts panel (spec 12.2, tabs/google.html): one row per account
+   with its owner pill, a chip per job (dashed when Google hasn't allowed
+   it) and its state; Edit / Add account open below the row. */
+.google-account { flex-wrap: wrap; align-items: flex-start; }
+.google-account-main { flex: 1 1 260px; min-width: 0; }
+.google-account-email { overflow-wrap: anywhere; }
+.google-account-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; }
+.google-account-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.account-chip {
+  padding: 2px 10px; border-radius: 999px; border: 1.5px solid var(--line);
+  background: var(--sunken); font-size: 0.85rem; font-weight: 600;
+}
+.account-chip.is-missing { border-style: dashed; color: var(--ink-soft); }
+.account-state { padding: 2px 10px; border-radius: 999px; font-size: 0.85rem; font-weight: 700; background: var(--accent-soft); }
+.account-state-offline { background: var(--sunken); color: var(--ink-soft); }
+.account-state-reconnect, .account-state-permission { background: var(--danger); color: var(--on-accent); }
+.google-account-form { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
+.google-account-form .btn { align-self: flex-start; }
+.google-account-add { margin-top: 14px; }
+.google-account-remove ul { margin: 6px 0; padding-left: 1.2em; }
+.calendar-group { border: none; padding: 0; margin: 10px 0 0; }
+.calendar-group legend { font-weight: 700; padding: 0; overflow-wrap: anywhere; }
 
 /* Admin → Sync panel (admin/_sync_panel.html): state pill beside the
    heading (pill styles are with the top-bar .sync-dot), then a compact

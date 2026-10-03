@@ -8,8 +8,9 @@ import time
 
 import httpx
 
-from app import google_calendar, google_oauth, task_sync
+from app import google_accounts, google_calendar, google_oauth, task_sync
 from app.main import RedactOAuthQuery
+from app.services import accounts
 
 TASKS_API = "https://tasks.googleapis.com/tasks/v1/lists"
 EVENTS_URL_PATTERN = r"https://www\.googleapis\.com/calendar/v3/calendars/.+/events"
@@ -48,7 +49,7 @@ async def test_an_outage_warns_once_and_logs_recovery_once(db, connected, google
 
 async def test_failure_logs_never_contain_tokens(db, google, caplog):
     await google_oauth.store_tokens(
-        db, {"access_token": ACCESS, "refresh_token": REFRESH, "expires_at": time.time() - 10}
+        db, {"access_token": ACCESS, "refresh_token": REFRESH, "expires_at": time.time() - 10}, "f@example.com"
     )
     google.post(google_oauth.TOKEN_ENDPOINT).respond(500, json={"error": "backend", "refresh_token": REFRESH})
     google.post(url__startswith=google_oauth.REVOKE_ENDPOINT).respond(400, json={"error": "invalid_token"})
@@ -58,11 +59,11 @@ async def test_failure_logs_never_contain_tokens(db, google, caplog):
         assert (await google_calendar.get_month_grid(db, 2026, 8))["offline"] is True  # refresh 500
         await task_sync.run_sync(db)  # refresh 500 again, via sync
 
-        await google_oauth.store_tokens(
-            db, {"access_token": ACCESS, "refresh_token": REFRESH, "expires_at": time.time() + 3600}
+        await google_accounts.save_tokens(
+            db, 1, {"access_token": ACCESS, "refresh_token": REFRESH, "expires_at": time.time() + 3600}
         )
         assert (await google_calendar.get_month_grid(db, 2026, 8))["offline"] is True  # events 403
-        await google_oauth.revoke_and_clear(db)  # revoke 400
+        await accounts.remove(db, 1)  # revoke 400
 
     assert caplog.records, "expected the failures above to be logged"
     for record in caplog.records:

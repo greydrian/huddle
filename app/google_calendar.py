@@ -1,6 +1,6 @@
 """
 Google Calendar reads (Section 4.2 of the spec): event fetch across the
-Admin-selected calendars, the month grid with Google-style bar packing, and
+Admin-selected calendars of every account doing Calendars (spec 12.3), the month grid with Google-style bar packing, and
 the week and agenda views (spec 10.5), and the single-day view.
 
 Plain httpx against the REST API, like app/google_tasks.py. OAuth, tokens
@@ -18,13 +18,12 @@ from zoneinfo import ZoneInfo
 
 import httpx
 
-from app import calendar_cache, http_client
+from app import calendar_cache, google_accounts, http_client
 from app.database import CALENDAR_TIMEZONE_SETTING, family_timezone, get_setting, set_setting
 from app.google_oauth import (
     DEFAULT_EVENT_COLOR,
     connect,
     get_all_pages,
-    get_connected_account,
     get_selected_calendars,
 )
 from app.services import term_dates
@@ -36,7 +35,8 @@ CALENDAR_EVENTS_ENDPOINT_TEMPLATE = "https://www.googleapis.com/calendar/v3/cale
 
 MAX_BAR_SLOTS = 3  # event bars shown per week in the month grid before "+N more"
 # Hard cap on Google time per calendar render (token refresh + every page of
-# every selected calendar). The dashboard awaits it inline, so a slow Google
+# every selected calendar), each account on its own so a slow one only falls
+# back to its own cache. The dashboard awaits it inline, so a slow Google
 # shows the offline state instead of stalling the page — cf. weather's
 # FETCH_DEADLINE. Background sync keeps the full per-request timeouts.
 CALENDAR_DEADLINE = 6.0
@@ -79,11 +79,16 @@ async def cache_calendar_timezone(db, access_token: str):
         logger.warning("Couldn't fetch the calendar timezone: %s", http_client.describe(exc))
 
 
-async def _calendar_timezone(db, access_token: str | None) -> ZoneInfo:
-    if not await get_setting(db, CALENDAR_TIMEZONE_SETTING) and access_token:
-        # Self-heals accounts connected before this cache existed, and
-        # covers the very first widget render right after a fresh connect.
-        await cache_calendar_timezone(db, access_token)
+async def _calendar_timezone(db, account_ids: list[int]) -> ZoneInfo:
+    """The family's timezone. Unset (accounts connected before it was kept,
+    or the very first render after a connect), it's learnt from the oldest
+    connected calendar account's primary calendar (spec 12.3)."""
+    if not await get_setting(db, CALENDAR_TIMEZONE_SETTING):
+        for account_id in sorted(account_ids):
+            access_token, _offline = await connect(db, account_id)
+            if access_token:
+                await cache_calendar_timezone(db, access_token)
+                break
     return await family_timezone(db)
 
 
@@ -205,12 +210,20 @@ async def fetch_events(access_token: str, calendar_id: str, time_min: datetime, 
     return events
 
 
+def _is_outage(exc: BaseException) -> bool:
+    """Google unreachable or failing (the account shows Offline), as opposed
+    to one calendar refusing (unshared, 404)."""
+    if isinstance(exc, httpx.HTTPStatusError):
+        return exc.response.status_code >= 500 or exc.response.status_code == 429
+    return isinstance(exc, httpx.TransportError)
+
+
 async def _fetch_selected_events(
     access_token, tz, calendars: list[dict], start: date, end: date
-) -> dict[str, list[dict] | None]:
-    """{calendar id: its colour-tagged events, or None if that calendar
-    failed}. One calendar failing (unshared, network blip) doesn't blank
-    the others."""
+) -> tuple[dict[str, list[dict] | None], bool]:
+    """({calendar key: its colour-tagged events, or None if that calendar
+    failed}, whether a failure was Google being unreachable). One calendar
+    failing (unshared, network blip) doesn't blank the others."""
     time_min = datetime.combine(start, dtime.min, tzinfo=tz)
     time_max = datetime.combine(end, dtime.min, tzinfo=tz)
     # Concurrently: the request path waits on the slowest calendar, not the sum.
@@ -219,6 +232,7 @@ async def _fetch_selected_events(
         return_exceptions=True,
     )
     by_calendar: dict[str, list[dict] | None] = {}
+    outage = False
     for cal, result in zip(calendars, results, strict=True):
         if isinstance(result, httpx.HTTPError):
             http_client.report_failure(
@@ -227,38 +241,80 @@ async def _fetch_selected_events(
                 "Couldn't fetch calendar events; showing offline: %s",
                 http_client.describe(result),
             )
-            by_calendar[cal["id"]] = None
+            by_calendar[cal["key"]] = None
+            outage = outage or _is_outage(result)
             continue
         if isinstance(result, BaseException):
             raise result
         for event in result:
             event["color"] = cal.get("color") or DEFAULT_EVENT_COLOR
-            event["calendar_id"] = cal["id"]  # whose events these are (the person filter)
-        by_calendar[cal["id"]] = result
-    return by_calendar
+            event["calendar_id"] = cal["key"]  # whose events these are (the person filter)
+        by_calendar[cal["key"]] = result
+    return by_calendar, outage
 
 
 async def _selection(db) -> tuple[list[dict], str]:
-    """The selected calendars and their calendar_cache selection key."""
+    """The calendars shown on the wall and their calendar_cache selection key."""
     calendars = await get_selected_calendars(db)
-    return calendars, calendar_cache.selection_key(await get_connected_account(db), calendars)
+    return calendars, calendar_cache.selection_key(calendars)
 
 
-async def _fetch_span(db, span: Callable[[datetime], tuple[date, date]]) -> dict | None:
-    """One live fetch: None = not connected; otherwise {"now", "tz",
-    "range", "selection", "by_calendar"} (see _fetch_selected_events;
-    every calendar is None when the token refresh itself failed)."""
-    access_token, offline = await connect(db)
-    if not access_token and not offline:
+def _remaining(ends_at: float | None) -> float | None:
+    return None if ends_at is None else max(0.0, ends_at - asyncio.get_running_loop().time())
+
+
+async def _fetch_account(
+    db, account_id: int, calendars: list[dict], tz, span: tuple[date, date], ends_at: float | None
+) -> dict[str, list[dict] | None]:
+    """One account's calendars (see _fetch_selected_events): every one None
+    when its sign-in needs reconnecting, Google is unreachable or it ran
+    past `ends_at` (loop time). It never slows or fails another account."""
+
+    async def fetch() -> dict[str, list[dict] | None]:
+        access_token, _offline = await connect(db, account_id)
+        if not access_token:
+            return {cal["key"]: None for cal in calendars}
+        by_calendar, outage = await _fetch_selected_events(access_token, tz, calendars, *span)
+        await google_accounts.note_check(db, account_id, ok=not outage)
+        return by_calendar
+
+    try:
+        return await asyncio.wait_for(fetch(), _remaining(ends_at))
+    except TimeoutError:
+        # Connected-but-slow: its calendars come from the cache, never block the page.
+        http_client.report_failure(
+            logger, OUTAGE_KEY, "Google Calendar took over %ss; showing offline", CALENDAR_DEADLINE
+        )
+        await google_accounts.note_check(db, account_id, ok=False)
+        return {cal["key"]: None for cal in calendars}
+
+
+async def _fetch_span(db, span: Callable[[datetime], tuple[date, date]], deadline: float | None = None) -> dict | None:
+    """One live fetch across every account at once: None = no account does
+    Calendars; otherwise {"now", "tz", "range", "selection", "by_calendar"}
+    (see _fetch_selected_events). `deadline` (seconds) caps the whole fetch,
+    and each account falls back on its own when it runs out
+    (CALENDAR_DEADLINE on the request path; none for background work)."""
+    account_ids = [a["id"] for a in await google_accounts.list_accounts(db) if "calendars" in a["jobs"]]
+    if not account_ids:
         return None
-    tz = await _calendar_timezone(db, access_token)
+    ends_at = None if deadline is None else asyncio.get_running_loop().time() + deadline
+    try:
+        tz = await asyncio.wait_for(_calendar_timezone(db, account_ids), deadline)
+    except TimeoutError:
+        tz = await family_timezone(db)
     now = datetime.now(tz)
     start, end = span(now)
     calendars, selection = await _selection(db)
-    if access_token:
-        by_calendar = await _fetch_selected_events(access_token, tz, calendars, start, end)
-    else:
-        by_calendar = {cal["id"]: None for cal in calendars}
+    by_account: dict[int, list[dict]] = {}
+    for cal in calendars:
+        by_account.setdefault(cal["account"], []).append(cal)
+    results = await asyncio.gather(
+        *(_fetch_account(db, account_id, cals, tz, (start, end), ends_at) for account_id, cals in by_account.items())
+    )
+    by_calendar: dict[str, list[dict] | None] = {}
+    for result in results:
+        by_calendar.update(result)
     return {"now": now, "tz": tz, "range": (start, end), "selection": selection, "by_calendar": by_calendar}
 
 
@@ -267,10 +323,10 @@ def _all_answered(loaded: dict) -> bool:
 
 
 async def _store_cache(db, loaded: dict) -> bool:
-    """Save the calendars that answered. Skipped if the account or the
-    selection changed while the fetch was out (the cache was cleared for
-    it). True if anything was saved."""
-    answered = {cal_id: events for cal_id, events in loaded["by_calendar"].items() if events is not None}
+    """Save the calendars that answered. Skipped if the selection changed
+    while the fetch was out (the cache was cleared for it). True if
+    anything was saved."""
+    answered = {key: events for key, events in loaded["by_calendar"].items() if events is not None}
     if not answered:
         return False
     try:
@@ -295,35 +351,19 @@ def _updated_label(fetched_at: datetime, now: datetime) -> str:
 
 
 async def _load_events(db, span: Callable[[datetime], tuple[date, date]], cache: bool = False) -> dict | None:
-    """Everything the request path needs from Google, under one hard
-    deadline. None = not connected; otherwise {"now", "tz", "events",
-    "offline", "updated_label"}. `span` maps "now" in the calendar's
-    timezone to the [start, end) date range to fetch.
+    """Everything the request path needs from Google, every account under
+    the one hard deadline. None = no account does Calendars; otherwise
+    {"now", "tz", "events", "offline", "updated_label"}. `span` maps "now"
+    in the calendar's timezone to the [start, end) date range to fetch.
 
     Calendars that answered are shown live and, when `cache` is set (the
     month grid; a day view is served from its month's copy), saved to
-    calendar_cache. A calendar that failed — Google down, slow, or just
-    that one calendar erroring — is shown from its newest cached copy
-    covering the range, and `updated_label` says when the oldest copy used
-    was fetched. `offline` is set only for a failed calendar with no copy."""
-    try:
-        loaded = await asyncio.wait_for(_fetch_span(db, span), CALENDAR_DEADLINE)
-    except asyncio.TimeoutError:
-        # Only a connected account makes network calls, so a timeout means
-        # connected-but-slow: render the offline state, never block the page.
-        http_client.report_failure(
-            logger, OUTAGE_KEY, "Google Calendar took over %ss; showing offline", CALENDAR_DEADLINE
-        )
-        tz = await family_timezone(db)
-        now = datetime.now(tz)
-        calendars, selection = await _selection(db)
-        loaded = {
-            "now": now,
-            "tz": tz,
-            "range": span(now),
-            "selection": selection,
-            "by_calendar": {cal["id"]: None for cal in calendars},
-        }
+    calendar_cache. A calendar that failed — Google down or slow, its
+    account needing a reconnect, or just that one calendar erroring — is
+    shown from its newest cached copy covering the range, and
+    `updated_label` says when the oldest copy used was fetched. `offline`
+    is set only for a failed calendar with no copy."""
+    loaded = await _fetch_span(db, span, CALENDAR_DEADLINE)
     if loaded is None:
         return None
 
@@ -335,17 +375,17 @@ async def _load_events(db, span: Callable[[datetime], tuple[date, date]], cache:
     events: list[dict] = []
     offline = False
     oldest: datetime | None = None
-    for cal_id, live in loaded["by_calendar"].items():
+    for key, live in loaded["by_calendar"].items():
         if live is not None:
             events.extend(live)
             continue
         start, end = loaded["range"]
-        cached = await calendar_cache.load(db, loaded["selection"], start, end, cal_id)
+        cached = await calendar_cache.load(db, loaded["selection"], start, end, key)
         if cached is None:
             offline = True
             continue
         cached_events, fetched_at = cached
-        events.extend(_tagged(cached_events, cal_id))
+        events.extend(_tagged(cached_events, key))
         oldest = fetched_at if oldest is None else min(oldest, fetched_at)
     loaded.update(
         events=events,
@@ -363,17 +403,16 @@ async def cached_events(db, start: date, end: date) -> list[dict]:
     calendars, selection = await _selection(db)
     events: list[dict] = []
     for cal in calendars:
-        cached = await calendar_cache.load(db, selection, start, end, cal["id"])
+        cached = await calendar_cache.load(db, selection, start, end, cal["key"])
         if cached is not None:
-            events.extend(_tagged(cached[0], cal["id"]))
+            events.extend(_tagged(cached[0], cal["key"]))
     return events
 
 
-def _tagged(events: list[dict], calendar_id: str) -> list[dict]:
-    """Cached events with their calendar id (rows cached before it was
-    stored lack it)."""
+def _tagged(events: list[dict], key: str) -> list[dict]:
+    """Cached events with their calendar's key (account and id)."""
     for event in events:
-        event.setdefault("calendar_id", calendar_id)
+        event["calendar_id"] = key
     return events
 
 

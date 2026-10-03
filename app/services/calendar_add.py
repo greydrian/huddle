@@ -70,7 +70,8 @@ ERRORS = {
     "person": "That family member no longer exists. Pick someone else, or Everyone.",
     "request": "That form is out of date. Close it and try again.",
     "no-calendar": "Adding events isn't set up: choose the Family calendar in Admin → Google & Sync.",
-    "scope": "Google needs reconnecting in Admin (Disconnect, then Connect) before events can be added.",
+    "scope": "The Family calendar's Google account needs reconnecting in Admin (Google accounts → Reconnect) "
+    "before events can be added.",
     # A timeout may come after Google made the event, so don't say it wasn't.
     "offline": "Couldn't reach Google Calendar. It may already have been added: check the calendar before "
     "adding it again.",
@@ -421,7 +422,7 @@ async def _insert(db, key: str, family: dict, summary: str, day: date, start, en
     added, or by a different one (the form was changed after a failure
     under the same key, or the event was deleted in Google), which is
     retried once under an id derived from the key and the new content."""
-    access_token, offline = await google_oauth.connect(db)
+    access_token, offline = await google_oauth.connect(db, family["account"])
     if offline:
         raise AddEventError("offline")
     if not access_token:  # disconnected since (e.g. a revoked grant)

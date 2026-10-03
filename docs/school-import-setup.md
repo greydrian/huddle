@@ -77,12 +77,14 @@ PIN to 1234 and brings back the "Choose a new PIN" screen.
 The new Gmail (read-only) and calendar-event permissions are only granted
 when you connect again:
 
-1. Admin → **Google Account** → **Disconnect**.
-2. **Connect Google Account**, sign in and approve. The consent screen now
-   lists reading Gmail and managing calendar events as well as the existing
-   permissions.
+1. Admin → Google & Sync → **Google accounts** → **Edit** on the account
+   the school writes to (or **Add account** for it), and tick **School
+   email** and **Writing events**. School email is offered for a parent's or
+   a Family account only.
+2. Approve on Google's screen. It asks only for the newly ticked
+   permissions (reading Gmail, managing calendar events).
 3. Re-check the calendar selection and the Tasks lists in the same panel.
-   Reconnecting should keep them, but make sure.
+   Everything linked to the account is kept, but make sure.
 
 Remember that Google only accepts the callback on `localhost`. Do this step in
 a browser on the G10 itself, or through the SSH tunnel

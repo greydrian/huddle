@@ -10,7 +10,8 @@ from datetime import date, datetime
 import httpx
 import pytest
 
-from app import calendar_cache, database, google_calendar, google_oauth
+from app import calendar_cache, database, google_accounts, google_calendar, google_oauth
+from app.services import accounts
 
 TOKEN_URL = "https://oauth2.googleapis.com/token"
 REVOKE_URL = "https://oauth2.googleapis.com/revoke"
@@ -44,9 +45,9 @@ async def _prime(db, events_route):
     return grid
 
 
-async def _load(db, start, end, calendar_id="primary"):
+async def _load(db, start, end, calendar_id="primary", account=1):
     _, selection = await google_calendar._selection(db)
-    return await calendar_cache.load(db, selection, start, end, calendar_id)
+    return await calendar_cache.load(db, selection, start, end, google_oauth.calendar_key(account, calendar_id))
 
 
 async def _cached_row_count(db):
@@ -106,8 +107,8 @@ async def test_slow_google_serves_the_cache(db, events_route, monkeypatch):
 
 async def test_token_refresh_outage_serves_the_cache(db, events_route, google):
     await _prime(db, events_route)
-    await google_oauth.store_tokens(
-        db, {"access_token": "old", "refresh_token": "refresh", "expires_at": time.time() - 10}
+    await google_accounts.save_tokens(
+        db, 1, {"access_token": "old", "refresh_token": "refresh", "expires_at": time.time() - 10}
     )
     google.post(TOKEN_URL).respond(503)
 
@@ -117,8 +118,8 @@ async def test_token_refresh_outage_serves_the_cache(db, events_route, google):
 
 
 TWO_CALENDARS = [
-    {"id": "family", "summary": "Family", "color": "#123456"},
-    {"id": "school", "summary": "School", "color": "#654321"},
+    {"account": 1, "id": "family", "summary": "Family", "color": "#123456"},
+    {"account": 1, "id": "school", "summary": "School", "color": "#654321"},
 ]
 SPORTS_DAY = {"summary": "Sports day", "start": {"date": "2026-08-20"}, "end": {"date": "2026-08-21"}}
 PARTY = {"summary": "Party", "start": {"date": "2026-08-22"}, "end": {"date": "2026-08-23"}}
@@ -309,42 +310,49 @@ async def test_cache_holds_event_data_only_never_tokens(db, events_route):
 
 async def test_selection_change_clears_the_cache(db, events_route):
     await _prime(db, events_route)
-    await google_oauth.set_selected_calendars(db, [{"id": "other", "summary": "Other", "color": "#000000"}])
+    await google_oauth.set_selected_calendars(
+        db, [{"account": 1, "id": "other", "summary": "Other", "color": "#000000"}]
+    )
     assert await _cached_row_count(db) == 0
 
 
-async def test_disconnect_clears_the_cache(db, events_route, google):
+async def test_removing_the_account_clears_the_cache(db, events_route, google):
     await _prime(db, events_route)
     google.post(REVOKE_URL).respond(200)
-    await google_oauth.revoke_and_clear(db)
+    assert await accounts.remove(db, 1)
     assert await _cached_row_count(db) == 0
 
 
-async def test_disconnect_clears_the_cache_even_if_revoke_fails(db, events_route, google):
+async def test_removing_clears_the_cache_even_if_revoke_fails(db, events_route, google):
     await _prime(db, events_route)
     google.post(REVOKE_URL).mock(side_effect=httpx.ConnectError("offline"))
-    await google_oauth.revoke_and_clear(db)
+    assert await accounts.remove(db, 1)
     assert await _cached_row_count(db) == 0
 
 
-async def test_revoked_grant_clears_the_cache(db, events_route, google):
+async def test_revoked_grant_keeps_the_cache_and_serves_it(db, events_route, google):
+    """Spec 12.6: invalid_grant drops only the token; the account's calendars
+    show from the cache with the note until it's reconnected."""
     await _prime(db, events_route)
-    await google_oauth.store_tokens(
-        db, {"access_token": "old", "refresh_token": "refresh", "expires_at": time.time() - 10}
+    await google_accounts.save_tokens(
+        db, 1, {"access_token": "old", "refresh_token": "refresh", "expires_at": time.time() - 10}
     )
     google.post(TOKEN_URL).respond(400, json={"error": "invalid_grant"})
 
-    assert await google_calendar.get_month_grid(db, 2026, 8) is None  # disconnected: stub, not cache
-    assert await _cached_row_count(db) == 0
+    grid = await google_calendar.get_month_grid(db, 2026, 8)
+
+    assert grid["updated_label"] and _titles(grid) == ["Camping", "Dentist"]
+    assert await _cached_row_count(db) == 1
+    assert (await google_accounts.get(db, 1))["state"] == google_accounts.RECONNECT
 
 
-async def test_reconnect_clears_but_token_refresh_keeps_the_cache(db, events_route):
+async def test_token_refresh_and_a_second_account_keep_the_cache(db, events_route):
     await _prime(db, events_route)
-    await google_oauth.store_tokens(db, {"access_token": "new", "expires_at": time.time() + 3600})
+    await google_accounts.save_tokens(db, 1, {"access_token": "new", "expires_at": time.time() + 3600})
     assert await _cached_row_count(db) == 1
 
     await google_oauth.store_tokens(db, {"access_token": "new", "expires_at": time.time() + 3600}, "b@example.com")
-    assert await _cached_row_count(db) == 0
+    assert await _cached_row_count(db) == 1
 
 
 # --- Migration ---
