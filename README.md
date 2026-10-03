@@ -199,8 +199,8 @@ Admin → Backups shows the latest one and has a "Back up now" button.
 
 **Security trade-off:** the backups folder holds the database *and* the key
 that decrypts its Google tokens, so it is as sensitive as `data/` itself.
-Anyone with a copy can use the family's Google Calendar/Tasks access until you
-disconnect Google in Admin or revoke access at
+Anyone with a copy can use the family's Google accounts' access until you
+remove them in Admin (Google & Sync → Google accounts) or revoke access at
 https://myaccount.google.com/permissions. Keep off-box copies somewhere
 private. Without the key, a backup still restores everything except the
 Google connection (and signs you out of Admin), so you'd just reconnect Google.
@@ -551,8 +551,9 @@ app/
   templating.py      Shared Jinja2 instance + template context helpers
   recurrence.py      Weekday rules ("Mon,Wed,Fri") for recurring tasks
   http_client.py     Shared httpx client factory + timeout, log-safe error summaries
-  google_oauth.py    Google OAuth, token storage/refresh, list pager, calendar-picker settings (httpx, no SDK)
-  google_calendar.py Calendar event fetch, month grid bar packing, day view
+  google_accounts.py The Google accounts (spec 12): owner, jobs, sub identity, token, state
+  google_oauth.py    Google OAuth, per-account token refresh, list pager, calendar-picker settings (httpx, no SDK)
+  google_calendar.py Calendar event fetch from every account, month grid bar packing, day view
   google_tasks.py    Google Tasks API client
   task_sync.py       Two-way Tasks sync: push sync_queue, then reconcile each list
   google_gmail.py    Gmail reads: search, headers, body (HTML to text), attachments
@@ -564,7 +565,8 @@ app/
   routers/
     dashboard.py     Home screen assembly + /health
     layout.py        Gridstack position persistence (/api/layout)
-    calendar.py      Google connect/callback/disconnect, calendar picker, month grid + day view
+    calendar.py      Calendar widget: month grid, week, agenda, day view, the "+"
+                     (connecting accounts and the calendar picker are admin/google.py)
     tasks.py         Tasks widget, tick toggle, daily reset
     shopping.py      Shopping list add/tick/delete
     meals.py         7-day meal plan
