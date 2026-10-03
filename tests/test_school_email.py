@@ -741,6 +741,39 @@ async def test_failed_emails_wait_for_their_own_account(db, gmail, claude, mailb
     assert mailbox.message_route.calls.last.request.headers["authorization"] == f"Bearer {ACCESS}"
 
 
+async def test_retry_on_an_email_failed_for_good_waits_for_its_own_account(db, gmail, claude, mailbox, monkeypatch):
+    """Retry on the family account's email that failed for good, after
+    School email moved to Mum: it stays parked (never fetched with Mum's
+    token, never marked gone), and the inbox says what it waits for."""
+    mailbox.add("m1")
+
+    async def offline(*args):
+        raise extraction.ExtractionFailed("offline")
+
+    monkeypatch.setattr(imports, "extract", offline)
+    await school_email.check_now(db, NOW)
+    await db.execute("UPDATE import_sources SET status = 'failed_permanently' WHERE source_ref = 'm1'")
+    await db.commit()
+
+    await _move_school_email_to_mum(db)
+    mailbox.list_ids = []
+    await school_email.check_now(db, NOW + timedelta(hours=1))  # hands over: m1 parked under account 1
+    (source,) = await _sources(db)
+    await imports.retry_source(db, source["id"])
+    fetched_before = list(mailbox.full_fetches)
+    await school_email.check_now(db, NOW + timedelta(hours=2))
+
+    assert mailbox.full_fetches == fetched_before
+    (source,) = await _sources(db)
+    assert source["error_code"] != "gone"
+    assert json.loads(await database.get_setting(db, school_email.PARKED_RETRIES_SETTING)) == {"1": ["m1"]}
+
+    shown = await imports.get_source(db, source["id"])
+    await school_email.mark_parked(db, [shown])
+    family = await google_accounts.get(db, 1)
+    assert shown["parked_for"] == family["email"] and not shown["retryable"]
+
+
 async def test_removing_the_reading_account_forgets_only_its_own_checkpoint(db, gmail, claude, mailbox):
     mailbox.add("m1")
     await school_email.check_now(db, NOW)

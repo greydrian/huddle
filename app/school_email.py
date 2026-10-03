@@ -499,20 +499,52 @@ async def _parked_retries(db) -> dict[str, list[str]]:
     return parked if isinstance(parked, dict) else {}
 
 
+async def _unfinished_refs(db) -> list[str]:
+    """Gmail ids of school emails not read yet: waiting for a retry, or
+    failed for good (Admin's Retry can bring those back)."""
+    rows = await (
+        await db.execute(
+            """SELECT source_ref FROM import_sources
+           WHERE kind = 'gmail' AND status IN ('failed', 'failed_permanently', 'not_configured')"""
+        )
+    ).fetchall()
+    return [r["source_ref"] for r in rows]
+
+
 async def _hand_over(db, account_id: int) -> None:
-    """Before `account_id` checks: if another account checked last, the
-    emails waiting for a retry are its (they came from its mailbox) and are
-    parked under it; this account's own parked ones come back."""
+    """Before `account_id` checks: if another account checked last, every
+    unfinished email is its (it came from its mailbox) and is parked under
+    it, including ones failed for good, which Retry could otherwise send to
+    this account's token. This account's own parked ones come back."""
     previous = await _account_setting(db, READER_SETTING)
     parked = await _parked_retries(db)
     if previous is not None and previous != account_id:
         already = {ref for refs in parked.values() for ref in refs}
-        waiting = [ref for ref in await _retry_queue(db) if ref not in already]
+        waiting = [ref for ref in await _unfinished_refs(db) if ref not in already]
         parked[str(previous)] = sorted({*parked.get(str(previous), []), *waiting})
     parked.pop(str(account_id), None)
     await set_setting(db, PARKED_RETRIES_SETTING, json.dumps(parked))
     await set_setting(db, READER_SETTING, str(account_id))
     await db.commit()
+
+
+async def mark_parked(db, sources: list[dict]) -> None:
+    """The School inbox: give each parked school email `parked_for`, the
+    address of the account it waits for (Admin only, never logged), so the
+    page says so instead of offering a Retry that would do nothing."""
+    owner = {ref: int(acct) for acct, refs in (await _parked_retries(db)).items() for ref in refs}
+    if not owner:
+        return
+    addresses: dict[int, str] = {}
+    for source in sources:
+        account_id = owner.get(source["source_ref"]) if source["kind"] == "gmail" else None
+        if account_id is None:
+            continue
+        if account_id not in addresses:
+            account = await google_accounts.get(db, account_id)
+            addresses[account_id] = (account or {}).get("email") or "its account"
+        source["parked_for"] = addresses[account_id]
+        source["retryable"] = False
 
 
 # --- What's already known about a message ---

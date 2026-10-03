@@ -28,10 +28,12 @@ async def school_context(db, base: dict, extra: dict) -> dict:
     # School events go to a calendar in the account doing Writing events (stage 1: one).
     writer = await google_accounts.job_account(db, "write_events")
     lists = await common.google_lists(db, [writer] if writer else [], tasklists=False)
+    inbox = await imports.get_inbox(db)
+    await school_email.mark_parked(db, inbox["active"])
     return {
         "writer_account": writer,
         "removed_notice_school": (await google_accounts.removed_notice(db)).get("school_events"),
-        "inbox": await imports.get_inbox(db),
+        "inbox": inbox,
         "inbox_form": extra.get("inbox_form"),
         "inbox_error": extra.get("inbox_error"),
         "school": await school_email.summary(db),
@@ -120,6 +122,8 @@ async def _source_fragment(request: Request, source_id: int, **extra) -> HTMLRes
     inbox_form / inbox_error / source_error after a failed action."""
     async with get_db() as db:
         source = await imports.get_source(db, source_id)
+        if source is not None:
+            await school_email.mark_parked(db, [source])
         profiles = [
             dict(r)
             for r in await (

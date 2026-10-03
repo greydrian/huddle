@@ -40,7 +40,8 @@
   <p class="inbox-reading" role="status"><span class="inbox-spinner" aria-hidden="true"></span>Reading… this can take up to a minute.</p>
   {% elif source.status in ('failed', 'not_configured', 'failed_permanently') %}
   <p class="admin-error">{{ source.error_message }}</p>
-  {% if source.kind == 'gmail' and source.status != 'failed_permanently' and source.error_code != 'retry' %}<p class="admin-meta">School emails are tried again at the next check.</p>{% endif %}
+  {% if source.parked_for %}<p class="admin-meta">Waiting for {{ source.parked_for }} to do School email again: it came from that inbox.</p>
+  {% elif source.kind == 'gmail' and source.status != 'failed_permanently' and source.error_code != 'retry' %}<p class="admin-meta">School emails are tried again at the next check.</p>{% endif %}
   {% elif source.processed %}
   <p class="admin-meta">{% if source.approved_count or source.discarded_count %}{{ source.approved_count }} added to the wall · {{ source.discarded_count }} discarded{% else %}Nothing to add was found in this.{% endif %}</p>
   {% endif %}
