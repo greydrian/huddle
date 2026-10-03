@@ -1212,6 +1212,12 @@ html:has(.admin-shell), html:has(.admin-shell) body { height: auto; overflow-y: 
 .account-state-reconnect, .account-state-permission { background: var(--danger); color: var(--on-accent); }
 .google-account-form { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
 .google-account-form .btn { align-self: flex-start; }
+/* A job another account does (stage 1: one at a time): the box is disabled,
+   and the reason is ordinary ink so it doesn't read as a broken control. */
+.account-jobs-taken { margin: 4px 0 8px; }
+.account-job-check input { flex-shrink: 0; }
+.account-job-check.is-taken input { opacity: 0.45; }
+.account-job-taken { display: block; color: var(--ink); font-size: 0.9rem; margin-top: 2px; }
 .google-account-add { margin-top: 14px; }
 .google-account-remove ul { margin: 6px 0; padding-left: 1.2em; }
 .calendar-group { border: none; padding: 0; margin: 10px 0 0; }
