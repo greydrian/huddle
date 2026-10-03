@@ -234,7 +234,7 @@
         </label>
         <select name="tasklist_id" required>
           <option value="">— choose a list —</option>
-          {% if shopping_tasklist and shopping_tasklist.id not in tasklist_ids %}<option value="" selected disabled>Paused (a list in another account)</option>{% endif %}
+          {% if shopping_tasklist and shopping_tasklist.id not in tasklist_ids %}<option value="" selected>Paused (a list in another account)</option>{% endif %}
           {% for tl in available_tasklists %}
           <option value="{{ tl.id }}" {{ 'selected' if shopping_tasklist and shopping_tasklist.id == tl.id else '' }}>{{ tl.title }}</option>
           {% endfor %}

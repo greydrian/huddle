@@ -69,7 +69,7 @@ async def test_success_exchanges_code_and_stores_encrypted_tokens(admin_client, 
             "expires_in": 3599,
         },
     )
-    google.get(USERINFO_URL).respond(200, json={"email": "family@example.com"})
+    google.get(USERINFO_URL).respond(200, json={"email": "family@example.com", "sub": "sub-family"})
     state = await _start_add(admin_client)
 
     resp = await admin_client.get(CALLBACK, params={"code": "auth-code", "state": state})
@@ -94,7 +94,7 @@ async def test_success_exchanges_code_and_stores_encrypted_tokens(admin_client, 
 
 async def test_a_state_is_used_once(admin_client, db, google):
     google.post(TOKEN_URL).respond(200, json={"access_token": "a", "refresh_token": "r"})
-    google.get(USERINFO_URL).respond(200, json={"email": "family@example.com"})
+    google.get(USERINFO_URL).respond(200, json={"email": "family@example.com", "sub": "sub-family"})
     state = await _start_add(admin_client)
     await admin_client.get(CALLBACK, params={"code": "auth-code", "state": state})
     admin_client.cookies.set(admin_google.STATE_COOKIE, state)

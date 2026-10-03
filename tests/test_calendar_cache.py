@@ -47,7 +47,7 @@ async def _prime(db, events_route):
 
 async def _load(db, start, end, calendar_id="primary", account=1):
     _, selection = await google_calendar._selection(db)
-    return await calendar_cache.load(db, selection, start, end, google_oauth.calendar_key(account, calendar_id))
+    return await calendar_cache.load(db, selection[account], start, end, calendar_id)
 
 
 async def _cached_row_count(db):
@@ -118,8 +118,8 @@ async def test_token_refresh_outage_serves_the_cache(db, events_route, google):
 
 
 TWO_CALENDARS = [
-    {"account": 1, "id": "family", "summary": "Family", "color": "#123456"},
-    {"account": 1, "id": "school", "summary": "School", "color": "#654321"},
+    {"account_id": 1, "id": "family", "summary": "Family", "color": "#123456"},
+    {"account_id": 1, "id": "school", "summary": "School", "color": "#654321"},
 ]
 SPORTS_DAY = {"summary": "Sports day", "start": {"date": "2026-08-20"}, "end": {"date": "2026-08-21"}}
 PARTY = {"summary": "Party", "start": {"date": "2026-08-22"}, "end": {"date": "2026-08-23"}}
@@ -293,7 +293,7 @@ async def test_scheduler_refresh_when_not_connected_does_nothing(db, google):
 async def test_old_ranges_are_pruned(db):
     for month in range(1, 13 + calendar_cache.KEEP_RANGES):
         start = date(2020 + month // 12, month % 12 + 1, 1)
-        await calendar_cache.store(db, "sel", start, start.replace(day=28), {"primary": [], "school": []})
+        await calendar_cache.store(db, 1, "sel", start, start.replace(day=28), {"primary": [], "school": []})
     assert await _cached_row_count(db) == 2 * calendar_cache.KEEP_RANGES
 
 
@@ -311,7 +311,7 @@ async def test_cache_holds_event_data_only_never_tokens(db, events_route):
 async def test_selection_change_clears_the_cache(db, events_route):
     await _prime(db, events_route)
     await google_oauth.set_selected_calendars(
-        db, [{"account": 1, "id": "other", "summary": "Other", "color": "#000000"}]
+        db, [{"account_id": 1, "id": "other", "summary": "Other", "color": "#000000"}]
     )
     assert await _cached_row_count(db) == 0
 
@@ -360,7 +360,7 @@ async def test_token_refresh_and_a_second_account_keep_the_cache(db, events_rout
 
 async def test_migration_is_idempotent_and_keeps_cached_rows(db):
     kept = [{"title": "Kept", "date": "2026-08-01", "end_date": "2026-08-01"}]
-    await calendar_cache.store(db, "sel", *AUG_GRID, {"primary": kept})
+    await calendar_cache.store(db, 1, "sel", *AUG_GRID, {"primary": kept})
 
     await database.init_db()
     await database.init_db()
@@ -368,4 +368,12 @@ async def test_migration_is_idempotent_and_keeps_cached_rows(db):
     events, _ = await calendar_cache.load(db, "sel", *AUG_GRID, "primary")
     assert [e["title"] for e in events] == ["Kept"]
     columns = [r["name"] for r in await (await db.execute("PRAGMA table_info(calendar_cache)")).fetchall()]
-    assert columns == ["selection", "range_start", "range_end", "calendar_id", "events_json", "fetched_at"]
+    assert columns == [
+        "selection",
+        "range_start",
+        "range_end",
+        "calendar_id",
+        "events_json",
+        "fetched_at",
+        "account_id",
+    ]

@@ -17,7 +17,7 @@ from app.services import weather
 
 TZ = ZoneInfo("Europe/London")
 DAY = date(2026, 10, 5)
-CAL = {"account": 1, "id": "family@example.com", "summary": "Family", "color": "#3D6E93"}
+CAL = {"account_id": 1, "id": "family@example.com", "summary": "Family", "color": "#3D6E93"}
 LOCATION = {"name": "Reading", "country": "United Kingdom", "latitude": 51.45, "longitude": -0.97}
 
 
@@ -47,9 +47,7 @@ async def events(db, connected):
         timed("Parents' evening", "18:00", "d"),
     ]
     formatted = [google_calendar._format_event(r) for r in raws]
-    await calendar_cache.store(
-        db, selection, date(2026, 9, 28), date(2026, 11, 9), {google_oauth.calendar_key(1, CAL["id"]): formatted}
-    )
+    await calendar_cache.store(db, 1, selection[1], date(2026, 9, 28), date(2026, 11, 9), {CAL["id"]: formatted})
 
 
 # --- Settings ---

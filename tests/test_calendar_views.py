@@ -19,8 +19,8 @@ EVENTS_URL_PATTERN = r"https://www\.googleapis\.com/calendar/v3/calendars/.+/eve
 # Monday 10 - Sunday 16 August 2026.
 WEEK = date(2026, 8, 10)
 TWO_CALENDARS = [
-    {"account": 1, "id": "family", "summary": "Family", "color": "#123456"},
-    {"account": 1, "id": "riley-cal", "summary": "Riley's clubs", "color": "#654321"},
+    {"account_id": 1, "id": "family", "summary": "Family", "color": "#123456"},
+    {"account_id": 1, "id": "riley-cal", "summary": "Riley's clubs", "color": "#654321"},
 ]
 
 
@@ -371,13 +371,14 @@ async def test_person_filter_chips_show_each_avatar(client, db, events):
 async def test_cached_events_learn_their_calendar(db, connected):
     await calendar_cache.store(
         db,
-        (await google_calendar._selection(db))[1],
+        1,
+        (await google_calendar._selection(db))[1][1],
         date(2026, 8, 1),
         date(2026, 9, 1),
-        {"1:primary": [{"title": "Old row", "date": "2026-08-03", "end_date": "2026-08-03"}]},
+        {"primary": [{"title": "Old row", "date": "2026-08-03", "end_date": "2026-08-03"}]},
     )
     events = await google_calendar.cached_events(db, date(2026, 8, 3), date(2026, 8, 4))
-    assert events[0]["calendar_id"] == "1:primary"
+    assert events[0]["calendar_id"] == "primary"
 
 
 # --- The shared name helper (banners use it too) -----------------------------------------
@@ -461,7 +462,7 @@ async def test_admin_picks_the_family_calendar_from_shown_writable_ones(
 
     ok = await admin_client.post("/admin/google/family-calendar", data={"calendar_id": "1:family"})
     assert ok.headers["location"] == "/admin?tab=google#calendar-options"
-    assert await calendar_prefs.get_family_calendar(db) == {"account": 1, "id": "family", "summary": "Family"}
+    assert await calendar_prefs.get_family_calendar(db) == {"account_id": 1, "id": "family", "summary": "Family"}
 
     # read-only / not shown / unknown / another account / not a calendar key
     for refused in ("1:riley-cal", "1:work", "1:nope", "2:family", "family"):
@@ -480,16 +481,16 @@ async def test_admin_picks_the_family_calendar_from_shown_writable_ones(
 
 async def test_family_calendar_no_longer_shown_stops_counting(db, connected_with_events):
     await google_oauth.set_selected_calendars(db, TWO_CALENDARS)
-    await calendar_prefs.set_family_calendar(db, {"account": 1, "id": "family", "summary": "Family"})
+    await calendar_prefs.set_family_calendar(db, {"account_id": 1, "id": "family", "summary": "Family"})
     assert await calendar_prefs.get_family_calendar(db) is not None
     await google_oauth.set_selected_calendars(db, TWO_CALENDARS[1:])
     assert await calendar_prefs.get_family_calendar(db) is None
-    assert await calendar_prefs.get_family_setting(db) == {"account": 1, "id": "family", "summary": "Family"}
+    assert await calendar_prefs.get_family_setting(db) == {"account_id": 1, "id": "family", "summary": "Family"}
 
 
 async def test_family_calendar_stops_counting_when_its_account_stops_writing(db, connected_with_events):
     await google_oauth.set_selected_calendars(db, TWO_CALENDARS)
-    await calendar_prefs.set_family_calendar(db, {"account": 1, "id": "family", "summary": "Family"})
+    await calendar_prefs.set_family_calendar(db, {"account_id": 1, "id": "family", "summary": "Family"})
     assert await calendar_prefs.get_family_calendar(db) is not None
     await google_accounts.update(db, 1, None, ["calendars"])  # Writing events unticked
     assert await calendar_prefs.get_family_calendar(db) is None
@@ -524,7 +525,8 @@ async def test_admin_links_calendars_to_people(admin_client, db, calendar_list, 
         },
     )
 
-    assert await calendar_prefs.get_people_links(db) == {"1:family": "everyone", "1:riley-cal": ids["Riley"]}
+    assert await calendar_prefs.get_saved_people_links(db) == {"1:family": "everyone", "1:riley-cal": ids["Riley"]}
+    assert await calendar_prefs.get_people_links(db) == {"family": "everyone", "riley-cal": ids["Riley"]}
     page = (await admin_client.get("/admin?tab=google")).text
     assert f'<option value="{ids["Riley"]}" selected>Riley</option>' in page
 
@@ -547,7 +549,7 @@ async def test_prefs_ignore_junk(db):
     await database.set_setting(db, calendar_prefs.DEFAULT_VIEW_KEY, "not json")
     await database.set_setting(db, calendar_prefs.FAMILY_KEY, json.dumps(["x"]))
     await db.commit()
-    assert await calendar_prefs.get_people_links(db) == {"1:a": 3, "1:b": "everyone"}
+    assert await calendar_prefs.get_saved_people_links(db) == {"1:a": 3, "1:b": "everyone"}
     assert await calendar_prefs.get_default_view(db) == "month"
     assert await calendar_prefs.get_family_setting(db) is None
 

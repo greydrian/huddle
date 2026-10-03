@@ -84,11 +84,12 @@ async def test_saving_calendars_persists_googles_details_not_the_forms(admin_cli
     assert resp.status_code == 303
     assert await google_oauth.get_selected_calendars(db) == [
         {
-            "account": 1,
+            "account_id": 1,
             "id": "school#holidays",
             "summary": "School holidays",
             "color": "#D6A02C",
             "primary": False,
+            "writable": False,
             "key": "1:school#holidays",
         },
     ]
@@ -112,7 +113,7 @@ async def test_saving_shopping_list_persists_and_relinks(admin_client, db, googl
     resp = await admin_client.post("/admin/google/shopping-list", data={"tasklist_id": "list-shop"})
 
     assert resp.status_code == 303
-    assert await task_sync.get_shopping_tasklist(db) == {"id": "list-shop", "title": "Groceries", "account": 1}
+    assert await task_sync.get_shopping_tasklist(db) == {"id": "list-shop", "title": "Groceries", "account_id": 1}
     item = await (await db.execute("SELECT id, google_task_id FROM shopping_items")).fetchone()
     assert item["google_task_id"] is None
     assert await _queued(db) == [("shopping", {"item_id": item["id"]})]

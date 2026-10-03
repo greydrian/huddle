@@ -36,10 +36,9 @@ async def calendars(db, connected):
     async def fill(by_calendar: dict[str, list]):
         _, selection = await google_calendar._selection(db)
         events = {
-            google_oauth.calendar_key(1, cal_id): [google_calendar._format_event(r, None) for r in raws]
-            for cal_id, raws in by_calendar.items()
+            cal_id: [google_calendar._format_event(r, None) for r in raws] for cal_id, raws in by_calendar.items()
         }
-        await calendar_cache.store(db, selection, date(2026, 9, 28), date(2026, 11, 9), events)
+        await calendar_cache.store(db, 1, selection[1], date(2026, 9, 28), date(2026, 11, 9), events)
 
     return fill
 

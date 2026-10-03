@@ -22,13 +22,13 @@ from app.services import calendar_prefs  # noqa: E402
 
 ACCOUNT = "family@example.com"
 CALENDARS = [
-    {"account": 1, "id": "family@group.calendar.google.com", "summary": "Family", "color": "#4F7CAC"},
-    {"account": 1, "id": "riley@example.com", "summary": "Riley", "color": "#C1584A"},
+    {"account_id": 1, "id": "family@group.calendar.google.com", "summary": "Family", "color": "#4F7CAC"},
+    {"account_id": 1, "id": "riley@example.com", "summary": "Riley", "color": "#C1584A"},
 ]
 
 
 def key(calendar):
-    return google_oauth.calendar_key(calendar["account"], calendar["id"])
+    return google_oauth.calendar_key(calendar["account_id"], calendar["id"])
 
 
 def event(calendar, title, day, start=None, end=None, last_day=None):
@@ -41,7 +41,7 @@ def event(calendar, title, day, start=None, end=None, last_day=None):
             end={"dateTime": f"{day.isoformat()}T{end}:00+01:00"},
         )
     formatted = google_calendar._format_event(raw)
-    formatted.update(color=calendar["color"], calendar_id=key(calendar))
+    formatted.update(color=calendar["color"], calendar_id=calendar["id"])
     return formatted
 
 
@@ -69,17 +69,18 @@ async def main():
         start, end = google_calendar._refresh_span(now)
         await calendar_cache.store(
             db,
-            calendar_cache.selection_key(CALENDARS),
+            1,
+            calendar_cache.selection_keys(CALENDARS)[1],
             start,
             end,
             {
-                key(family): [
+                family["id"]: [
                     event(family, "Jamie: Dentist", today, "15:00", "16:00"),
                     event(family, "Bins out", today),
                     event(family, "Trip to Gran", today + timedelta(days=2), last_day=today + timedelta(days=3)),
                     *[event(family, f"Club {h}", tomorrow, f"{h:02d}:00", f"{h:02d}:45") for h in range(9, 14)],
                 ],
-                key(riley_cal): [event(riley_cal, "Swimming", today, "17:00", "18:00")],
+                riley_cal["id"]: [event(riley_cal, "Swimming", today, "17:00", "18:00")],
             },
         )
 

@@ -115,7 +115,7 @@ async def test_a_revoked_grant_shows_as_disconnected(db, google):
 
 
 async def test_an_unexpected_error_in_a_cycle_is_recorded_not_raised(db, connected, monkeypatch, caplog):
-    async def broken_reconcile(db, token):
+    async def broken_reconcile(db, token, account_id=None):
         raise KeyError("updated")
 
     monkeypatch.setattr(task_sync, "reconcile_shopping", broken_reconcile)
@@ -248,7 +248,10 @@ async def test_reconnecting_clears_needs_attention(client, db, connected, google
             "expires_in": 3599,
         },
     )
-    google.get(google_oauth.USERINFO_ENDPOINT).respond(200, json={"email": "family@example.com"})
+    google.get(google_oauth.USERINFO_ENDPOINT).respond(
+        200,
+        json={"email": "family@example.com", "sub": "local:family@example.com"},  # the `connected` fixture's
+    )
     await _login(client)
     state = (await client.get("/admin/google/accounts/1/reconnect")).cookies["google_oauth_state"]
 

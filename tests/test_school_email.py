@@ -697,7 +697,7 @@ async def test_callback_stores_the_granted_scopes(db, client, google):
             "scope": LEGACY + " " + google_oauth.GMAIL_READ_SCOPE,
         },
     )
-    google.get(google_oauth.USERINFO_ENDPOINT).respond(200, json={"email": "family@example.com"})
+    google.get(google_oauth.USERINFO_ENDPOINT).respond(200, json={"email": "family@example.com", "sub": "sub-family"})
     client.cookies.set(admin.SESSION_COOKIE, create_session_token())
     jobs = ["calendars", "tasks", "school_email", "write_events"]
     started = await client.post("/admin/google/accounts", data={"owner": "family", "job": jobs})
@@ -928,7 +928,7 @@ def _form(**overrides):
 @pytest.fixture
 async def school_calendar(db, gmail, google):
     await school_events.set_target_calendar(
-        db, {"account": 1, "id": "family@group.calendar.google.com", "summary": "Family"}
+        db, {"account_id": 1, "id": "family@group.calendar.google.com", "summary": "Family"}
     )
     # The calendar refresh after an insert.
     google.get(url__regex=EVENTS_URL.pattern).respond(200, json={"items": []})
@@ -940,7 +940,9 @@ async def _candidate(db, candidate_id):
 
 async def test_approving_an_event_adds_it_to_the_calendar(db, school_calendar, google):
     candidate_id = await _event_candidate(db)
-    await calendar_cache.store(db, "sel", datetime(2026, 9, 28).date(), datetime(2026, 11, 9).date(), {"primary": []})
+    await calendar_cache.store(
+        db, 1, "sel", datetime(2026, 9, 28).date(), datetime(2026, 11, 9).date(), {"primary": []}
+    )
     insert = google.post(url__regex=EVENTS_URL.pattern).respond(200, json={"id": "evt123"})
 
     event_id = await school_events.approve_event(db, candidate_id, _form())
@@ -1049,7 +1051,7 @@ async def test_event_approval_is_gated_on_scope_and_calendar(db, google):
     with pytest.raises(imports.CandidateError) as raised:
         await school_events.approve_event(db, candidate_id, _form())
     assert raised.value.code == "import-event"  # no calendar picked yet
-    await school_events.set_target_calendar(db, {"account": 1, "id": "primary", "summary": "Family"})
+    await school_events.set_target_calendar(db, {"account_id": 1, "id": "primary", "summary": "Family"})
     with pytest.raises(imports.CandidateError) as raised:
         await school_events.approve_event(db, candidate_id, _form())
     assert raised.value.code == "import-calendar-scope"
@@ -1116,7 +1118,7 @@ async def test_calendar_picker_only_takes_writable_calendars(db, gmail, google, 
     assert await school_events.get_target_calendar(db) is None
     r = await admin_client.post("/admin/school-email/calendar", data={"calendar_id": "1:shared"})
     assert r.headers["location"] == "/admin?tab=school#school-email"
-    assert await school_events.get_target_calendar(db) == {"account": 1, "id": "shared", "summary": "Shared <b>"}
+    assert await school_events.get_target_calendar(db) == {"account_id": 1, "id": "shared", "summary": "Shared <b>"}
     await admin_client.post("/admin/school-email/calendar", data={"calendar_id": ""})
     assert await school_events.get_target_calendar(db) is None
 
@@ -1468,7 +1470,7 @@ async def test_a_retry_after_a_crash_uses_the_first_calendar(db, school_calendar
     await db.commit()
     await imports.fail_interrupted(db)
     # ...then the School events calendar was changed before approving again.
-    await school_events.set_target_calendar(db, {"account": 1, "id": "other-calendar", "summary": "Other"})
+    await school_events.set_target_calendar(db, {"account_id": 1, "id": "other-calendar", "summary": "Other"})
     insert = google.post(url__regex=EVENTS_URL.pattern).respond(409, json={"error": {"code": 409}})
     await school_events.approve_event(db, candidate_id, _form())
     assert insert.call_count == 1
@@ -1481,7 +1483,7 @@ async def test_a_definite_refusal_frees_the_calendar_choice(db, school_calendar,
     with pytest.raises(imports.CandidateError):
         await school_events.approve_event(db, candidate_id, _form())
     assert (await _candidate(db, candidate_id))["claim_calendar_id"] is None
-    await school_events.set_target_calendar(db, {"account": 1, "id": "other-calendar", "summary": "Other"})
+    await school_events.set_target_calendar(db, {"account_id": 1, "id": "other-calendar", "summary": "Other"})
     route.respond(200, json={"id": "e2"})
     await school_events.approve_event(db, candidate_id, _form())
     assert "other-calendar" in str(route.calls[-1].request.url)
@@ -1493,7 +1495,7 @@ async def test_an_uncertain_failure_keeps_the_calendar_choice(db, school_calenda
     with pytest.raises(imports.CandidateError):
         await school_events.approve_event(db, candidate_id, _form())
     assert (await _candidate(db, candidate_id))["claim_calendar_id"] == "family@group.calendar.google.com"
-    await school_events.set_target_calendar(db, {"account": 1, "id": "other-calendar", "summary": "Other"})
+    await school_events.set_target_calendar(db, {"account_id": 1, "id": "other-calendar", "summary": "Other"})
     route.mock(side_effect=None, return_value=httpx.Response(200, json={"id": "e3"}))
     await school_events.approve_event(db, candidate_id, _form())
     assert "family%40group.calendar.google.com" in str(route.calls[-1].request.url)
