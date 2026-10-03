@@ -24,15 +24,15 @@ from datetime import time as dtime
 
 import httpx
 
-from app import calendar_cache, google_calendar, google_oauth, http_client
+from app import calendar_cache, google_accounts, google_calendar, google_oauth, http_client
 from app.database import family_timezone, get_setting, set_setting
-from app.services import homework
+from app.services import calendar_prefs, homework
 from app.services.extraction import MAX_EVENT_NOTES
 from app.services.imports import CandidateError, _pending_candidate
 
 logger = logging.getLogger(__name__)
 
-CALENDAR_SETTING = "school_events_calendar"
+CALENDAR_SETTING = calendar_prefs.SCHOOL_EVENTS_KEY
 CREATED_TABLE = "google_calendar"
 NOTE = "Added from the school inbox on the family display."
 DEFAULT_LENGTH = timedelta(hours=1)
@@ -40,18 +40,28 @@ _TIME = re.compile(r"([01]?\d|2[0-3]):([0-5]\d)")
 
 
 async def get_target_calendar(db) -> dict | None:
-    """{"id", "summary"} of the calendar school events go to, or None."""
+    """{"account_id", "id", "summary"} of the calendar school events go to, or None."""
     try:
         target = json.loads(await get_setting(db, CALENDAR_SETTING) or "null")
     except ValueError:
         return None
-    return target if isinstance(target, dict) and target.get("id") else None
+    return calendar_prefs.one_calendar(target)
 
 
 async def set_target_calendar(db, calendar: dict | None):
-    value = {"id": calendar["id"], "summary": calendar["summary"]} if calendar else None
-    await set_setting(db, CALENDAR_SETTING, json.dumps(value))
+    await set_setting(db, CALENDAR_SETTING, calendar_prefs.one_calendar_value(calendar))
     await db.commit()
+
+
+async def _can_write(db, target: dict) -> bool:
+    """The target's account does Writing events and granted calendar.events
+    (stage 1: one account does it)."""
+    writer = await google_accounts.job_account(db, "write_events")
+    return (
+        writer is not None
+        and google_accounts.job_ready(writer, "write_events")
+        and writer["id"] == target["account_id"]
+    )
 
 
 def _time(value: str | None, field: str) -> str | None:
@@ -146,10 +156,10 @@ async def approve_event(db, candidate_id: int, form: dict) -> str:
     target = await get_target_calendar(db)
     if target is None:
         raise CandidateError("import-event")
-    if not await google_oauth.has_scope(db, google_oauth.CALENDAR_EVENTS_SCOPE):
+    if not await _can_write(db, target):
         raise CandidateError("import-calendar-scope")
     fields = event_fields(form)
-    access_token, offline = await google_oauth.connect(db)
+    access_token, offline = await google_oauth.connect(db, target["account_id"])
     if offline:
         raise CandidateError("import-calendar-offline")
     if not access_token:  # disconnected since (e.g. a revoked grant)
@@ -201,8 +211,8 @@ async def approve_event(db, candidate_id: int, form: dict) -> str:
                external_id = ?, updated_at = datetime('now') WHERE id = ? AND status = 'approving'""",
         (json.dumps(payload), CREATED_TABLE, created_id, candidate_id),
     )
-    # The wall's saved copy predates the new event: drop it and fetch again.
-    await calendar_cache.clear(db)
+    # The wall's saved copy of that account's calendars predates the new event: drop it and fetch again.
+    await calendar_cache.clear_account(db, target["account_id"])
     await db.commit()
     try:
         await google_calendar.refresh_cache(db)

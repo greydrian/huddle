@@ -6,7 +6,7 @@ switch it on. Do them in order. Until they're done, Calendar and Tasks work
 as normal, and the new Admin panels show "not set up" or "Reconnect Google…"
 instead of errors.
 
-- [ ] 1. Google Cloud: make the app Internal
+- [ ] 1. Google Cloud: publish the app (In production)
 - [ ] 2. Google Cloud: enable the Gmail API
 - [ ] 3. Anthropic: create an API key and add it to `.env`
 - [ ] 4. Deploy the latest code
@@ -16,27 +16,24 @@ instead of errors.
 
 ---
 
-## 1. Google Cloud: make the app Internal
+## 1. Google Cloud: publish the app (In production)
 
 Go to [console.cloud.google.com](https://console.cloud.google.com), select the
 project that holds Huddle's OAuth client (its Client ID is `GOOGLE_CLIENT_ID`
 in `.env`), then open **APIs & Services → OAuth consent screen** (on newer
-consoles, **Google Auth Platform → Audience**) and set **User type** to
-**Internal**.
+consoles, **Google Auth Platform → Audience**) and press **Publish app**, so
+the status is **In production** (spec 12.9).
 
 Why this matters:
-- **Verification.** Reading Gmail is a "restricted" permission. For an
-  Internal app, Google doesn't require its verification review.
-- **The weekly drop-out.** Internal apps aren't subject to the 7-day token
-  expiry that "Testing" mode has, so the Google connection stops dropping
-  every week.
-
-If **Internal** is greyed out, the project doesn't belong to your Google
-Workspace organisation. Either move it into the organisation (**IAM & Admin →
-Settings → Migrate**), or create a new project inside the organisation with a
-new OAuth client. If you create a new one, put the new
-`GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in `.env`, and add the same
-redirect URIs as before (see README, "Connecting Google").
+- **The client is External.** The family's accounts are personal gmail.com
+  ones, so the app can't be Internal (that's only for a Google Workspace
+  organisation). One External client serves every connected account.
+- **The weekly drop-out.** In "Testing", refresh tokens expire every 7 days.
+  In production they don't. The current connection needs one **Reconnect**
+  (Admin → Google & Sync → Google accounts) afterwards to get a lasting token.
+- **Unverified is fine.** Google shows a "Google hasn't verified this app"
+  screen when an account is connected (Advanced → continue). Unverified apps
+  are capped at 100 users, which doesn't matter for one family.
 
 ## 2. Google Cloud: enable the Gmail API
 
@@ -77,21 +74,23 @@ PIN to 1234 and brings back the "Choose a new PIN" screen.
 The new Gmail (read-only) and calendar-event permissions are only granted
 when you connect again:
 
-1. Admin → **Google Account** → **Disconnect**.
-2. **Connect Google Account**, sign in and approve. The consent screen now
-   lists reading Gmail and managing calendar events as well as the existing
-   permissions.
+1. Admin → Google & Sync → **Google accounts** → **Edit** on the account
+   the school writes to (or **Add account** for it), and tick **School
+   email** and **Writing events**. School email is offered for a parent's or
+   a Family account only.
+2. Approve on Google's screen. It asks only for the newly ticked
+   permissions (reading Gmail, managing calendar events).
 3. Re-check the calendar selection and the Tasks lists in the same panel.
-   Reconnecting should keep them, but make sure.
+   Everything linked to the account is kept, but make sure.
 
 Remember that Google only accepts the callback on `localhost`. Do this step in
 a browser on the G10 itself, or through the SSH tunnel
 (`ssh -L 8000:localhost:8000 <g10>`, then open `http://localhost:8000/admin`).
 It won't work from the tablet's LAN address.
 
-If Google says access is blocked by your organisation, check the Workspace
-Admin console under **Security → Access and data control → API controls**. The
-Huddle app must be allowed. Internal apps normally are.
+If Google says access is blocked by your organisation (a school or work
+account), that organisation's admin blocks unverified apps. Share its
+calendars into a connected account instead.
 
 ## 6. Admin: year group and school calendar
 

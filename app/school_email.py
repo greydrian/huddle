@@ -56,7 +56,7 @@ from datetime import time as dtime
 
 import httpx
 
-from app import google_gmail, google_oauth, http_client, sync_status
+from app import google_accounts, google_gmail, google_oauth, http_client, sync_status
 from app.database import family_timezone, get_db, get_setting, set_setting
 from app.services import extraction, imports
 
@@ -67,6 +67,15 @@ OUTAGE_KEY = "Gmail (school email)"
 EXCLUSIONS_SETTING = "school_email_exclusions"
 SCHEDULE_SETTING = "school_email_schedule"
 CHECKPOINT_SETTING = "school_email_checkpoint"  # epoch seconds
+# Spec 12 stage 1: one account does School email at a time, and the job can
+# move. The checkpoint belongs to the account that set it (another account
+# starts with a BACKFILL_DAYS look-back), and failed emails waiting for a
+# retry belong to the account that last checked: when the job moves, they're
+# parked under that account (never fetched with another's token, never given
+# up as gone) and come back if it does School email again.
+CHECKPOINT_ACCOUNT_SETTING = "school_email_checkpoint_account"  # google_accounts.id
+READER_SETTING = "school_email_reader"  # google_accounts.id of the last check
+PARKED_RETRIES_SETTING = "school_email_parked_retries"  # {account id: [Gmail ids]}
 STATUS_SETTING = "school_email_status"
 
 # Private SENDCo conversations: never fetched, whatever the lists say.
@@ -427,18 +436,115 @@ async def _record(db, now: datetime, result: "CheckResult"):
     await db.commit()
 
 
-async def get_checkpoint(db) -> int | None:
+async def _account_setting(db, key: str) -> int | None:
+    raw = await get_setting(db, key)
+    return int(raw) if raw and raw.isdigit() else None
+
+
+async def checkpoint_account(db) -> int | None:
+    """The account the checkpoint belongs to (one set before accounts is
+    account 1's)."""
+    if await get_setting(db, CHECKPOINT_SETTING) is None:
+        return None
+    return await _account_setting(db, CHECKPOINT_ACCOUNT_SETTING) or 1
+
+
+async def get_checkpoint(db, account_id: int | None = None) -> int | None:
+    """The checkpoint (epoch seconds); with `account_id`, only if it's that
+    account's, else None (that account's first check looks back BACKFILL_DAYS)."""
     raw = await get_setting(db, CHECKPOINT_SETTING)
+    if account_id is not None and await checkpoint_account(db) != account_id:
+        return None
     try:
         return int(raw) if raw else None
     except ValueError:
         return None
 
 
-async def _advance_checkpoint(db, old: int | None, to: int):
+async def clamp_checkpoint(db, now: datetime, account_id: int) -> None:
+    """School email ticked again on `account_id` (spec 12.2): it reads from
+    the later of its kept checkpoint and BACKFILL_DAYS ago, so a long pause
+    never sends months of backlog to Claude. Another account's checkpoint is
+    left alone: this account looks back BACKFILL_DAYS anyway."""
+    checkpoint = await get_checkpoint(db, account_id)
+    if checkpoint is not None:
+        await _advance_checkpoint(db, checkpoint, int((now - timedelta(days=BACKFILL_DAYS)).timestamp()), account_id)
+
+
+async def forget_account(db, account_id: int) -> None:
+    """Remove (spec 12.6): this account's checkpoint and status go. Its
+    failed emails stay in the School inbox, parked under it."""
+    if await checkpoint_account(db) == account_id:
+        await db.execute(
+            "DELETE FROM app_settings WHERE key IN (?, ?)", (CHECKPOINT_SETTING, CHECKPOINT_ACCOUNT_SETTING)
+        )
+    if await _account_setting(db, READER_SETTING) in (account_id, None):
+        await db.execute("DELETE FROM app_settings WHERE key = ?", (STATUS_SETTING,))
+    await db.commit()
+
+
+async def _advance_checkpoint(db, old: int | None, to: int, account_id: int | None = None):
     if old is None or to > old:
         await set_setting(db, CHECKPOINT_SETTING, str(to))
+        if account_id is not None:
+            await set_setting(db, CHECKPOINT_ACCOUNT_SETTING, str(account_id))
         await db.commit()
+
+
+async def _parked_retries(db) -> dict[str, list[str]]:
+    try:
+        parked = json.loads(await get_setting(db, PARKED_RETRIES_SETTING) or "{}")
+    except ValueError:
+        return {}
+    return parked if isinstance(parked, dict) else {}
+
+
+async def _unfinished_refs(db) -> list[str]:
+    """Gmail ids of school emails not read yet: waiting for a retry, or
+    failed for good (Admin's Retry can bring those back)."""
+    rows = await (
+        await db.execute(
+            """SELECT source_ref FROM import_sources
+           WHERE kind = 'gmail' AND status IN ('failed', 'failed_permanently', 'not_configured')"""
+        )
+    ).fetchall()
+    return [r["source_ref"] for r in rows]
+
+
+async def _hand_over(db, account_id: int) -> None:
+    """Before `account_id` checks: if another account checked last, every
+    unfinished email is its (it came from its mailbox) and is parked under
+    it, including ones failed for good, which Retry could otherwise send to
+    this account's token. This account's own parked ones come back."""
+    previous = await _account_setting(db, READER_SETTING)
+    parked = await _parked_retries(db)
+    if previous is not None and previous != account_id:
+        already = {ref for refs in parked.values() for ref in refs}
+        waiting = [ref for ref in await _unfinished_refs(db) if ref not in already]
+        parked[str(previous)] = sorted({*parked.get(str(previous), []), *waiting})
+    parked.pop(str(account_id), None)
+    await set_setting(db, PARKED_RETRIES_SETTING, json.dumps(parked))
+    await set_setting(db, READER_SETTING, str(account_id))
+    await db.commit()
+
+
+async def mark_parked(db, sources: list[dict]) -> None:
+    """The School inbox: give each parked school email `parked_for`, the
+    address of the account it waits for (Admin only, never logged), so the
+    page says so instead of offering a Retry that would do nothing."""
+    owner = {ref: int(acct) for acct, refs in (await _parked_retries(db)).items() for ref in refs}
+    if not owner:
+        return
+    addresses: dict[int, str] = {}
+    for source in sources:
+        account_id = owner.get(source["source_ref"]) if source["kind"] == "gmail" else None
+        if account_id is None:
+            continue
+        if account_id not in addresses:
+            account = await google_accounts.get(db, account_id)
+            addresses[account_id] = (account or {}).get("email") or "its account"
+        source["parked_for"] = addresses[account_id]
+        source["retryable"] = False
 
 
 # --- What's already known about a message ---
@@ -492,14 +598,16 @@ async def _known(db, message_id: str) -> tuple[str | None, int | None]:
 async def _retry_queue(db) -> list[str]:
     """School emails to read again, oldest first: Claude failed for a
     transient reason (attempts left), hit the daily cap, or Retry was
-    pressed. Read by id, whatever the search window."""
+    pressed. Read by id, whatever the search window. Not those parked under
+    another account (see _hand_over)."""
     rows = await (
         await db.execute(
             """SELECT source_ref, status, error_code, attempts FROM import_sources
            WHERE kind = 'gmail' AND status IN ('failed', 'not_configured') ORDER BY received_at, id"""
         )
     ).fetchall()
-    return [r["source_ref"] for r in rows if _retryable(r)]
+    parked = {ref for refs in (await _parked_retries(db)).values() for ref in refs}
+    return [r["source_ref"] for r in rows if _retryable(r) and r["source_ref"] not in parked]
 
 
 # --- Reading one message ---
@@ -678,7 +786,11 @@ async def _check(db, now: datetime) -> CheckResult:
     if not senders:
         return CheckResult("no_senders")
     exclusions = await get_exclusions(db)
-    access_token, offline = await google_oauth.connect(db)
+    # The account doing School email (stage 1 of spec 12: one at a time).
+    account = await google_accounts.job_account(db, "school_email")
+    if account is None:
+        return CheckResult("not_connected")
+    access_token, offline = await google_oauth.connect(db, account["id"])
     if offline:
         return CheckResult("offline")
     if not access_token:
@@ -688,7 +800,9 @@ async def _check(db, now: datetime) -> CheckResult:
     if await imports.claude_calls_left(db) <= 0:
         return CheckResult(DAILY_CAP)
 
-    checkpoint = await get_checkpoint(db)
+    account_id = account["id"]
+    await _hand_over(db, account_id)
+    checkpoint = await get_checkpoint(db, account_id)
     after = checkpoint if checkpoint is not None else int((now - timedelta(days=BACKFILL_DAYS)).timestamp())
     query = build_query(senders, exclusions, after)
     run = CheckResult(OK)
@@ -752,7 +866,9 @@ async def _check(db, now: datetime) -> CheckResult:
         else:
             logger.warning("School email check failed: %s (%s)", http_client.describe(exc), code)
         if settled_ms:
-            await _advance_checkpoint(db, checkpoint, settled_ms // 1000 - int(CHECKPOINT_OVERLAP.total_seconds()))
+            await _advance_checkpoint(
+                db, checkpoint, settled_ms // 1000 - int(CHECKPOINT_OVERLAP.total_seconds()), account_id
+            )
         run.result = code
         return run
     http_client.report_success(logger, OUTAGE_KEY)
@@ -762,9 +878,11 @@ async def _check(db, now: datetime) -> CheckResult:
     # The checkpoint follows what was settled; a failed email is retried from
     # the inbox, so it never holds the checkpoint back.
     if listed_all:
-        await _advance_checkpoint(db, checkpoint, int((now - CHECKPOINT_OVERLAP).timestamp()))
+        await _advance_checkpoint(db, checkpoint, int((now - CHECKPOINT_OVERLAP).timestamp()), account_id)
     elif settled_ms:
-        await _advance_checkpoint(db, checkpoint, settled_ms // 1000 - int(CHECKPOINT_OVERLAP.total_seconds()))
+        await _advance_checkpoint(
+            db, checkpoint, settled_ms // 1000 - int(CHECKPOINT_OVERLAP.total_seconds()), account_id
+        )
 
     if hit_daily_cap:
         run.result = DAILY_CAP
@@ -852,13 +970,15 @@ async def summary(db, now: datetime | None = None) -> dict:
     text = RESULT_TEXT.get(result or "", result)
     if result == CAPPED:
         text = f"Capped at {MAX_MESSAGES_PER_RUN} emails: {remaining} remaining, continuing next check"
+    account = await google_accounts.job_account(db, "school_email")
     return {
         "schedule": schedule,
         "schedules": SCHEDULES,
         "senders": await get_senders(db),
         "exclusions": await get_exclusions(db),
         "always_excluded": ALWAYS_EXCLUDED,
-        "connected": await google_oauth.get_connected_account(db) is not None,
+        "connected": bool(account and account["connected"]),
+        "account": account,
         "gmail_scope": await google_oauth.has_scope(db, google_oauth.GMAIL_READ_SCOPE),
         "events_scope": await google_oauth.has_scope(db, google_oauth.CALENDAR_EVENTS_SCOPE),
         "last_check_at": last.astimezone(tz) if last else None,

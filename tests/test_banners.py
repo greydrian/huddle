@@ -20,8 +20,8 @@ from app.services import tasks as task_service
 
 TZ = ZoneInfo("Europe/London")
 DAY = date(2026, 10, 5)  # a Monday, in BST (+01:00)
-CAL = {"id": "family@example.com", "summary": "Family", "color": "#3D6E93"}
-OTHER_CAL = {"id": "work@example.com", "summary": "Work", "color": "#C1584A"}
+CAL = {"account_id": 1, "id": "family@example.com", "summary": "Family", "color": "#3D6E93"}
+OTHER_CAL = {"account_id": 1, "id": "work@example.com", "summary": "Work", "color": "#C1584A"}
 EVENTS_URL_PATTERN = r"https://www\.googleapis\.com/calendar/v3/calendars/.+/events"
 MUM, RILEY = 1, 3
 
@@ -51,7 +51,7 @@ async def calendar(db, connected):
     async def fill(raws, defaults=None, cal=CAL):
         _, selection = await google_calendar._selection(db)
         events = [google_calendar._format_event(r, defaults) for r in raws]
-        await calendar_cache.store(db, selection, date(2026, 9, 28), date(2026, 11, 9), {cal["id"]: events})
+        await calendar_cache.store(db, 1, selection[1], date(2026, 9, 28), date(2026, 11, 9), {cal["id"]: events})
 
     return fill
 

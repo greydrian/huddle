@@ -22,9 +22,13 @@ from app.services import calendar_prefs  # noqa: E402
 
 ACCOUNT = "family@example.com"
 CALENDARS = [
-    {"id": "family@group.calendar.google.com", "summary": "Family", "color": "#4F7CAC"},
-    {"id": "riley@example.com", "summary": "Riley", "color": "#C1584A"},
+    {"account_id": 1, "id": "family@group.calendar.google.com", "summary": "Family", "color": "#4F7CAC"},
+    {"account_id": 1, "id": "riley@example.com", "summary": "Riley", "color": "#C1584A"},
 ]
+
+
+def key(calendar):
+    return google_oauth.calendar_key(calendar["account_id"], calendar["id"])
 
 
 def event(calendar, title, day, start=None, end=None, last_day=None):
@@ -57,7 +61,7 @@ async def main():
         await calendar_prefs.set_family_calendar(db, CALENDARS[0])
         riley = (await (await db.execute("SELECT id FROM profiles WHERE name = 'Riley'")).fetchone())[0]
         await calendar_prefs.set_people_links(
-            db, {CALENDARS[1]["id"]: riley, CALENDARS[0]["id"]: calendar_prefs.EVERYONE}
+            db, {key(CALENDARS[1]): riley, key(CALENDARS[0]): calendar_prefs.EVERYONE}
         )
         now = datetime.now(await database.family_timezone(db))
         today, tomorrow = now.date(), now.date() + timedelta(days=1)
@@ -65,7 +69,8 @@ async def main():
         start, end = google_calendar._refresh_span(now)
         await calendar_cache.store(
             db,
-            calendar_cache.selection_key(ACCOUNT, CALENDARS),
+            1,
+            calendar_cache.selection_keys(CALENDARS)[1],
             start,
             end,
             {

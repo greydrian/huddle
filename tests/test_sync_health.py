@@ -13,7 +13,6 @@ import httpx
 import pytest
 
 from app import database, google_oauth, google_tasks, sync_status, task_sync
-from app.routers import calendar
 
 TASKS_API = "https://tasks.googleapis.com/tasks/v1/lists"
 SHOP_LIST = {"id": "shop", "title": "Shopping"}
@@ -96,7 +95,7 @@ async def test_never_connected_is_recorded_but_not_alarming(db):
     assert row["consecutive_failures"] == 0
     summary = await sync_status.summary(db)
     assert summary["state"] == "unlinked" and summary["level"] is None
-    assert "Connect a Google account" in summary["detail"]
+    assert "Tick Tasks & shopping on an account" in summary["detail"]
 
 
 async def test_a_revoked_grant_shows_as_disconnected(db, google):
@@ -116,7 +115,7 @@ async def test_a_revoked_grant_shows_as_disconnected(db, google):
 
 
 async def test_an_unexpected_error_in_a_cycle_is_recorded_not_raised(db, connected, monkeypatch, caplog):
-    async def broken_reconcile(db, token):
+    async def broken_reconcile(db, token, account_id=None):
         raise KeyError("updated")
 
     monkeypatch.setattr(task_sync, "reconcile_shopping", broken_reconcile)
@@ -158,7 +157,7 @@ async def test_a_failing_status_write_does_not_fail_the_cycle(client, db, connec
 
 
 async def test_the_lock_is_released_when_a_cycle_is_cancelled(db, connected, monkeypatch):
-    async def cancelled(db):
+    async def cancelled(db, account_id):
         raise asyncio.CancelledError
 
     monkeypatch.setattr(google_oauth, "get_valid_access_token", cancelled)
@@ -249,11 +248,14 @@ async def test_reconnecting_clears_needs_attention(client, db, connected, google
             "expires_in": 3599,
         },
     )
-    google.get(google_oauth.USERINFO_ENDPOINT).respond(200, json={"email": "family@example.com"})
+    google.get(google_oauth.USERINFO_ENDPOINT).respond(
+        200,
+        json={"email": "family@example.com", "sub": "local:family@example.com"},  # the `connected` fixture's
+    )
     await _login(client)
-    client.cookies.set(calendar.STATE_COOKIE, "the-state")
+    state = (await client.get("/admin/google/accounts/1/reconnect")).cookies["google_oauth_state"]
 
-    resp = await client.get("/admin/google/callback", params={"code": "c", "state": "the-state"})
+    resp = await client.get("/admin/google/callback", params={"code": "c", "state": state})
 
     assert resp.status_code == 303
     row = await _status(db)
@@ -265,19 +267,19 @@ async def test_a_failed_reconnect_leaves_the_status_alone(client, db, connected,
     await _needs_attention(db)
     google.post(google_oauth.TOKEN_ENDPOINT).respond(400, json={"error": "invalid_grant"})
     await _login(client)
-    client.cookies.set(calendar.STATE_COOKIE, "the-state")
+    state = (await client.get("/admin/google/accounts/1/reconnect")).cookies["google_oauth_state"]
 
-    await client.get("/admin/google/callback", params={"code": "c", "state": "the-state"})
+    await client.get("/admin/google/callback", params={"code": "c", "state": state})
 
     assert (await sync_status.summary(db))["state"] == "attention"
 
 
-async def test_disconnecting_clears_the_status_and_hides_the_dot(client, db, connected, google):
+async def test_removing_the_account_clears_the_status_and_hides_the_dot(client, db, connected, google):
     await _needs_attention(db)
     google.post(url__startswith=google_oauth.REVOKE_ENDPOINT).respond(200)
     await _login(client)
 
-    resp = await client.post("/admin/google/disconnect")
+    resp = await client.post("/admin/google/accounts/1/remove")
 
     assert resp.status_code == 303
     assert (await sync_status.summary(db))["state"] == "unlinked"
@@ -320,7 +322,7 @@ async def test_a_persistent_403_needs_attention_after_n_cycles_and_recovers(db, 
         await task_sync.run_sync(db)
         summary = await sync_status.summary(db)
         assert summary["state"] == "attention" and summary["level"] == "red"
-        assert "reconnect in Admin" in summary["detail"]
+        assert "Reconnect the account doing Tasks & shopping" in summary["detail"]
         warnings = _warnings(caplog)
         assert len(warnings) == 2 and "needs attention" in warnings[1].getMessage()
 

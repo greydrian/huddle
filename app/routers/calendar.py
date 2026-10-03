@@ -1,110 +1,26 @@
 """
-Google OAuth connect/disconnect, the calendar-selection picker, and the
-live month-grid Calendar widget (Section 4.2, 9.5 of the spec).
+The live Calendar widget (Section 4.2, 10.5 of the spec): month grid, week,
+agenda and day views, and the PIN-free "+" that adds to the Family calendar.
 
-The widget falls back to the illustrated "not connected" stub state when
-app.google_oauth.get_valid_access_token() returns None. The Calendar reads
-themselves live in app/google_calendar.py.
+The widget falls back to the illustrated "not connected" stub state when no
+Google account does Calendars. The Calendar reads themselves live in
+app/google_calendar.py; connecting accounts and the calendar picker are
+Admin's (routers/admin/google.py).
 """
 
 import logging
-import secrets
 from datetime import date as date_cls
 from typing import Literal
 
-import httpx
-from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi.responses import HTMLResponse
 
-from app import google_oauth, http_client, sync_status
-from app.admin_tabs import admin_url
-from app.auth import require_admin
 from app.database import get_db
 from app.services import calendar_add, calendar_view
 from app.templating import templates
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
-
-STATE_COOKIE = "google_oauth_state"
-
-
-def _callback_redirect_uri(request: Request) -> str:
-    return str(request.url_for("google_callback"))
-
-
-@router.get("/admin/google/connect", dependencies=[Depends(require_admin)])
-async def google_connect(request: Request):
-    if not google_oauth.is_configured():
-        return RedirectResponse(url=admin_url("google"), status_code=303)
-
-    state = secrets.token_urlsafe(24)
-    auth_url = google_oauth.build_auth_url(state, _callback_redirect_uri(request))
-    response = RedirectResponse(url=auth_url, status_code=302)
-    response.set_cookie(STATE_COOKIE, state, httponly=True, samesite="lax", max_age=600)
-    return response
-
-
-@router.get("/admin/google/callback", name="google_callback", dependencies=[Depends(require_admin)])
-async def google_callback(
-    request: Request,
-    code: str | None = None,
-    state: str | None = None,
-    error: str | None = None,
-):
-    expected_state = request.cookies.get(STATE_COOKIE)
-    response = RedirectResponse(url=admin_url("google"), status_code=303)
-    response.delete_cookie(STATE_COOKIE)
-
-    # Anything off here (denied consent, missing/mismatched state, no code)
-    # just bounces back to Admin still disconnected — nothing to salvage.
-    if error or not code or not state or not expected_state or state != expected_state:
-        return response
-
-    try:
-        tokens = await google_oauth.exchange_code_for_tokens(code, _callback_redirect_uri(request))
-        tokens["expires_at"] = google_oauth.expires_at(tokens)
-        userinfo = await google_oauth.fetch_userinfo(tokens["access_token"])
-    except httpx.HTTPError as exc:
-        logger.warning("Google OAuth callback failed: %s", http_client.describe(exc))
-        return response
-
-    async with get_db() as db:
-        await google_oauth.store_tokens(db, tokens, userinfo.get("email"))
-        # A fresh grant: whatever the old one's sync failures were, they're over.
-        await sync_status.reset(db)
-
-    return response
-
-
-@router.post("/admin/google/disconnect", dependencies=[Depends(require_admin)])
-async def google_disconnect():
-    async with get_db() as db:
-        await google_oauth.revoke_and_clear(db)
-        # A deliberate disconnect isn't a sync fault: forget the history, so
-        # the dashboard dot stays hidden (sync_status.summary, "never connected").
-        await sync_status.reset(db)
-    return RedirectResponse(url=admin_url("google"), status_code=303)
-
-
-@router.post("/admin/google/calendars", dependencies=[Depends(require_admin)])
-async def save_selected_calendars(calendar_id: list[str] = Form(default=[])):
-    async with get_db() as db:
-        try:
-            access_token = await google_oauth.get_valid_access_token(db)
-            # Re-derive summary/colour from Google rather than trusting
-            # whatever the submitted form says — the form only tells us
-            # which IDs were checked.
-            available = await google_oauth.fetch_calendar_list(access_token) if access_token else []
-        except httpx.HTTPError as exc:
-            logger.warning("Couldn't load the calendar list to save a selection: %s", http_client.describe(exc))
-            available = []
-        by_id = {cal["id"]: cal for cal in available}
-        # "writable" is only for the School email picker; the selection keeps its old shape.
-        selected = [{k: v for k, v in by_id[cid].items() if k != "writable"} for cid in calendar_id if cid in by_id]
-        if selected:
-            await google_oauth.set_selected_calendars(db, selected)
-    return RedirectResponse(url=admin_url("calendars"), status_code=303)
 
 
 def _date_or_400(value: str | None) -> date_cls | None:

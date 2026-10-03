@@ -52,9 +52,9 @@ async def test_admin_lists_calendars_and_tasklists_from_google(admin_client, goo
 
     assert resp.status_code == 200
     html = resp.text
-    assert 'name="calendar_id" value="family@example.com"' in html
+    assert 'name="calendar_id" value="1:family@example.com"' in html
     assert "Family (primary)" in html
-    assert 'value="school#holidays"' in html
+    assert 'value="1:school#holidays"' in html
     assert "School holidays" in html  # summaryOverride wins
     assert '<option value="list-shop"' in html and "Groceries" in html
     assert '<option value="list-kid"' in html and "Kid chores" in html
@@ -68,8 +68,8 @@ async def test_calendar_list_follows_every_page(admin_client, google, connected)
 
     html = (await admin_client.get("/admin?tab=google")).text
 
-    assert 'value="family@example.com"' in html
-    assert 'value="school#holidays"' in html
+    assert 'value="1:family@example.com"' in html
+    assert 'value="1:school#holidays"' in html
 
 
 # --- Saving ---
@@ -77,16 +77,25 @@ async def test_calendar_list_follows_every_page(admin_client, google, connected)
 
 async def test_saving_calendars_persists_googles_details_not_the_forms(admin_client, db, google_lists):
     resp = await admin_client.post(
-        "/admin/google/calendars", data={"calendar_id": ["school#holidays", "not-on-this-account"]}
+        "/admin/google/calendars",
+        data={"calendar_id": ["1:school#holidays", "1:not-on-this-account", "2:family@example.com", "primary"]},
     )
 
     assert resp.status_code == 303
     assert await google_oauth.get_selected_calendars(db) == [
-        {"id": "school#holidays", "summary": "School holidays", "color": "#D6A02C", "primary": False},
+        {
+            "account_id": 1,
+            "id": "school#holidays",
+            "summary": "School holidays",
+            "color": "#D6A02C",
+            "primary": False,
+            "writable": False,
+            "key": "1:school#holidays",
+        },
     ]
     html = (await admin_client.get("/admin?tab=google")).text
-    assert re.search(r'value="school#holidays"\s+checked', html)
-    assert not re.search(r'value="family@example.com"\s+checked', html)
+    assert re.search(r'value="1:school#holidays"\s+checked', html)
+    assert not re.search(r'value="1:family@example.com"\s+checked', html)
 
 
 async def test_saving_no_known_calendars_keeps_the_previous_selection(admin_client, db, google_lists):
@@ -104,7 +113,7 @@ async def test_saving_shopping_list_persists_and_relinks(admin_client, db, googl
     resp = await admin_client.post("/admin/google/shopping-list", data={"tasklist_id": "list-shop"})
 
     assert resp.status_code == 303
-    assert await task_sync.get_shopping_tasklist(db) == {"id": "list-shop", "title": "Groceries"}
+    assert await task_sync.get_shopping_tasklist(db) == {"id": "list-shop", "title": "Groceries", "account_id": 1}
     item = await (await db.execute("SELECT id, google_task_id FROM shopping_items")).fetchone()
     assert item["google_task_id"] is None
     assert await _queued(db) == [("shopping", {"item_id": item["id"]})]
@@ -151,7 +160,7 @@ async def test_blank_task_list_unlinks_a_profile(admin_client, db, google_lists)
 @pytest.mark.parametrize(
     "path, data",
     [
-        ("/admin/google/calendars", {"calendar_id": "family@example.com"}),
+        ("/admin/google/calendars", {"calendar_id": "1:family@example.com"}),
         ("/admin/google/shopping-list", {"tasklist_id": "list-shop"}),
         ("/admin/google/task-lists", {"tasklist_1": "list-shop"}),
     ],
@@ -210,14 +219,14 @@ async def test_tasklists_403_prompts_a_reconnect(admin_client, google, connected
     resp = await admin_client.get("/admin?tab=google")
 
     assert resp.status_code == 200
-    assert "Disconnect and reconnect above" in resp.text
+    assert "hasn't allowed Google Tasks. Reconnect it above" in resp.text
     assert "reach Google just now" not in resp.text
 
 
 @pytest.mark.parametrize(
     "path, data",
     [
-        ("/admin/google/calendars", {"calendar_id": "family@example.com"}),
+        ("/admin/google/calendars", {"calendar_id": "1:family@example.com"}),
         ("/admin/google/shopping-list", {"tasklist_id": "list-shop"}),
     ],
 )

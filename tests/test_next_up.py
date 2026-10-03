@@ -38,7 +38,7 @@ async def calendars(db, connected):
         events = {
             cal_id: [google_calendar._format_event(r, None) for r in raws] for cal_id, raws in by_calendar.items()
         }
-        await calendar_cache.store(db, selection, date(2026, 9, 28), date(2026, 11, 9), events)
+        await calendar_cache.store(db, 1, selection[1], date(2026, 9, 28), date(2026, 11, 9), events)
 
     return fill
 
@@ -70,7 +70,9 @@ async def test_each_persons_next_event_today_in_family_order(db, calendars):
 
 
 async def test_a_calendar_linked_to_a_person_is_theirs_without_a_name_prefix(db, calendars):
-    await calendar_prefs.set_people_links(db, {OTHER_CAL["id"]: JAMIE, CAL["id"]: calendar_prefs.EVERYONE})
+    await calendar_prefs.set_people_links(
+        db, {"1:" + OTHER_CAL["id"]: JAMIE, "1:" + CAL["id"]: calendar_prefs.EVERYONE}
+    )
     await calendars(
         {OTHER_CAL["id"]: [timed("Nursery pickup", "15:00", "a")], CAL["id"]: [timed("Film night", "19:30", "b")]}
     )

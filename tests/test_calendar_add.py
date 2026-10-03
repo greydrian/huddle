@@ -13,14 +13,14 @@ import httpx
 import pytest
 from markupsafe import escape
 
-from app import database, google_oauth
+from app import database, google_accounts, google_oauth
 from app.services import calendar_add, calendar_prefs
 
 EVENTS_URL_PATTERN = r"https://www\.googleapis\.com/calendar/v3/calendars/.+/events"
 FAMILY_INSERT = "https://www.googleapis.com/calendar/v3/calendars/family%40group.calendar.google.com/events"
 CALENDARS = [
-    {"id": "family@group.calendar.google.com", "summary": "Family", "color": "#123456"},
-    {"id": "mum@example.com", "summary": "Mum", "color": "#654321"},
+    {"account_id": 1, "id": "family@group.calendar.google.com", "summary": "Family", "color": "#123456"},
+    {"account_id": 1, "id": "mum@example.com", "summary": "Mum", "color": "#654321"},
 ]
 KEY = "tap-0123456789abcdef"
 
@@ -49,7 +49,7 @@ async def with_scope(db):
 @pytest.fixture
 async def family(db, with_scope):
     await google_oauth.set_selected_calendars(db, CALENDARS)
-    await calendar_prefs.set_family_calendar(db, {"id": CALENDARS[0]["id"], "summary": "Family"})
+    await calendar_prefs.set_family_calendar(db, {"account_id": 1, "id": CALENDARS[0]["id"], "summary": "Family"})
 
 
 class FakeFamilyCalendar:
@@ -431,8 +431,10 @@ async def test_validation(db, family, gcal, fields, code):
 
 
 async def test_missing_scope_is_refused_before_google(db, gcal, connected):
+    # Writing events ticked, but Google never allowed calendar.events ("Needs a permission").
+    await google_accounts.update(db, 1, None, ["calendars", "tasks", "write_events"])
     await google_oauth.set_selected_calendars(db, CALENDARS)
-    await calendar_prefs.set_family_calendar(db, {"id": CALENDARS[0]["id"], "summary": "Family"})
+    await calendar_prefs.set_family_calendar(db, {"account_id": 1, "id": CALENDARS[0]["id"], "summary": "Family"})
     with pytest.raises(calendar_add.AddEventError) as exc:
         await calendar_add.add_family_event(db, title="X", day=(await _today(db)).isoformat(), request_key=KEY)
     assert exc.value.code == "scope" and "reconnect" in exc.value.message.lower()
@@ -462,7 +464,7 @@ async def test_adding_refreshes_the_cache_in_the_background(db, family, gcal, mo
 
     _, selection = await google_calendar._selection(db)
     other_month = (date(2020, 1, 1), date(2020, 2, 1))
-    await calendar_cache.store(db, selection, *other_month, {CALENDARS[0]["id"]: []})
+    await calendar_cache.store(db, 1, selection[1], *other_month, {CALENDARS[0]["id"]: []})
     release = asyncio.Event()
     real = google_calendar.refresh_cache
 
@@ -516,7 +518,7 @@ async def test_plus_shows_only_when_adding_is_set_up(client, db, gcal, with_scop
     await google_oauth.set_selected_calendars(db, CALENDARS)
     assert "cal-add-toggle" not in (await client.get("/widgets/calendar")).text  # no Family calendar
 
-    await calendar_prefs.set_family_calendar(db, {"id": CALENDARS[0]["id"], "summary": "Family"})
+    await calendar_prefs.set_family_calendar(db, {"account_id": 1, "id": CALENDARS[0]["id"], "summary": "Family"})
     html = (await client.get("/widgets/calendar")).text
     assert "cal-add-toggle" in html and "Add to Family" in html
     # Outside the drag handle, like every other control.
@@ -526,7 +528,7 @@ async def test_plus_shows_only_when_adding_is_set_up(client, db, gcal, with_scop
 
 async def test_plus_is_hidden_without_the_scope(client, db, gcal, connected):
     await google_oauth.set_selected_calendars(db, CALENDARS)
-    await calendar_prefs.set_family_calendar(db, {"id": CALENDARS[0]["id"], "summary": "Family"})
+    await calendar_prefs.set_family_calendar(db, {"account_id": 1, "id": CALENDARS[0]["id"], "summary": "Family"})
     assert "cal-add-toggle" not in (await client.get("/widgets/calendar")).text
 
 

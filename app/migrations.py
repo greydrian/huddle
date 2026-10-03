@@ -25,13 +25,14 @@ in `startup_checks`, which runs after the migrations.
 """
 
 import asyncio
+import json
 import logging
 import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from app import database
+from app import database, security
 
 logger = logging.getLogger(__name__)
 
@@ -782,6 +783,137 @@ async def m0012_meal_favourites(db):
     )
 
 
+# Frozen for migration 13: each job and the Google scope it needs, in the order
+# the jobs are listed (google_accounts.JOBS at the time).
+M0013_JOB_SCOPES = (
+    ("calendars", "https://www.googleapis.com/auth/calendar.readonly"),
+    ("tasks", "https://www.googleapis.com/auth/tasks"),
+    ("school_email", "https://www.googleapis.com/auth/gmail.readonly"),
+    ("write_events", "https://www.googleapis.com/auth/calendar.events"),
+)
+# Settings that name one calendar or list ({"id", ...}): each gains "account_id".
+M0013_ONE_CALENDAR_SETTINGS = ("calendar_family", "school_events_calendar", "google_shopping_tasklist")
+
+
+def _m13_json(raw):
+    try:
+        return json.loads(raw) if raw else None
+    except ValueError:
+        return None
+
+
+async def _m13_set(db, key: str, value) -> None:
+    await _m13_set_raw(db, key, json.dumps(value))
+
+
+async def _m13_set_raw(db, key: str, value: str) -> None:
+    await db.execute(
+        "INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        (key, value),
+    )
+
+
+def _m13_configured_jobs(settings: dict) -> list[str]:
+    """Account 1's jobs when its grant can't tell (token unreadable, or kept
+    no scope): the legacy scopes' jobs (Calendars, Tasks), plus what the
+    family has set up today: Writing events if a Family or school events
+    calendar is set, School email if a check has ever run (its checkpoint or
+    status; every database has a school's default senders since migration
+    10, so they don't count). Never no jobs: the wall keeps its calendars."""
+    jobs = ["calendars", "tasks"]
+    if settings.get("school_email_checkpoint") or settings.get("school_email_status"):
+        jobs.append("school_email")
+    for key in ("calendar_family", "school_events_calendar"):
+        value = _m13_json(settings.get(key))
+        if isinstance(value, dict) and value.get("id"):
+            jobs.append("write_events")
+            break
+    return jobs
+
+
+async def m0013_google_accounts(db):
+    """Spec 12: any number of Google accounts, each with an owner and its own
+    jobs. The one existing connection becomes account 1: owner Family, every
+    job whose scope it granted (or, when its token can't be read or kept no
+    scope, every job the family has set up: _m13_configured_jobs), the same
+    token. Its OpenID `sub` is learnt on its first reconnect or refresh.
+
+    Rollback-safe, and clean as long as no second account has been linked:
+    the old auth_tokens 'google' row is copied, not moved (a later migration
+    deletes it), and settings change only additively. Each saved calendar or
+    list entry gains an "account_id" key and nothing else is reshaped or
+    re-keyed, so the previous release still reads them. calendar_cache rows
+    gain their account (old rows are left for the previous release; new
+    code never reads them). The google_photos row is untouched."""
+    await db.execute(
+        """CREATE TABLE IF NOT EXISTS google_accounts (
+               id INTEGER PRIMARY KEY AUTOINCREMENT,   -- never reused: settings, links and cache rows name it
+               google_sub TEXT UNIQUE,                 -- OpenID `sub`: who the account is (NULL until learnt)
+               email TEXT COLLATE NOCASE,              -- for display; not unique, can change in Google
+               owner_profile_id INTEGER REFERENCES profiles(id) ON DELETE SET NULL,  -- NULL = Family
+               jobs TEXT NOT NULL DEFAULT '',          -- space-separated google_accounts.JOBS keys
+               encrypted_token_json TEXT,              -- NULL: sign-in revoked or expired, Reconnect needed
+               check_state TEXT,                       -- 'ok' / 'offline' / NULL (not checked yet)
+               offline_since TEXT,                     -- ISO, UTC: when this outage's first check failed
+               removed_at TEXT,                        -- set by Remove: the row stays, dormant, so the
+                                                       -- same account added again gets its links back
+               created_at TEXT NOT NULL DEFAULT (datetime('now'))
+           )"""
+    )
+    await database._add_column_if_missing(
+        db, "profiles", "google_account_id", "INTEGER REFERENCES google_accounts(id) ON DELETE SET NULL"
+    )
+    await database._add_column_if_missing(db, "calendar_cache", "account_id", "INTEGER")
+    if await (await db.execute("SELECT 1 FROM google_accounts LIMIT 1")).fetchone():
+        return
+    row = await (
+        await db.execute("SELECT account_email, encrypted_token_json FROM auth_tokens WHERE service_name = 'google'")
+    ).fetchone()
+    if row is None or not row["encrypted_token_json"]:
+        return
+
+    settings = {
+        r["key"]: r["value"] for r in await (await db.execute("SELECT key, value FROM app_settings")).fetchall()
+    }
+    tokens = security.decrypt_token_json(row["encrypted_token_json"])
+    scope = tokens.get("scope") if isinstance(tokens, dict) else None
+    if isinstance(scope, str) and scope.strip():
+        granted = frozenset(scope.split())
+        jobs = [job for job, job_scope in M0013_JOB_SCOPES if job_scope in granted]
+    else:
+        jobs = _m13_configured_jobs(settings)
+    if "write_events" in jobs and "calendars" not in jobs:
+        jobs.insert(0, "calendars")  # Huddle only writes to a calendar it shows
+    await db.execute(
+        "INSERT INTO google_accounts (id, email, jobs, encrypted_token_json) VALUES (1, ?, ?, ?)",
+        (row["account_email"], " ".join(jobs), row["encrypted_token_json"]),
+    )
+    await db.execute("UPDATE profiles SET google_account_id = 1 WHERE google_tasklist_id IS NOT NULL")
+
+    selected = _m13_json(settings.get("google_selected_calendars"))
+    if isinstance(selected, list):
+        await _m13_set(
+            db,
+            "google_selected_calendars",
+            [{**cal, "account_id": 1} if isinstance(cal, dict) else cal for cal in selected],
+        )
+    for key in M0013_ONE_CALENDAR_SETTINGS:
+        value = _m13_json(settings.get(key))
+        if isinstance(value, dict) and value.get("id"):
+            await _m13_set(db, key, {**value, "account_id": 1})
+    # The school email checkpoint, and the failed emails waiting for a
+    # retry, are account 1's (school_email: each account has its own).
+    if settings.get("school_email_checkpoint") is not None:
+        await _m13_set_raw(db, "school_email_checkpoint_account", "1")
+    if settings.get("school_email_checkpoint") is not None or settings.get("school_email_status") is not None:
+        await _m13_set_raw(db, "school_email_reader", "1")
+    # Person links move to a new setting keyed by account and calendar; the
+    # old one is left exactly as it is for a rollback.
+    people = _m13_json(settings.get("calendar_people"))
+    if isinstance(people, dict) and "calendar_people_v2" not in settings:
+        await _m13_set(db, "calendar_people_v2", {f"1:{cal}": owner for cal, owner in people.items()})
+
+
 # Append only: see the module docstring.
 MIGRATIONS: list[Migration] = [
     Migration(1, "baseline", m0001_baseline),
@@ -796,6 +928,7 @@ MIGRATIONS: list[Migration] = [
     Migration(10, "schools", m0010_schools),
     Migration(11, "shopping_categories", m0011_shopping_categories),
     Migration(12, "meal_favourites", m0012_meal_favourites),
+    Migration(13, "google_accounts", m0013_google_accounts),
 ]
 
 

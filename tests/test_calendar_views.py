@@ -10,7 +10,7 @@ from datetime import date, timedelta
 import httpx
 import pytest
 
-from app import calendar_cache, database, google_calendar, google_oauth
+from app import calendar_cache, database, google_accounts, google_calendar, google_oauth
 from app.auth import create_session_token
 from app.routers import admin
 from app.services import calendar_prefs, calendar_view, people, term_dates
@@ -19,8 +19,8 @@ EVENTS_URL_PATTERN = r"https://www\.googleapis\.com/calendar/v3/calendars/.+/eve
 # Monday 10 - Sunday 16 August 2026.
 WEEK = date(2026, 8, 10)
 TWO_CALENDARS = [
-    {"id": "family", "summary": "Family", "color": "#123456"},
-    {"id": "riley-cal", "summary": "Riley's clubs", "color": "#654321"},
+    {"account_id": 1, "id": "family", "summary": "Family", "color": "#123456"},
+    {"account_id": 1, "id": "riley-cal", "summary": "Riley's clubs", "color": "#654321"},
 ]
 
 
@@ -301,7 +301,7 @@ async def test_owner_is_the_linked_calendar_first_then_the_title(db):
 async def test_person_filter_shows_theirs_and_everyones(client, db, events):
     await google_oauth.set_selected_calendars(db, TWO_CALENDARS)
     ids = await _profile_ids(db)
-    await calendar_prefs.set_people_links(db, {"riley-cal": ids["Riley"], "family": calendar_prefs.EVERYONE})
+    await calendar_prefs.set_people_links(db, {"1:riley-cal": ids["Riley"], "1:family": calendar_prefs.EVERYONE})
     events.route.side_effect = per_calendar(
         {
             "family": [
@@ -368,10 +368,11 @@ async def test_person_filter_chips_show_each_avatar(client, db, events):
     assert "avatar-initial" in chips["Jamie"] and chips["Jamie"].endswith(">J</span>")
 
 
-async def test_cached_events_learn_their_calendar(db):
+async def test_cached_events_learn_their_calendar(db, connected):
     await calendar_cache.store(
         db,
-        (await google_calendar._selection(db))[1],
+        1,
+        (await google_calendar._selection(db))[1][1],
         date(2026, 8, 1),
         date(2026, 9, 1),
         {"primary": [{"title": "Old row", "date": "2026-08-03", "end_date": "2026-08-03"}]},
@@ -459,30 +460,40 @@ async def test_admin_picks_the_family_calendar_from_shown_writable_ones(
 ):
     await google_oauth.set_selected_calendars(db, TWO_CALENDARS)
 
-    ok = await admin_client.post("/admin/google/family-calendar", data={"calendar_id": "family"})
+    ok = await admin_client.post("/admin/google/family-calendar", data={"calendar_id": "1:family"})
     assert ok.headers["location"] == "/admin?tab=google#calendar-options"
-    assert await calendar_prefs.get_family_calendar(db) == {"id": "family", "summary": "Family"}
+    assert await calendar_prefs.get_family_calendar(db) == {"account_id": 1, "id": "family", "summary": "Family"}
 
-    for refused in ("riley-cal", "work", "nope"):  # read-only / not shown / unknown
+    # read-only / not shown / unknown / another account / not a calendar key
+    for refused in ("1:riley-cal", "1:work", "1:nope", "2:family", "family"):
         resp = await admin_client.post("/admin/google/family-calendar", data={"calendar_id": refused})
         assert resp.headers["location"] == "/admin?tab=google&error=calendar-family#calendar-options"
     assert (await calendar_prefs.get_family_calendar(db))["id"] == "family"
 
     page = (await admin_client.get("/admin?tab=google")).text
-    assert 'id="calendar-options"' in page and '<option value="family" selected>' in page
-    assert '<option value="work"' not in page.split('id="calendar-options"')[1].split("</form>")[1]
+    assert 'id="calendar-options"' in page and '<option value="1:family" selected>' in page
+    assert '<option value="1:work"' not in page.split('id="calendar-options"')[1].split("</form>")[1]
 
     await admin_client.post("/admin/google/family-calendar", data={"calendar_id": ""})
     assert await calendar_prefs.get_family_calendar(db) is None
     assert "the wall has no" in (await admin_client.get("/admin?tab=google")).text
 
 
-async def test_family_calendar_no_longer_shown_stops_counting(db):
+async def test_family_calendar_no_longer_shown_stops_counting(db, connected_with_events):
     await google_oauth.set_selected_calendars(db, TWO_CALENDARS)
-    await calendar_prefs.set_family_calendar(db, {"id": "family", "summary": "Family"})
+    await calendar_prefs.set_family_calendar(db, {"account_id": 1, "id": "family", "summary": "Family"})
+    assert await calendar_prefs.get_family_calendar(db) is not None
     await google_oauth.set_selected_calendars(db, TWO_CALENDARS[1:])
     assert await calendar_prefs.get_family_calendar(db) is None
-    assert await calendar_prefs.get_family_setting(db) == {"id": "family", "summary": "Family"}
+    assert await calendar_prefs.get_family_setting(db) == {"account_id": 1, "id": "family", "summary": "Family"}
+
+
+async def test_family_calendar_stops_counting_when_its_account_stops_writing(db, connected_with_events):
+    await google_oauth.set_selected_calendars(db, TWO_CALENDARS)
+    await calendar_prefs.set_family_calendar(db, {"account_id": 1, "id": "family", "summary": "Family"})
+    assert await calendar_prefs.get_family_calendar(db) is not None
+    await google_accounts.update(db, 1, None, ["calendars"])  # Writing events unticked
+    assert await calendar_prefs.get_family_calendar(db) is None
 
 
 async def test_admin_saves_the_default_view(admin_client, db):
@@ -501,35 +512,44 @@ async def test_admin_links_calendars_to_people(admin_client, db, calendar_list, 
     await admin_client.post(
         "/admin/google/calendar-people",
         data={
-            "calendar_1": "family",
+            "calendar_1": "1:family",
             "owner_1": "everyone",
-            "calendar_2": "riley-cal",
+            "calendar_2": "1:riley-cal",
             "owner_2": str(ids["Riley"]),
-            "calendar_3": "work",
+            "calendar_3": "1:work",
             "owner_3": str(ids["Mum"]),  # not shown on the wall: dropped
-            "calendar_4": "family",
+            "calendar_4": "1:family",
             "owner_4": "999",
+            "calendar_5": "family",  # no account: not a shown calendar
+            "owner_5": str(ids["Mum"]),
         },
     )
 
-    assert await calendar_prefs.get_people_links(db) == {"family": "everyone", "riley-cal": ids["Riley"]}
+    assert await calendar_prefs.get_saved_people_links(db) == {"1:family": "everyone", "1:riley-cal": ids["Riley"]}
+    assert await calendar_prefs.get_people_links(db) == {"1:family": "everyone", "1:riley-cal": ids["Riley"]}
     page = (await admin_client.get("/admin?tab=google")).text
     assert f'<option value="{ids["Riley"]}" selected>Riley</option>' in page
 
 
 async def test_admin_hints_at_a_reconnect_without_the_events_scope(admin_client, db, calendar_list, connected):
     page = (await admin_client.get("/admin?tab=google")).text
-    assert "Reconnect to allow adding events" in page
+    assert "Tick Writing events on an account above" in page
+    await google_accounts.update(db, 1, None, ["calendars", "tasks", "write_events"])
+    page = (await admin_client.get("/admin?tab=google")).text
+    assert "Reconnect family@example.com above and allow adding events" in page
+    assert 'data-state="permission"' in page
 
 
 async def test_prefs_ignore_junk(db):
     await database.set_setting(
-        db, calendar_prefs.PEOPLE_KEY, json.dumps({"a": 3, "b": "everyone", "c": "x", "d": True})
+        db,
+        calendar_prefs.PEOPLE_KEY,
+        json.dumps({"1:a": 3, "1:b": "everyone", "1:c": "x", "1:d": True, "e": 3, "x:f": 3}),
     )
     await database.set_setting(db, calendar_prefs.DEFAULT_VIEW_KEY, "not json")
     await database.set_setting(db, calendar_prefs.FAMILY_KEY, json.dumps(["x"]))
     await db.commit()
-    assert await calendar_prefs.get_people_links(db) == {"a": 3, "b": "everyone"}
+    assert await calendar_prefs.get_saved_people_links(db) == {"1:a": 3, "1:b": "everyone"}
     assert await calendar_prefs.get_default_view(db) == "month"
     assert await calendar_prefs.get_family_setting(db) is None
 

@@ -199,8 +199,8 @@ Admin → Backups shows the latest one and has a "Back up now" button.
 
 **Security trade-off:** the backups folder holds the database *and* the key
 that decrypts its Google tokens, so it is as sensitive as `data/` itself.
-Anyone with a copy can use the family's Google Calendar/Tasks access until you
-disconnect Google in Admin or revoke access at
+Anyone with a copy can use the family's Google accounts' access until you
+remove them in Admin (Google & Sync → Google accounts) or revoke access at
 https://myaccount.google.com/permissions. Keep off-box copies somewhere
 private. Without the key, a backup still restores everything except the
 Google connection (and signs you out of Admin), so you'd just reconnect Google.
@@ -424,21 +424,26 @@ sync), and for the school email import `gmail.readonly` and
 `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`. `.env` is gitignored, so never
 commit real credentials. Then restart the app.
 
-**3. Connect the account:** go to Admin → Google Account → **Connect Google
-Account**, sign in and approve. Then pick which calendars to show, the
-shopping list's Google Tasks list, and each family member's Tasks list.
-Tokens are encrypted at rest in the `auth_tokens` table, keyed off the local
-secret file in `DATA_DIR` that also signs admin sessions. **Disconnect** in
-the same panel revokes and clears them. If the scopes ever change,
-disconnect and reconnect.
+**3. Connect the accounts:** go to Admin → Google & Sync → **Google accounts**
+→ **Add account**, pick whose account it is (a family member, or Family for a
+shared one) and tick its jobs (Calendars, Tasks & shopping, School email,
+Writing events), then **Continue to Google**, sign in and approve. Google is
+asked only for what those jobs need. Add as many accounts as the family's
+calendars live in (spec 12); for now Tasks & shopping, School email and
+Writing events are each done by one account. Then pick which calendars to
+show (grouped by account), the shopping list's Google Tasks list, and each
+family member's Tasks list. Each account's tokens are encrypted at rest in the
+`google_accounts` table, keyed off the local secret file in `DATA_DIR` that
+also signs admin sessions. **Reconnect** renews an account's sign-in (or asks
+for a newly ticked job's permission) and keeps everything linked to it;
+**Remove** shows what will change, then revokes and deletes it.
 
 ## Photos for the idle screen
 
 **Setting up v1.1?** Follow the step-by-step checklist in [docs/v1.1-setup.md](docs/v1.1-setup.md).
 
 The idle slideshow (Admin → Display → Idle screen) shows up to 30 photos from
-the family's **personal** Google account. The main connection above is an
-Internal Workspace app and can't reach personal accounts, so Photos use a
+the family's **personal** Google account. Photos still use a
 **second OAuth client and a separate sign-in**, with one scope:
 `photospicker.mediaitems.readonly`. It never touches the main connection.
 
@@ -495,21 +500,23 @@ at the next checks and given up after 3 tries; Admin offers Retry.
 
 Setup, once:
 
-1. **Make the OAuth app Internal.** In the Cloud console, **APIs & Services
-   → OAuth consent screen**, set User type to **Internal** (needs a Google
-   Workspace account). `gmail.readonly` is a restricted scope: an Internal
-   app needs no Google verification for it, and Internal apps don't have
-   the 7-day refresh-token expiry of "Testing".
+1. **Publish the OAuth app.** In the Cloud console, **APIs & Services →
+   OAuth consent screen**, press **Publish app** so the status is **In
+   production** (spec 12.9). The client is External (the family's accounts
+   are personal gmail.com ones); in production its refresh tokens no longer
+   expire after 7 days. It stays unverified: Google shows a "hasn't verified
+   this app" screen when connecting. Reconnect the current account once
+   afterwards.
 2. **Enable the Gmail API** in the same project (**APIs & Services →
    Library → Gmail API → Enable**). Without it Admin says "The Gmail API
    isn't enabled".
 3. **Add `ANTHROPIC_API_KEY`** to `.env` (a key from console.anthropic.com),
    then `docker compose -f docker-compose.yml up -d`. Optional: `ANTHROPIC_MODEL`.
-4. **Reconnect Google in Admin**: Google Account → **Disconnect**, then
-   **Connect Google Account**, and approve the new Gmail and calendar
-   permissions. Until then Calendar and Tasks keep working as before, and
-   the School email panel says "Reconnect Google to enable school email
-   import".
+4. **Tick School email (and Writing events) in Admin**: Google & Sync →
+   Google accounts → **Edit** on the account the school writes to, tick the
+   jobs and approve the new permissions on Google's screen. Until then
+   Calendar and Tasks keep working as before, and the School email panel says
+   what's missing.
 5. In Admin → School → **Schools**, check each school's senders (Gresham's
    defaults: `office@greshamprimary.school` and `*@gresham.croydon.sch.uk`).
    Then in **School email** pick **School events go to calendar**, and press
@@ -544,8 +551,9 @@ app/
   templating.py      Shared Jinja2 instance + template context helpers
   recurrence.py      Weekday rules ("Mon,Wed,Fri") for recurring tasks
   http_client.py     Shared httpx client factory + timeout, log-safe error summaries
-  google_oauth.py    Google OAuth, token storage/refresh, list pager, calendar-picker settings (httpx, no SDK)
-  google_calendar.py Calendar event fetch, month grid bar packing, day view
+  google_accounts.py The Google accounts (spec 12): owner, jobs, sub identity, token, state
+  google_oauth.py    Google OAuth, per-account token refresh, list pager, calendar-picker settings (httpx, no SDK)
+  google_calendar.py Calendar event fetch from every account, month grid bar packing, day view
   google_tasks.py    Google Tasks API client
   task_sync.py       Two-way Tasks sync: push sync_queue, then reconcile each list
   google_gmail.py    Gmail reads: search, headers, body (HTML to text), attachments
@@ -557,7 +565,8 @@ app/
   routers/
     dashboard.py     Home screen assembly + /health
     layout.py        Gridstack position persistence (/api/layout)
-    calendar.py      Google connect/callback/disconnect, calendar picker, month grid + day view
+    calendar.py      Calendar widget: month grid, week, agenda, day view, the "+"
+                     (connecting accounts and the calendar picker are admin/google.py)
     tasks.py         Tasks widget, tick toggle, daily reset
     shopping.py      Shopping list add/tick/delete
     meals.py         7-day meal plan

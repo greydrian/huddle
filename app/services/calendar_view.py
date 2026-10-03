@@ -38,7 +38,9 @@ ADD_STEP = 15  # minutes
 def event_owners(event: dict, links: dict, profiles: list[dict]) -> set[int] | None:
     """The profile ids an event belongs to, or None for everyone."""
     ids = {p["id"] for p in profiles}
-    owner = links.get(event.get("calendar_id"))
+    # Links are keyed "<account id>:<calendar id>" (calendar_prefs.get_people_links).
+    account_id, calendar_id = event.get("account_id"), event.get("calendar_id")
+    owner = links.get(f"{account_id}:{calendar_id}" if account_id is not None else calendar_id)
     if isinstance(owner, int) and owner in ids:
         return {owner}
     named = people.named_people(event.get("title") or "", profiles)
