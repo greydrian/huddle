@@ -443,8 +443,7 @@ for a newly ticked job's permission) and keeps everything linked to it;
 **Setting up v1.1?** Follow the step-by-step checklist in [docs/v1.1-setup.md](docs/v1.1-setup.md).
 
 The idle slideshow (Admin → Display → Idle screen) shows up to 30 photos from
-the family's **personal** Google account. The main connection above is an
-Internal Workspace app and can't reach personal accounts, so Photos use a
+the family's **personal** Google account. Photos still use a
 **second OAuth client and a separate sign-in**, with one scope:
 `photospicker.mediaitems.readonly`. It never touches the main connection.
 
@@ -501,11 +500,13 @@ at the next checks and given up after 3 tries; Admin offers Retry.
 
 Setup, once:
 
-1. **Make the OAuth app Internal.** In the Cloud console, **APIs & Services
-   → OAuth consent screen**, set User type to **Internal** (needs a Google
-   Workspace account). `gmail.readonly` is a restricted scope: an Internal
-   app needs no Google verification for it, and Internal apps don't have
-   the 7-day refresh-token expiry of "Testing".
+1. **Publish the OAuth app.** In the Cloud console, **APIs & Services →
+   OAuth consent screen**, press **Publish app** so the status is **In
+   production** (spec 12.9). The client is External (the family's accounts
+   are personal gmail.com ones); in production its refresh tokens no longer
+   expire after 7 days. It stays unverified: Google shows a "hasn't verified
+   this app" screen when connecting. Reconnect the current account once
+   afterwards.
 2. **Enable the Gmail API** in the same project (**APIs & Services →
    Library → Gmail API → Enable**). Without it Admin says "The Gmail API
    isn't enabled".
