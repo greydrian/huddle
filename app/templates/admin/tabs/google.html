@@ -227,12 +227,14 @@
         Couldn't load the Google Task lists: this account hasn't allowed Google Tasks. Reconnect it above and allow it.
       </p>
       {% elif available_tasklists %}
+      {% set tasklist_ids = available_tasklists | map(attribute="id") | list %}
       <form class="shopping-list-picker" method="post" action="/admin/google/shopping-list">
         <label class="admin-hint admin-label">
           Shopping list syncs with:
         </label>
         <select name="tasklist_id" required>
           <option value="">— choose a list —</option>
+          {% if shopping_tasklist and shopping_tasklist.id not in tasklist_ids %}<option value="" selected disabled>Paused (a list in another account)</option>{% endif %}
           {% for tl in available_tasklists %}
           <option value="{{ tl.id }}" {{ 'selected' if shopping_tasklist and shopping_tasklist.id == tl.id else '' }}>{{ tl.title }}</option>
           {% endfor %}
@@ -249,6 +251,9 @@
           <span class="admin-person tasklist-person">{{ person_avatar(p.name, p.colour_hex, p.avatar) }}{{ p.name }}</span>
           <select name="tasklist_{{ p.id }}">
             <option value="">Not synced</option>
+            {#- A list in an account that isn't doing Tasks now is paused, not unlinked:
+                saving the form leaves it as it is (spec 12.6). -#}
+            {% if p.google_tasklist_id and p.google_tasklist_id not in tasklist_ids %}<option value="{{ p.google_tasklist_id }}" selected>Paused (a list in another account)</option>{% endif %}
             {% for tl in available_tasklists %}
             <option value="{{ tl.id }}" {{ 'selected' if p.google_tasklist_id == tl.id else '' }}>{{ tl.title }}</option>
             {% endfor %}

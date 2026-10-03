@@ -321,11 +321,18 @@ async def add_or_merge(
 
 
 async def set_identity(db, account_id: int, sub: str | None, email: str | None) -> None:
-    """Learns the `sub` of a row migrated without one, and keeps the
-    displayed address current (it can be changed in Google)."""
+    """Learns the `sub` of a row migrated without one (unless another row
+    already is that account), and keeps the displayed address current (it
+    can be changed in Google)."""
+    taken = (
+        sub
+        and await (
+            await db.execute("SELECT 1 FROM google_accounts WHERE google_sub = ? AND id != ?", (sub, account_id))
+        ).fetchone()
+    )
     await db.execute(
         "UPDATE google_accounts SET google_sub = COALESCE(google_sub, ?), email = COALESCE(?, email) WHERE id = ?",
-        (sub, email, account_id),
+        (None if taken else sub, email, account_id),
     )
     await db.commit()
 

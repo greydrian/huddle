@@ -319,7 +319,26 @@ async def get_valid_access_token(db, account_id: int) -> str | None:
         tokens["scope"] = refreshed["scope"]
     # Google doesn't re-send refresh_token on a refresh call — keep the one we have.
     await google_accounts.save_tokens(db, account_id, tokens)
+    await _learn_identity(db, account_id, tokens["access_token"])
     return tokens["access_token"]
+
+
+async def _learn_identity(db, account_id: int, access_token: str) -> None:
+    """A row migrated from the single connection learns its OpenID `sub` on
+    its first refresh, so from then on it's matched by `sub`, not address.
+    Best-effort: a failure just tries again on the next refresh."""
+    account = await google_accounts.get(db, account_id)
+    if account is None or account["sub"]:
+        return
+    try:
+        userinfo = await fetch_userinfo(access_token)
+    except (httpx.HTTPError, ValueError) as exc:
+        logger.warning("Google account %d: couldn't learn its identity: %s", account_id, type(exc).__name__)
+        return
+    sub, email = userinfo.get("sub"), userinfo.get("email")
+    # Only if it's the same account the row was migrated with (by address).
+    if isinstance(sub, str) and sub and google_accounts.same_account(account, None, email):
+        await google_accounts.set_identity(db, account_id, sub, email if isinstance(email, str) else None)
 
 
 async def granted_scopes(db, account_id: int) -> frozenset[str]:
@@ -385,8 +404,10 @@ async def store_tokens(
 ) -> int:
     """Connects an account straight from a token response, with every job
     its granted scopes allow (exclusive ones only if no other account has
-    them): tests and seed scripts. The OAuth callback goes through Add
-    account / Reconnect (routers/calendar.py)."""
+    them): tests and seed scripts, with a stand-in `sub` from the address
+    unless one is given. The OAuth callback goes through Add account /
+    Reconnect (routers/admin/google.py)."""
     jobs = google_accounts.jobs_from_scopes(scopes_of(tokens))
+    sub = sub or f"local:{account_email.lower()}"
     account_id, _merged = await google_accounts.add_or_merge(db, sub, account_email, tokens, owner_id, jobs)
     return account_id
