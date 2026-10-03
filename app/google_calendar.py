@@ -331,11 +331,14 @@ async def _resolve_primaries(db, account_ids: list[int], ends_at: float | None) 
     aliased = {cal["account_id"] for cal in await get_selected_calendars(db) if cal["id"] == "primary"}
     if not aliased:
         return
+
+    async def resolve_each() -> None:
+        # One after another: each rewrites the same settings.
+        for account_id in sorted(aliased):
+            await _resolve_primary(db, account_id)
+
     try:
-        await asyncio.wait_for(
-            asyncio.gather(*(_resolve_primary(db, account_id) for account_id in sorted(aliased))),
-            _remaining(ends_at),
-        )
+        await asyncio.wait_for(resolve_each(), _remaining(ends_at))
     except TimeoutError:
         pass  # next render tries again; the alias still fetches meanwhile
 

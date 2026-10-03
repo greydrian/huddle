@@ -209,9 +209,8 @@ async def google_callback(
             if not google_accounts.same_account(account, sub, email):
                 # Never another account's grant under this row. Withdraw the
                 # token Google just issued, unless that identity is another
-                # connected account here: revoking would end its grant too.
-                other = await google_accounts.by_identity(db, sub, email)
-                if other is None or not other["connected"]:
+                # account here: revoking would end that account's grant too.
+                if await google_accounts.by_identity(db, sub, email, removed=True) is None:
                     await google_oauth.revoke(tokens)
                 return back("google-wrong-account")
             old = await google_accounts.load_tokens(db, account["id"]) or {}

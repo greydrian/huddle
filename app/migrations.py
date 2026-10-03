@@ -809,16 +809,14 @@ async def _m13_set(db, key: str, value) -> None:
     )
 
 
-def _m13_configured_jobs(settings: dict, lists_linked: bool) -> list[str]:
+def _m13_configured_jobs(settings: dict) -> list[str]:
     """Account 1's jobs when its grant can't tell (token unreadable, or kept
-    no scope): what the family uses today. Calendars always; Tasks if a list
-    is linked; Writing events if a Family or school events calendar is set;
-    School email if a check has ever run (its checkpoint or status: every
-    database has a school's default senders since migration 10, so they
-    don't count)."""
-    jobs = ["calendars"]
-    if lists_linked or settings.get("google_shopping_tasklist"):
-        jobs.append("tasks")
+    no scope): the legacy scopes' jobs (Calendars, Tasks), plus what the
+    family has set up today: Writing events if a Family or school events
+    calendar is set, School email if a check has ever run (its checkpoint or
+    status; every database has a school's default senders since migration
+    10, so they don't count). Never no jobs: the wall keeps its calendars."""
+    jobs = ["calendars", "tasks"]
     if settings.get("school_email_checkpoint") or settings.get("school_email_status"):
         jobs.append("school_email")
     for key in ("calendar_family", "school_events_calendar"):
@@ -879,8 +877,7 @@ async def m0013_google_accounts(db):
         granted = frozenset(scope.split())
         jobs = [job for job, job_scope in M0013_JOB_SCOPES if job_scope in granted]
     else:
-        linked = await (await db.execute("SELECT 1 FROM profiles WHERE google_tasklist_id IS NOT NULL")).fetchone()
-        jobs = _m13_configured_jobs(settings, linked is not None)
+        jobs = _m13_configured_jobs(settings)
     if "write_events" in jobs and "calendars" not in jobs:
         jobs.insert(0, "calendars")  # Huddle only writes to a calendar it shows
     await db.execute(

@@ -164,12 +164,14 @@ async def get(db, account_id: int) -> dict | None:
 
 def same_account(account: dict, sub: str | None, email: str | None) -> bool:
     """Whether a Google identity is this account. By OpenID `sub` once the
-    row knows it. Only a row migrated from the single connection lacks one,
-    until its first reconnect or refresh: it matches by the address it was
-    migrated with. A row with neither never matches, so it can't adopt an
-    arbitrary account."""
+    row knows it. Only account 1, migrated from the single connection, can
+    lack one (until its first reconnect or refresh): it matches by the
+    address the old connection had. A row with neither never matches, so it
+    can't adopt an arbitrary account."""
     if account["sub"]:
         return account["sub"] == sub
+    if account["id"] != 1:
+        return False
     return bool(email and account["email"] and account["email"].lower() == email.lower())
 
 

@@ -249,25 +249,25 @@ async def test_migration_makes_the_connection_account_1_and_the_wall_looks_the_s
 
 
 async def test_migration_of_a_grant_without_scopes_takes_the_configured_jobs(tmp_path, monkeypatch):
-    """No scope kept: account 1 gets every job the family has set up (here
-    Calendars, Tasks for the linked lists, Writing events for the Family
-    calendar), so the wall loses nothing."""
+    """No scope kept: account 1 gets the legacy scopes' jobs (Calendars,
+    Tasks) and every job the family has set up (here Writing events, for the
+    Family calendar), so the wall loses nothing."""
     await _upgrade(tmp_path, monkeypatch, {"access_token": "tok", "refresh_token": "r", "expires_at": 0})
     async with database.get_db() as db:
         [account] = await google_accounts.list_accounts(db)
     assert account["jobs"] == ["calendars", "tasks", "write_events"]
 
 
-async def test_migration_fallback_with_nothing_set_up_is_calendars(tmp_path, monkeypatch):
+async def test_migration_fallback_with_nothing_set_up_is_the_legacy_jobs(tmp_path, monkeypatch):
     await _upgrade(tmp_path, monkeypatch, {"access_token": "tok", "expires_at": 0}, settings={})
     async with database.get_db() as db:
-        assert (await google_accounts.get(db, 1))["jobs"] == ["calendars"]
+        assert (await google_accounts.get(db, 1))["jobs"] == ["calendars", "tasks"]
 
 
 async def test_migration_fallback_counts_school_email_once_a_check_ran(tmp_path, monkeypatch):
     await _upgrade(tmp_path, monkeypatch, None, encrypted="gAAAA-not-ours", settings={"school_email_checkpoint": 1})
     async with database.get_db() as db:
-        assert (await google_accounts.get(db, 1))["jobs"] == ["calendars", "school_email"]
+        assert (await google_accounts.get(db, 1))["jobs"] == ["calendars", "tasks", "school_email"]
 
 
 async def test_migration_copes_with_an_unreadable_token_and_odd_settings(tmp_path, monkeypatch):
@@ -275,7 +275,7 @@ async def test_migration_copes_with_an_unreadable_token_and_odd_settings(tmp_pat
     old_tokens, _ = await _upgrade(tmp_path, monkeypatch, None, encrypted="gAAAA-not-ours", settings=odd)
     with sqlite3.connect(database.DB_PATH) as conn:
         assert conn.execute("SELECT jobs, encrypted_token_json FROM google_accounts").fetchall() == [
-            ("calendars", "gAAAA-not-ours")
+            ("calendars tasks", "gAAAA-not-ours")
         ]
         assert conn.execute("SELECT * FROM auth_tokens ORDER BY service_name").fetchall() == old_tokens
         assert json.loads(
