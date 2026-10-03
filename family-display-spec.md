@@ -4,7 +4,8 @@
 as it stands and the decisions behind it. **Section 10 is the v1.1/v1.2 plan** (next iterations).
 It was checked against external sources on 28 Sep 2026 and again on 30 Sep 2026; they're listed
 at the end. **Section 11 records the decisions of the 30 Sep 2026 review**; where it changes an
-earlier section, that section says so.
+earlier section, that section says so. **Section 12** (3 Oct 2026) adds several Google accounts,
+each with its own jobs.
 **Target hardware:** GMKtec G10 (Ryzen 5 3500U) as the local Docker server, and a Samsung Galaxy
 Tab A9+ wall-mounted in the kitchen as the display, connected over Wi-Fi.
 
@@ -95,8 +96,8 @@ in the box. It replaces the Tab A9+.
 | Photos | **Placeholder; removed in v1.1** (10.2, migration 5). |
 
 ### 4.2 Calendar sync
-- Google Calendar (Workspace account). The calendars to show are chosen in Admin, each in its own
-  colour.
+- Google Calendar. The calendars to show are chosen in Admin, each in its own colour. *From
+  several accounts: see 12.*
 - Event times keep Google's own offsets, and "today" always means the family's timezone, never
   the container's UTC.
 
@@ -209,7 +210,7 @@ PIN rules and protection:
 - A companion phone app. Google Tasks and Calendar are the "add from anywhere" apps.
 
 ## 7. Key decisions (with reasons)
-- **Google only** for calendar and tasks (Workspace account). Tasks and shopping sync with Google
+- **Google only** for calendar and tasks. Tasks and shopping sync with Google
   Tasks because Google Keep has no usable API.
 - **Admin is schedule-only for tasks.** Editing happens in Google Tasks, where the family already
   works.
@@ -238,7 +239,9 @@ PIN rules and protection:
   default.) What each capability sends is in the assistant spec's data table
   (`docs/assistant-spec.md`, section 4).
 - **OAuth app set to "Internal"** (Workspace), so the restricted Gmail scope needs no Google
-  verification and there's no 7-day token expiry.
+  verification and there's no 7-day token expiry. *Corrected 3 Oct 2026: the app is External,
+  because the main account is a personal gmail.com one. It's published "In production" and
+  unverified instead, which also avoids the 7-day expiry (12.1).*
 
 ## 8. Open questions
 1. **Classroom:** ask the school about guardian summaries and/or read-only API access (see 7).
@@ -289,8 +292,9 @@ Polling, not WebSockets:
 - day/night and date switch timers set from the server
 
 ### 9.5 Google OAuth (decided)
-- One account, one OAuth client, Internal consent screen. *Extending to several accounts for
-  calendars: see 11.1.*
+- One account, one OAuth client. *Corrected 3 Oct 2026: the client is External (the connected
+  account is a personal gmail.com one), in Testing until it's published. Several accounts, each
+  with its own jobs: see 12.*
 - Scopes: `calendar.readonly`, `tasks`, `gmail.readonly`, `calendar.events`, `openid email`.
 - Features check the scopes actually granted, so an older connection keeps working until it's
   reconnected.
@@ -443,14 +447,15 @@ has just appeared.
 Banners stay visible over it.
 
 **Photos account (decided).** Photos come from a **separate "Photos account" sign-in**. The
-family's photos are in a **personal Google account**, but the main OAuth app is Internal to the
-Workspace organisation and can't reach personal accounts.
+family's photos are in a **personal Google account**, but the main OAuth app was thought to be
+Internal to the Workspace organisation, unable to reach personal accounts. *Corrected 3 Oct 2026:
+the main app is External (12.1). Photos keep their own sign-in for now (12.8).*
 - A **second OAuth client** in an External/Testing Cloud project, with the personal account added
   as a test user.
 - Its only scope is `https://www.googleapis.com/auth/photospicker.mediaitems.readonly`.
 - The token is only needed while picking and downloading, so Testing mode's 7-day expiry doesn't
   matter. Signing in again when re-picking is acceptable.
-- It needs **no reconnect of the main Workspace connection.**
+- It needs **no reconnect of the main connection.**
 
 **Picker flow.** In Admin, a parent picks photos:
 1. `sessions.create` with `pickingConfig.maxItemCount=30`.
@@ -697,6 +702,7 @@ Home Assistant already runs on the G10.
 - **Hardware:** a new Lenovo Idea Tab Plus 12.1" with pen, under £350 all-in. Run the 5 checks in 3
   within the Argos return period. A screen Fully has turned off won't wake on a tap.
 - **Workspace admin:** keep Huddle trusted under Security → API controls ("Trust internal apps").
+  *Only if a connected account is in a Workspace; the main account isn't (12.1).*
 - **Term dates** come from PDFs; check them once a year.
 
 ---
@@ -708,6 +714,10 @@ the answers and what they change. Items marked *proposed* are the design that fo
 answer; they're decided in outline and settled in detail when built.
 
 ### 11.1 More than one Google account (changes 9.5 and 10.5)
+*Superseded on 3 Oct 2026 by section 12.* Any account can now do any job, and the client is
+External, not Internal. The two decided points below still stand. The proposed design and the
+open question are kept as a record.
+
 - **Decided:** Huddle can read calendars from **more than one Google account**, for when a
   parent's or child's calendars live in another account.
 - **Decided:** each child gets **their own Google calendar**, plus a general **Family** calendar.
@@ -829,6 +839,283 @@ answer; they're decided in outline and settled in detail when built.
   there. A date that has passed stops showing; Admin lists it greyed until someone deletes it.
   Countdowns show even when the next-up events are switched off. Once schools are per child (11.2),
   the school break becomes one per school.
+
+---
+
+## 12. Several Google accounts, each with its own jobs (decided 3 Oct 2026)
+
+Replaces 11.1's proposed design. Today Huddle has **one** Google connection, and it does every
+Google job. The family's Google life is spread over several accounts: on 3 Oct 2026 the first
+school email check found nothing because the school writes to a different account from the
+connected one. This section lets Admin connect **any number of Google accounts**, say **whose**
+each one is, and choose **which jobs** each one does.
+
+### 12.1 What was decided
+- **Any account can do any of four jobs**, ticked per account in Admin:
+
+  | Job | What it does | Google scope it asks for |
+  |---|---|---|
+  | **Calendars** | Its calendars can be picked to show on the wall | `calendar.readonly` |
+  | **Tasks & shopping** | A person's task list, or the shopping list, can be one of its Google Tasks lists | `tasks` |
+  | **School email** | Its inbox is read by the school email check (4.8) | `gmail.readonly` |
+  | **Writing events** | The Family calendar that "+" adds to (10.5) and the calendar approved school events go to (4.8) can be one of its calendars | `calendar.events` |
+
+  "Writing events" needs "Calendars" too (Huddle can only write to a calendar it shows), so ticking
+  it ticks Calendars.
+- **Each account has an owner**: a family member, or **Family** for a shared account. The owner
+  is the default for everything in it:
+  - its calendars count as the owner's in the person filter (10.5), or as Everyone for a Family
+    account, and **any single calendar can be re-linked** (e.g. a shared Family calendar that lives
+    in a parent's account);
+  - its task lists are offered first when linking that person's list.
+- **Each account grants only the scopes for its ticked jobs** (plus `openid email`, to learn its
+  address). A child's calendar-only account never grants Gmail access. Ticking a new job later
+  sends that account through Google's consent screen again.
+  - Every consent request asks for the scopes of **all** the account's ticked jobs, with
+    `include_granted_scopes=true`. Without it, the new token would cover only the new scope and
+    silently drop the others.
+  - Google then reports old grants too, including those of jobs unticked since. So **a feature
+    runs only when its job is ticked and its scope is granted**; a granted scope alone is not
+    enough.
+- **One OAuth client for every account, set to "In production".** The main client is already
+  **External**: the connected account is a personal gmail.com account, not a Workspace one (this
+  corrects 7, 9.5 and 11.1, which assumed an Internal Workspace client). It is in **Testing**
+  today, so its refresh tokens expire every 7 days. Switching it to **In production** fixes that
+  for every account. It stays unverified: Google shows a "Google hasn't verified this app" screen
+  when connecting, and caps unverified apps at 100 users, which doesn't matter for one family.
+  No second client is needed, and 11.1's "share the calendars into the primary account" workaround
+  isn't needed either (though sharing still works and needs no code).
+
+### 12.2 Admin: the Accounts panel
+Admin → Google & Sync gains a **Google accounts** panel, replacing the single "Google Account"
+panel.
+- **One row per account:** its address, the owner's pill (or "Family"), a chip for each ticked
+  job, and its state: **Connected**, **Offline** (Google unreachable, the last check failed),
+  **Reconnect needed** (its sign-in was revoked or expired), or **Needs a permission** (a job is
+  ticked whose scope wasn't granted).
+- Each row has **Edit** (owner and jobs), **Reconnect**, and **Remove**.
+- **Add account:** pick the owner and tick the jobs, then **Continue to Google**. Huddle sends
+  Google only the scopes for those jobs, with `prompt=select_account consent` so Google always
+  shows its account chooser. Otherwise a browser signed in to one account skips the chooser, and
+  "adding" the second account would quietly re-grant the first. Coming back, Huddle learns the
+  account's address and its OpenID **`sub`**, Google's permanent account id.
+  - **Accounts are identified by `sub`**, not by address, because an address can change. The
+    address is for display.
+  - **An account already in the list** isn't added twice. Its jobs are merged into that row, and
+    Admin says so: "<address> is already connected; its jobs were updated." 
+  - Google can let someone untick a permission on its consent screen. Huddle stores what was
+    actually granted and shows "Needs a permission" for a job that's ticked but not granted,
+    rather than failing later (features need the job ticked and its scope granted, 12.1).
+- **Reconnect** opens Google for the same address (`login_hint`). Signing in as a different
+  account (a different `sub`) on that screen is refused: "That's a different account. Use Add
+  account for it." The token Google just issued for it is revoked straight away. Reconnecting
+  keeps every calendar, list and setting linked to the account.
+- **Unticking a job** stops Huddle using it straight away. The Google permission itself stays
+  granted until the account is removed, because Google can't withdraw one scope on its own;
+  revoking removes the whole grant. Admin says so: "Huddle no longer uses Gmail for this account.
+  Remove the account to withdraw the permission."
+  - Unticking Tasks & shopping keeps that account's list links and Google ids **dormant**, as
+    Remove does (12.6). Re-ticking restores them, with no relink and no duplicates.
+  - Re-ticking School email reads from **the later of its checkpoint and 14 days ago**. An old
+    checkpoint would otherwise send months of backlog to Claude, and already-read emails are
+    recognised by their records and `Message-ID` anyway.
+- **Remove** first shows exactly what will change (its calendars leave the wall, which people's
+  lists become "on this display only", whether the Family or school-events calendar is cleared,
+  and that its school email stops being read). Then it **revokes the token with Google** and
+  deletes the token, but **keeps the account's row, marked Removed**, so its id stays stable for
+  its links, cache rows and Gmail records. Adding an account with that `sub` again revives the
+  row and restores its links. See 12.6 for what happens to the data.
+- **Where everything else is picked:**
+  - The **calendar picker** groups calendars by account. Each calendar has its colour and its
+    person link, which defaults to the account's owner.
+  - **Family members' task lists** and the **shopping list** are picked from every account with
+    Tasks & shopping, shown as "List name · account address", with the owner's account first.
+  - The **Family calendar** and the **school events calendar** are picked from the writable
+    calendars of accounts with Writing events.
+  - The **School email** panel lists the accounts it reads, each with its last check.
+- Owners: deleting a family member makes their accounts **Family** accounts. Nothing is
+  disconnected.
+
+### 12.3 Calendars across accounts
+- A selected calendar is identified by **account and calendar id together**. Calendar ids like
+  `primary` mean a different calendar in each account.
+- Calendars are fetched concurrently across all accounts, under the existing 6 s request deadline.
+  Each calendar falls back to `calendar_cache` on its own, as built for one account. An account
+  that's offline or needs reconnecting shows its calendars from the cache with the "Last updated"
+  note, and doesn't slow the others.
+- **`calendar_cache` becomes per account.** This is new: today its rows are keyed by selection,
+  range and calendar id, so `primary` from two accounts would collide. Today every (re)connect,
+  `invalid_grant` and disconnect also wipes the whole cache.
+  - Rows gain the account id.
+  - The selection key covers every account's selection.
+  - Clears are per account, so one account's reconnect or removal never empties another's.
+  - `invalid_grant` **keeps** that account's cache, which is what lets a "Reconnect needed"
+    account still show its calendars.
+- **The same calendar shared into two accounts** shows once.
+  - De-duplication compares real calendar ids: the `primary` alias (the live setting may hold it)
+    is resolved to the account's own calendar id first.
+  - It's shown through an account with writer or owner access and Writing events, if there is one,
+    so it can still become the Family or school events calendar.
+  - The picker marks the other copy "Shown through <account>" and won't select it twice. If the
+    account it's shown through is removed, Admin offers to show it through the other one.
+- **The family timezone** comes from the `primary` calendar of the oldest account with Calendars,
+  cached once as today (the code reads `calendars/primary` of the connected account). It's kept
+  when that account is removed.
+
+### 12.4 Tasks and shopping across accounts
+- Each linked list records **which account it lives in**: a family member's list (`profiles`) and
+  the shopping list.
+- Sync runs **per account** in each cycle. A transient failure (network, 401/403/429/5xx) stops
+  only that account's pushes for the cycle, without counting retries, and only that account's
+  lists skip reconcile. The other accounts sync normally. The one sync lock stays (single
+  process).
+- The queue is unchanged: payloads still name the local row, and the account is looked up at push
+  time from the row's list.
+  - A task's tombstone, when it moves to another person, keeps the old `profile_id`, so it already
+    resolves to the old person's list and account.
+  - **A hard-deleted shopping item's payload must carry the account and list id** as well as its
+    Google task id (it carries the task id today), because the row is gone by push time and the
+    shopping list may have moved account since.
+- **Moving a person's list to a different list** (in any account) goes through `relink_profile`,
+  and the shopping list's through `relink_shopping`, as today: local items are re-pushed to the new
+  list and never treated as "deleted on Google".
+- **Linking back to the same list never clears Google ids.** `relink_*` nulls every
+  `google_task_id`, so re-linking the list an item already lives in would push it again as a new
+  Google task. Reconcile would then pull Google's old copy back in as a new local row, doubling
+  everything on both sides. Restoring a dormant link (12.2, 12.6) is not a relink.
+- **While a link is dormant, local changes keep queueing and wait**, as they do for Reconnect
+  needed. A dormant link counts as linked for queueing, so one-offs added on the wall, ticks,
+  edits and shopping deletions are all kept in `sync_queue`. Restoring the link pushes the waiting
+  rows first, then reconcile runs. A link that's later replaced by a different list goes through
+  `relink_*`, which re-queues everything anyway.
+- The top-bar sync dot shows the **worst** account's state. Admin's sync panel and `/health`
+  report each account by its row number and state. `/health` stays 200 through any Google outage.
+
+### 12.5 School email across accounts
+- Every account with **School email** is read in each check, using the same school senders
+  (11.2), the same SENDCo exclusion and the same rules (4.8). Each account has its **own
+  checkpoint**; a new account's first check looks back 14 days.
+- **The caps are for the whole family, not per account:** 25 emails sent to Claude per check
+  across all accounts (oldest first), and 60 Claude reads a day across the whole inbox.
+- **Gmail message ids are only unique within one mailbox.** So every Gmail record is keyed by
+  account as well as message id: `import_sources` (today unique on kind + message id) and
+  `gmail_skipped`. A retry fetches the email with **the account it came from**. With one token, a
+  retry of the second account's email would get a 404, be recorded as gone, and be given up for
+  good.
+- **The same email received by two parents is read once.**
+  - Huddle recognises it by its `Message-ID` header, which is the same in every mailbox. The
+    header is added to the headers-only fetch, checked before any body is fetched, and stored on
+    both read and skipped records.
+  - A missing or empty `Message-ID` never counts as a match.
+  - The second copy is recorded as already read.
+  - Senders such as ParentMail and Arbor probably send each parent their own copy with its own
+    `Message-ID`. Those will reach Claude twice, and the inbox's existing duplicate check on
+    candidates is the backstop.
+- **School email is only for accounts owned by a parent (the `is_parent` flag) or Family.**
+  Admin doesn't offer it for a child's account.
+- *Later:* assistant A1's Gmail "Huddle" label (assistant spec, A1) applies to every account with
+  School email.
+
+### 12.6 Revoked sign-ins, offline accounts and removal
+- **One account's problem never affects the others.**
+- **`invalid_grant`** (the sign-in was revoked or expired) deletes **only that account's token**,
+  not its row. Its links, calendar choices and checkpoint stay, and the row shows **Reconnect
+  needed**. Today the single connection is deleted outright; keeping the row means reconnecting
+  restores everything.
+  - While it waits: its calendars show from the cache, its people's tasks keep working locally and
+    queue for later, and its school email isn't read.
+  - The same 401 or permission-403 for 10 cycles in a row marks just that account as needing
+    attention, as built for the single connection.
+- **Offline** (Google unreachable) is never treated as disconnected, per account, as today.
+- Google also revokes refresh tokens that carry Gmail scopes when that account's **password is
+  changed**. So any account whose grant includes Gmail (even with School email unticked, since the
+  grant persists) shows Reconnect needed after a password change.
+- **Removing an account** (12.2):
+  - its calendars leave the selection, and its cached events are deleted;
+  - lists in it stop syncing, and **local tasks and shopping items are kept** (now "on this display
+    only"). Nothing is deleted locally or on Google;
+  - the list links and the items' Google ids are kept **dormant** on the account's row, which is
+    kept and marked Removed. Local changes keep queueing (12.4). Adding the same account (by
+    `sub`) again revives the row and restores the links; the waiting changes are pushed, and sync
+    carries on with no duplicates. Only a link to a different list goes through `relink_*`;
+  - the Family calendar or school events calendar is cleared if it was in that account, and Admin
+    shows a warning until another is picked;
+  - its school email checkpoint and status are deleted. Approved and pending School inbox items are
+    kept.
+
+### 12.7 Storage, migration and rollback
+- A new **`google_accounts`** table: the address, the owner (a family member, or none for Family),
+  the ticked jobs, the encrypted token (Fernet, as today) with its granted scopes, its sync and
+  check state, and when it was added. The OpenID `sub` is unique.
+- Settings that point at a calendar or list gain the account's id: the selected calendars, the
+  calendar person links, the Family calendar, the school events calendar, and the shopping list.
+  `profiles` gains the account of its task list. The school email checkpoint and status become
+  per account. `calendar_cache` rows gain the account id (12.3), and so do `import_sources` and
+  `gmail_skipped` for Gmail (12.5).
+- **Settings change additively only:** each existing entry gains an `account_id` key, and nothing
+  is reshaped, so the previous release can still read them.
+  - The exception is the **calendar person links**, a dict keyed by calendar id that can't hold an
+    `account_id` (and two accounts' `primary` would collide). They move to a **new setting** keyed
+    by account and calendar id. The old setting is left untouched for rollback.
+- **New columns are nullable**, and account 1's existing rows keep their current key values. The
+  previous release then still reads them. Its cache writes would fail against the new cache key,
+  but that error is already caught, so the wall renders without a cache; its Gmail lookups miss
+  records written by the new code.
+- **A numbered migration** turns the existing connection into account 1. It gets every job whose
+  scope is granted, and its owner is **Family** (Admin can change it). It copies the token and
+  adds account 1 to every existing setting, so the wall looks exactly the same afterwards.
+  - If the token can't be decrypted or records no scopes, the migration falls back to the legacy
+    scopes (calendar and tasks) and the jobs configured today, never to no jobs. The wall must not
+    lose its calendars.
+- **Rollback:** the migration **copies** the old `auth_tokens` `google` row and leaves it in
+  place, so the previous release still finds a working connection. A later migration, in a later
+  release, deletes it. The `google_photos` row is untouched.
+  - Rollback is clean only **until a second account is linked to something**. After that, the old
+    code would use account 1's token for another account's list and get 404s, and those pushes
+    are dropped as permanent failures.
+- Logs name accounts by their row id, never by address (as with the school email rules).
+
+### 12.8 Out of scope, and what doesn't change
+- **Photos keep their own sign-in** (10.2). Now that the main client is External, Photos could
+  become a fifth job on it later. Not now.
+- No Google Workspace domain-wide delegation, and no service accounts.
+- Reconnecting Google is still done from `localhost` on the G10 or an SSH tunnel until HTTPS
+  exists (8.3).
+- An account in another organisation's Google Workspace may be blocked by that admin's policy on
+  unverified apps. Admin shows Google's error, and calendar sharing into a connected account is
+  the workaround.
+
+### 12.9 Setup steps (once, before the first extra account)
+1. Google Cloud console → **APIs & Services → OAuth consent screen**: **Publish app**, so the
+   status is **In production**. Existing test users carry on; the current connection then needs
+   one **Reconnect** to get a non-expiring token.
+2. Make sure the **Calendar, Tasks and Gmail APIs** are enabled in that project (all accounts use
+   them through the one client).
+3. Admin → Google & Sync → **Google accounts** → **Add account** for each extra account, with
+   its owner and jobs.
+4. `docs/school-import-setup.md` step 1 and the README's school import setup ("make the app
+   Internal") are replaced by step 1 above. Stage 1's PR updates them.
+
+### 12.10 Build order, effort and tests
+Effort **L**, risk **high** (sync integrity, and every Google feature is touched). Built in four
+stages, each its own PR, merged in order:
+1. **Accounts and calendars:** the table and migration, the Accounts panel (add, edit, reconnect,
+   remove), per-account tokens and state, the sync dot, and calendars from every account.
+2. **Tasks and shopping** in any account, with per-account sync.
+3. **Writing events:** the Family and school events calendars from any account.
+4. **School email** across accounts, with the shared caps and `Message-ID` de-duplication.
+
+Tests:
+- respx mocks for two or three accounts throughout.
+- One account offline while the others load live; `invalid_grant` on one account only.
+- A shared calendar shown once; a reconnect as the wrong account refused.
+- A task moved between people whose lists are in different accounts; removing an account keeps
+  every local task and shopping item.
+- The same school email in two mailboxes read once, with the caps counted across accounts.
+- Scopes requested match the ticked jobs, and a ticked job without its granted scope shows "Needs a
+  permission".
+- The migration: an existing single-account database comes out looking identical on the wall, and
+  the old row is still there for a rollback.
 
 ---
 
