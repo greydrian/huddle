@@ -905,7 +905,7 @@ panel.
     Admin says so: "<address> is already connected; its jobs were updated." 
   - Google can let someone untick a permission on its consent screen. Huddle stores what was
     actually granted and shows "Needs a permission" for a job that's ticked but not granted,
-    rather than failing later (features gate on granted scopes, as today, 9.5).
+    rather than failing later (features need the job ticked and its scope granted, 12.1).
 - **Reconnect** opens Google for the same address (`login_hint`). Signing in as a different
   account (a different `sub`) on that screen is refused: "That's a different account. Use Add
   account for it." The token Google just issued for it is revoked straight away. Reconnecting
@@ -916,12 +916,15 @@ panel.
   Remove the account to withdraw the permission."
   - Unticking Tasks & shopping keeps that account's list links and Google ids **dormant**, as
     Remove does (12.6). Re-ticking restores them, with no relink and no duplicates.
-  - Unticking School email keeps its checkpoint, so re-ticking doesn't re-read 14 days.
+  - Re-ticking School email reads from **the later of its checkpoint and 14 days ago**. An old
+    checkpoint would otherwise send months of backlog to Claude, and already-read emails are
+    recognised by their records and `Message-ID` anyway.
 - **Remove** first shows exactly what will change (its calendars leave the wall, which people's
   lists become "on this display only", whether the Family or school-events calendar is cleared,
   and that its school email stops being read). Then it **revokes the token with Google** and
-  deletes it. The account's links are kept dormant, so adding the same account again restores
-  them. See 12.6 for what happens to the data.
+  deletes the token, but **keeps the account's row, marked Removed**, so its id stays stable for
+  its links, cache rows and Gmail records. Adding an account with that `sub` again revives the
+  row and restores its links. See 12.6 for what happens to the data.
 - **Where everything else is picked:**
   - The **calendar picker** groups calendars by account. Each calendar has its colour and its
     person link, which defaults to the account's owner.
@@ -980,6 +983,11 @@ panel.
   `google_task_id`, so re-linking the list an item already lives in would push it again as a new
   Google task. Reconcile would then pull Google's old copy back in as a new local row, doubling
   everything on both sides. Restoring a dormant link (12.2, 12.6) is not a relink.
+- **While a link is dormant, local changes keep queueing and wait**, as they do for Reconnect
+  needed. A dormant link counts as linked for queueing, so one-offs added on the wall, ticks,
+  edits and shopping deletions are all kept in `sync_queue`. Restoring the link pushes the waiting
+  rows first, then reconcile runs. A link that's later replaced by a different list goes through
+  `relink_*`, which re-queues everything anyway.
 - The top-bar sync dot shows the **worst** account's state. Admin's sync panel and `/health`
   report each account by its row number and state. `/health` stays 200 through any Google outage.
 
@@ -1020,14 +1028,16 @@ panel.
     attention, as built for the single connection.
 - **Offline** (Google unreachable) is never treated as disconnected, per account, as today.
 - Google also revokes refresh tokens that carry Gmail scopes when that account's **password is
-  changed**. So an account with School email shows Reconnect needed after a password change.
+  changed**. So any account whose grant includes Gmail (even with School email unticked, since the
+  grant persists) shows Reconnect needed after a password change.
 - **Removing an account** (12.2):
   - its calendars leave the selection, and its cached events are deleted;
   - lists in it stop syncing, and **local tasks and shopping items are kept** (now "on this display
     only"). Nothing is deleted locally or on Google;
-  - the list links and the items' Google ids are kept **dormant**, keyed to the account's `sub`.
-    Adding the same account again restores them, and sync carries on with no duplicates. Only a
-    link to a different list goes through `relink_*` (12.4);
+  - the list links and the items' Google ids are kept **dormant** on the account's row, which is
+    kept and marked Removed. Local changes keep queueing (12.4). Adding the same account (by
+    `sub`) again revives the row and restores the links; the waiting changes are pushed, and sync
+    carries on with no duplicates. Only a link to a different list goes through `relink_*`;
   - the Family calendar or school events calendar is cleared if it was in that account, and Admin
     shows a warning until another is picked;
   - its school email checkpoint and status are deleted. Approved and pending School inbox items are
@@ -1043,7 +1053,14 @@ panel.
   per account. `calendar_cache` rows gain the account id (12.3), and so do `import_sources` and
   `gmail_skipped` for Gmail (12.5).
 - **Settings change additively only:** each existing entry gains an `account_id` key, and nothing
-  is reshaped or re-keyed, so the previous release can still read them.
+  is reshaped, so the previous release can still read them.
+  - The exception is the **calendar person links**, a dict keyed by calendar id that can't hold an
+    `account_id` (and two accounts' `primary` would collide). They move to a **new setting** keyed
+    by account and calendar id. The old setting is left untouched for rollback.
+- **New columns are nullable**, and account 1's existing rows keep their current key values. The
+  previous release then still reads them. Its cache writes would fail against the new cache key,
+  but that error is already caught, so the wall renders without a cache; its Gmail lookups miss
+  records written by the new code.
 - **A numbered migration** turns the existing connection into account 1. It gets every job whose
   scope is granted, and its owner is **Family** (Admin can change it). It copies the token and
   adds account 1 to every existing setting, so the wall looks exactly the same afterwards.
