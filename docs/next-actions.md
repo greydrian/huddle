@@ -17,7 +17,18 @@ Spec 11 groups 1–3, each reviewed by the `code-reviewer` agent and merged one 
 After deploying, check **Admin → Family**: the Year 4 child should show Gresham as their school and
 the younger child "No school" (migration 10 linked everyone with a year group).
 
-## Next: assistant stage A1 (paused on purpose)
+## Next: several Google accounts (spec 12, decided 3 Oct 2026)
+
+The first real school email check (3 Oct) read nothing: the school writes to a different Google
+account from the connected one. Spec 12 lets Admin connect any number of accounts, each with an
+owner and its own jobs (Calendars, Tasks & shopping, School email, Writing events), granting only
+the scopes those jobs need. Four PRs, in order: accounts + calendars, tasks and shopping, writing
+events, school email. Before the first extra account, publish the OAuth app **In production** (spec
+12.9; it's External and in Testing today, so the current connection expires every 7 days).
+
+A1's Gmail label (below) builds on stage 4, so A1 waits for it.
+
+## Then: assistant stage A1 (paused on purpose)
 
 Spec: `family-display-spec.md` (assistant section) and the assistant spec v0.3. Stage A1 is:
 
@@ -32,7 +43,8 @@ Spec: `family-display-spec.md` (assistant section) and the assistant spec v0.3. 
 
 Open questions for the family before starting A1:
 
-- Are the other Google accounts inside Google Workspace (affects multi-account calendars, 11.1)?
+- ~~Are the other Google accounts inside Google Workspace?~~ Answered 3 Oct: the main account is
+  a personal gmail.com one, so the client is External; spec 12 covers every account.
 - Forward one Arbor and one ParentMail notification email.
 
 ## Later / optional (spec 11, group 5)
