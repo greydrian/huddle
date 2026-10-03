@@ -277,7 +277,8 @@ async def _fetch_selected_events(
             raise result
         for event in result:
             event["color"] = cal.get("color") or DEFAULT_EVENT_COLOR
-            event["calendar_id"] = cal["id"]  # whose events these are (the person filter)
+            # Whose events these are (the person filter): the calendar, through its account.
+            event["calendar_id"], event["account_id"] = cal["id"], cal["account_id"]
         by_calendar[_ref(cal)] = result
     return by_calendar, outage
 
@@ -448,7 +449,7 @@ async def _load_events(db, span: Callable[[datetime], tuple[date, date]], cache:
             offline = True
             continue
         cached_events, fetched_at = cached
-        events.extend(_tagged(cached_events, cal_id))
+        events.extend(_tagged(cached_events, cal_id, account_id))
         oldest = fetched_at if oldest is None else min(oldest, fetched_at)
     loaded.update(
         events=events,
@@ -468,15 +469,16 @@ async def cached_events(db, start: date, end: date) -> list[dict]:
     for cal in calendars:
         cached = await calendar_cache.load(db, selection[cal["account_id"]], start, end, cal["id"])
         if cached is not None:
-            events.extend(_tagged(cached[0], cal["id"]))
+            events.extend(_tagged(cached[0], cal["id"], cal["account_id"]))
     return events
 
 
-def _tagged(events: list[dict], calendar_id: str) -> list[dict]:
-    """Cached events with their calendar id (rows cached before it was
-    stored lack it)."""
+def _tagged(events: list[dict], calendar_id: str, account_id: int) -> list[dict]:
+    """Cached events with their calendar id and account (rows cached before
+    they were stored lack them)."""
     for event in events:
         event.setdefault("calendar_id", calendar_id)
+        event.setdefault("account_id", account_id)
     return events
 
 

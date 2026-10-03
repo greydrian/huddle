@@ -199,7 +199,7 @@
         <div class="tasklist-row">
           <input type="hidden" name="calendar_{{ loop.index }}" value="{{ cal.key }}">
           <span class="tasklist-person"><span class="calendar-swatch" style="--cal: {{ cal.color }};"></span>{{ cal.summary }}{% if google_accounts | length > 1 %} <span class="admin-meta">· {{ account_emails.get(cal.account_id) }}</span>{% endif %}</span>
-          {% set owner = calendar_people.get(cal.id, 'everyone') %}
+          {% set owner = calendar_people.get(cal.key, 'everyone') %}
           <select name="owner_{{ loop.index }}" aria-label="Whose events are in {{ cal.summary }}">
             <option value="everyone">Everyone</option>
             {% for p in profiles %}<option value="{{ p.id }}" {{ 'selected' if owner == p.id else '' }}>{{ p.name }}</option>{% endfor %}

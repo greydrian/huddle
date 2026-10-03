@@ -526,7 +526,7 @@ async def test_admin_links_calendars_to_people(admin_client, db, calendar_list, 
     )
 
     assert await calendar_prefs.get_saved_people_links(db) == {"1:family": "everyone", "1:riley-cal": ids["Riley"]}
-    assert await calendar_prefs.get_people_links(db) == {"family": "everyone", "riley-cal": ids["Riley"]}
+    assert await calendar_prefs.get_people_links(db) == {"1:family": "everyone", "1:riley-cal": ids["Riley"]}
     page = (await admin_client.get("/admin?tab=google")).text
     assert f'<option value="{ids["Riley"]}" selected>Riley</option>' in page
 

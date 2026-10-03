@@ -137,20 +137,22 @@ async def get_saved_people_links(db) -> dict[str, int | str]:
 
 
 async def get_people_links(db) -> dict[str, int | str]:
-    """{calendar id: whose it is} for each shown calendar: its link through
-    the account it's shown through (else through any account), else its
-    account's owner (spec 12.1), else nothing (everyone). By calendar id: a
-    shown calendar is shown once, and events carry its id."""
+    """{"<account id>:<calendar id>": whose it is} for each shown calendar:
+    its link through the account it's shown through (else, for a real
+    calendar id, through any account), else its account's owner (spec
+    12.1), else nothing (everyone). Keyed by account too: two accounts'
+    "primary" aliases are different calendars."""
     saved = await get_saved_people_links(db)
     by_calendar: dict[str, int | str] = {}
     for key, owner in saved.items():
-        by_calendar.setdefault(key.partition(":")[2], owner)
+        if key.partition(":")[2] != "primary":
+            by_calendar.setdefault(key.partition(":")[2], owner)
     owners = {a["id"]: a["owner_id"] for a in await google_accounts.list_accounts(db)}
     links: dict[str, int | str] = {}
     for cal in await get_selected_calendars(db):
         found: int | str | None = saved.get(cal["key"], by_calendar.get(cal["id"], owners.get(cal["account_id"])))
         if found is not None:
-            links[cal["id"]] = found
+            links[cal["key"]] = found
     return links
 
 
