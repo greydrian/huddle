@@ -7,9 +7,9 @@ pytest==9.1.1
 pytest-asyncio==1.4.0
 pytest-cov==7.1.0  # coverage report in CI's test job (report only, no threshold yet)
 respx==0.23.1
-ruff==0.16.9
+ruff==0.17.2
 # Browser smoke tests: tests/e2e, run with `pytest -m e2e`.
-playwright==1.63.0
+playwright==1.64.1
 # Type checking (the CI `typecheck` job).
 mypy
 # Known-vulnerability check of the lock files (.github/workflows/audit.yml).
