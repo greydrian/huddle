@@ -3,7 +3,7 @@
 # there's no cross-architecture wheel concern here.
 # Pinned by digest so a rebuild gets the exact same base; the tag is kept for
 # readability. Dependabot (docker ecosystem, monthly) bumps the digest.
-FROM python:3.14-slim@sha256:51dafde81dbdb6ebde285137a295cf18a47ca95234fe388a343719cb97305b3d
+FROM python:3.14-slim@sha256:cd89c30eda26ee911a4611b18680086e0ea42e6f5f8cbe653d07fa7958c9cec8
 
 WORKDIR /app
 
